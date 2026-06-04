@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $files = [];
-foreach (['scripts', 'tools'] as $path) {
+foreach (['scripts', 'tools', 'src', 'tests'] as $path) {
     if (!is_dir($path)) {
         continue;
     }
