@@ -1,0 +1,16 @@
+/vendor/
+/.phpunit.cache/
+/.phpstan.cache/
+/coverage/
+/build/
+/node_modules/
+.env
+.env.*
+!.env.example
+/source/
+/output/
+*.bak
+*.bak_*
+*.bak-*
+*.codex-bak-*
+.DS_Store

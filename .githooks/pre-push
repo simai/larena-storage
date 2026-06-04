@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -eu
+# composer run quality:gate
+composer_cmd="${COMPOSER_BIN:-}"
+if [ -z "$composer_cmd" ] && [ -x /Applications/ServBay/package/bin/composer ]; then
+  composer_cmd=/Applications/ServBay/package/bin/composer
+fi
+if [ -z "$composer_cmd" ] && command -v composer >/dev/null 2>&1; then
+  composer_cmd="$(command -v composer)"
+fi
+if [ -n "$composer_cmd" ]; then
+  PATH="/opt/homebrew/opt/php@8.3/bin:$PATH" "$composer_cmd" run quality:gate
+else
+  echo "composer is required for Larena package pre-push gate" >&2
+  exit 1
+fi

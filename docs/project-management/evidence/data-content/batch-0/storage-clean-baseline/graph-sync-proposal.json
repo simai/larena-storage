@@ -1,0 +1,9 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "proposal_type": "repository_preparation_evidence",
+  "canonical_update_allowed": false,
+  "summary": "Clean local pre-codegen repository baseline prepared; no canonical graph update requested.",
+  "accepted_updates": [],
+  "deferred_updates": []
+}

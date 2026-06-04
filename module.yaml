@@ -1,0 +1,19 @@
+package: larena/storage
+title: Larena Storage
+status: repository_prepared
+cluster: data-content
+batch: batch-0-clean-pre-codegen-baseline
+features:
+  - storage.encryption_key_policy
+  - storage.persistence_profiles
+  - storage.record_list
+  - storage.record_mutation
+  - storage.schema_migration_policy
+  - storage.schema_registry
+  - storage.sitepack_portability
+  - storage.validation_pipeline
+runtime:
+  php: "^8.3"
+  laravel: "^13.0"
+evidence:
+  path: docs/project-management/evidence/data-content/batch-0/storage-clean-baseline/

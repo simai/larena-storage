@@ -1,0 +1,11 @@
+{
+  "schema": "larena.package_specs_reference.v1",
+  "package": "larena/storage",
+  "specs_repo": "simai/larena-specs",
+  "specs_commit": "757a99ffaa351db55b29bb9ac6d7eb4a18d8e23c",
+  "package_spec": "specs/packages/storage/package.json",
+  "package_dna": "specs/packages/storage/dna.json",
+  "features_index": "specs/packages/storage/features.json",
+  "canonical_update_allowed": false,
+  "graph_sync_proposal_required": true
+}

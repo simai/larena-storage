@@ -1,0 +1,51 @@
+{
+  "name": "larena/storage",
+  "description": "Larena Storage: Universal dynamic data storage layer for typed schemas, records, lists, query boundaries, persistence profiles, validation pipelines and portable SitePack-compatible data models.",
+  "type": "library",
+  "license": "Apache-2.0",
+  "authors": [
+    {
+      "name": "Rim Zabarov",
+      "homepage": "https://github.com/zabarov"
+    }
+  ],
+  "require": {
+    "php": "^8.3"
+  },
+  "autoload": {
+    "psr-4": {
+      "Larena\\Storage\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Larena\\Storage\\Tests\\": "tests/"
+    }
+  },
+  "require-dev": {
+    "phpstan/phpstan": "^2.0"
+  },
+  "scripts": {
+    "test": "php scripts/test-placeholder.php",
+    "test:unit": "php scripts/test-placeholder.php",
+    "lint": "php scripts/lint.php",
+    "analyse": "php scripts/analyse.php",
+    "validate:larena": "php scripts/validate-larena-package.php",
+    "evidence:check": "php scripts/check-evidence.php",
+    "scope:check": "php tools/larena-scope-check.php",
+    "quality:gate": [
+      "@validate:larena",
+      "@lint",
+      "@analyse",
+      "@test",
+      "@evidence:check",
+      "@scope:check"
+    ]
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": {}
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
