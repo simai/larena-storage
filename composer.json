@@ -26,8 +26,17 @@
     "phpstan/phpstan": "^2.0"
   },
   "scripts": {
-    "test": "php scripts/test-placeholder.php",
-    "test:unit": "php scripts/test-placeholder.php",
+    "test": [
+      "php scripts/test-placeholder.php",
+      "php tests/Unit/AccessScopedStorageRuntimeTest.php",
+      "php tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
+      "php tests/Unit/StorageAuditEmissionTest.php",
+      "php tests/Unit/StoragePersistenceFailClosedTest.php",
+      "php tests/Unit/StorageTransactionBoundaryTest.php"
+    ],
+    "test:unit": [
+      "@test"
+    ],
     "lint": "php scripts/lint.php",
     "analyse": "php scripts/analyse.php",
     "validate:larena": "php scripts/validate-larena-package.php",

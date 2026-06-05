@@ -1,0 +1,28 @@
+{
+  "schema": "larena.evidence.file_map.v1",
+  "package": "larena/storage",
+  "batch": "data-content/batch-3/storage-persistence-access-audit",
+  "changed_files": [
+    ".larena/launch-context.json",
+    "composer.json",
+    "phpstan.neon.dist",
+    "src/Contracts/StorageAccessScopeResolver.php",
+    "src/Contracts/StorageAuditEmitter.php",
+    "src/Contracts/StoragePersistenceAdapter.php",
+    "src/Contracts/StoragePersistenceProfile.php",
+    "src/Runtime/AccessScopedStorageRuntime.php",
+    "src/Runtime/AuditAwareStorageMutationRuntime.php",
+    "src/Runtime/LaravelDatabaseStorageAdapter.php",
+    "src/Runtime/StorageAuditEventDescriptor.php",
+    "src/Runtime/StorageAuditPayload.php",
+    "src/Runtime/StorageTransactionBoundary.php",
+    "tests/Unit/AccessScopedStorageRuntimeTest.php",
+    "tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
+    "tests/Unit/StorageAuditEmissionTest.php",
+    "tests/Unit/StoragePersistenceFailClosedTest.php",
+    "tests/Unit/StorageTransactionBoundaryTest.php",
+    "docs/project-management/evidence/data-content/batch-3/storage-persistence-access-audit/**"
+  ],
+  "forbidden_files_changed": [],
+  "out_of_scope_files_changed": []
+}

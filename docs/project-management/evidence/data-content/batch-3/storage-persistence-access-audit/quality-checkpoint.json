@@ -1,0 +1,53 @@
+{
+  "schema": "larena.inline_quality_checkpoint.v1",
+  "package": "larena/storage",
+  "batch": "data-content/batch-3/storage-persistence-access-audit",
+  "step_id": "historical_checkpoint_import",
+  "feature_refs": [
+    "storage.schema_registry",
+    "storage.persistence_profiles",
+    "storage.record_list",
+    "storage.record_mutation",
+    "storage.validation_pipeline"
+  ],
+  "launch_record_ref": "specs/implementation-planning/launch-records/storage-batch-3-persistence-access-audit-integration.json",
+  "repo": "simai/larena-storage",
+  "commit": "pending",
+  "changed_files": [
+    ".larena/launch-context.json",
+    "composer.json",
+    "phpstan.neon.dist",
+    "src/Contracts/StorageAccessScopeResolver.php",
+    "src/Contracts/StorageAuditEmitter.php",
+    "src/Contracts/StoragePersistenceAdapter.php",
+    "src/Contracts/StoragePersistenceProfile.php",
+    "src/Runtime/AccessScopedStorageRuntime.php",
+    "src/Runtime/AuditAwareStorageMutationRuntime.php",
+    "src/Runtime/LaravelDatabaseStorageAdapter.php",
+    "src/Runtime/StorageAuditEventDescriptor.php",
+    "src/Runtime/StorageAuditPayload.php",
+    "src/Runtime/StorageTransactionBoundary.php",
+    "tests/Unit/AccessScopedStorageRuntimeTest.php",
+    "tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
+    "tests/Unit/StorageAuditEmissionTest.php",
+    "tests/Unit/StoragePersistenceFailClosedTest.php",
+    "tests/Unit/StorageTransactionBoundaryTest.php"
+  ],
+  "checks_run": [
+    "composer validate --strict",
+    "composer run quality:gate"
+  ],
+  "scope_status": "pass",
+  "spec_alignment_status": "pass_with_warnings",
+  "dna_alignment_status": "pass",
+  "security_runtime_status": "pass",
+  "test_status": "pass",
+  "evidence_refs": [
+    "docs/project-management/evidence/data-content/batch-3/storage-persistence-access-audit/tests.md",
+    "docs/project-management/evidence/data-content/batch-3/storage-persistence-access-audit/smoke.md"
+  ],
+  "graph_sync_proposal_ref": "docs/project-management/evidence/data-content/batch-3/storage-persistence-access-audit/graph-sync-proposal.json",
+  "quality_status": "pass_with_warnings",
+  "blockers": [],
+  "next_allowed_action": "request_review"
+}

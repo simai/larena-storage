@@ -1,0 +1,21 @@
+{
+  "schema": "larena.evidence.deviations.v1",
+  "package": "larena/storage",
+  "batch": "data-content/batch-3/storage-persistence-access-audit",
+  "critical_deviations": [],
+  "known_deviations": [
+    {
+      "id": "database-adapter-boundary-only",
+      "severity": "medium",
+      "description": "LaravelDatabaseStorageAdapter defines the baseline profile and transaction boundary but does not create production migrations or schema tables in this batch.",
+      "reason": "Launch record forbids production migrations and schema migration runtime."
+    },
+    {
+      "id": "phpstan-sibling-scan",
+      "severity": "low",
+      "description": "PHPStan is configured to scan sibling access/audit sources instead of mutating composer.lock or vendor autoload state.",
+      "reason": "The batch must consume existing package contracts without changing dependency install state."
+    }
+  ],
+  "canonical_graph_changes_requested": false
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "batch": "data-content/batch-3/storage-persistence-access-audit",
+  "status": "no_canonical_graph_change_requested",
+  "canonical_update_allowed": false,
+  "must_not_apply_automatically": true,
+  "summary": "The batch implements the previously accepted storage persistence/access/audit launch scope. No canonical package or feature graph change is requested.",
+  "observations": [
+    "PHPStan needed sibling access/audit scanDirectories to validate cross-package contract consumption without changing composer.lock or vendor state.",
+    "Laravel database persistence remains a baseline adapter boundary; production migrations remain out of scope."
+  ],
+  "proposed_updates": []
+}
