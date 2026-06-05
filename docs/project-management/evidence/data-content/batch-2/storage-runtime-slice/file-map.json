@@ -1,0 +1,27 @@
+{
+  "schema": "larena.package_batch_file_map.v1",
+  "package": "larena/storage",
+  "launch_record_ref": "specs/implementation-planning/launch-records/storage-batch-2-in-memory-runtime-slice.json",
+  "allowed_changed_files": [
+    ".larena/launch-context.json",
+    "scripts/test-placeholder.php",
+    "src/Runtime/ArrayStorageMutation.php",
+    "src/Runtime/ArrayStorageQuery.php",
+    "src/Runtime/ArrayStorageRecord.php",
+    "src/Runtime/ArrayStorageSchema.php",
+    "src/Runtime/InMemoryStorageRuntime.php",
+    "src/Runtime/StorageValidationResult.php",
+    "tests/Unit/InMemoryStorageRuntimeTest.php"
+  ],
+  "evidence_files": [
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/README.md",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/implementation-summary.md",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/tests.md",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/smoke.md",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/file-map.json",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/deviations.json",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/graph-sync-proposal.json",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/independent-review.md",
+    "docs/project-management/evidence/data-content/batch-2/storage-runtime-slice/code-review-feedback.md"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "larena.package_batch_deviations.v1",
+  "package": "larena/storage",
+  "deviations": [
+    {
+      "type": "intentional_runtime_limitation",
+      "status": "accepted_for_batch",
+      "summary": "The runtime is in-memory only and does not claim production persistence.",
+      "follow_up": "Laravel persistence profile and transaction strategy require a separate launch record."
+    }
+  ]
+}

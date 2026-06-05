@@ -1,0 +1,9 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "launch_record_ref": "specs/implementation-planning/launch-records/storage-batch-2-in-memory-runtime-slice.json",
+  "status": "no_canonical_graph_change_requested",
+  "canonical_update_allowed": false,
+  "must_not_apply_automatically": true,
+  "findings": []
+}
