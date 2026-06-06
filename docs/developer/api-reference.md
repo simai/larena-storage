@@ -1,0 +1,43 @@
+# Storage API Reference
+
+## Core Contracts
+
+| Contract | Purpose |
+| --- | --- |
+| `StorageRuntime` | Main read/write runtime contract. |
+| `StorageSchema` | Describes fields, visibility and validation rules. |
+| `StorageRecord` | Immutable record snapshot returned by runtime operations. |
+| `StorageQuery` | Query descriptor for list/read operations. |
+| `StorageMutation` | Mutation descriptor for create/update/delete-like operations. |
+| `StorageValidationReport` | Result of validation before mutation. |
+| `StoragePersistenceAdapter` | Persistence boundary used by storage runtime. |
+| `StoragePersistenceProfile` | Named persistence profile descriptor. |
+| `StorageAccessScopeResolver` | Consumes an access query scope decision. |
+| `StorageAuditEmitter` | Emits storage mutation audit descriptors. |
+
+## Runtime Classes
+
+| Class | Purpose |
+| --- | --- |
+| `InMemoryStorageRuntime` | Deterministic runtime for schema, list, record and mutation tests. |
+| `LaravelDatabaseStorageAdapter` | Baseline Laravel database adapter boundary. |
+| `AccessScopedStorageRuntime` | Wraps storage reads with explicit access scope checks. |
+| `AuditAwareStorageMutationRuntime` | Wraps storage mutations with audit event emission. |
+| `StorageTransactionBoundary` | Encapsulates transaction execution and fail-closed persistence behavior. |
+| `StorageValidationResult` | Runtime validation report implementation. |
+
+## Enum Classes
+
+| Enum | Purpose |
+| --- | --- |
+| `FieldVisibility` | Field exposure and projection policy. |
+| `MutationType` | Mutation kind. |
+| `StorageDecisionStatus` | Decision result for validation and runtime gates. |
+
+## Usage Boundary
+
+The public API should be treated as package-internal contracts for Larena
+package integration until a dedicated public API launch record exists.
+
+Downstream packages should depend on contracts, not concrete runtime classes,
+unless a launch record explicitly allows a test/runtime adapter.
