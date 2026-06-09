@@ -13,6 +13,7 @@
         "storage.validation_pipeline"
     ],
     "allowed_files": [
+        "scripts/check-metadata-sync.php",
         "module.yaml",
         ".larena/launch-context.json",
         "README.md",

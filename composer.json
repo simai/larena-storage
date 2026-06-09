@@ -1,62 +1,64 @@
 {
-  "name": "larena/storage",
-  "description": "Larena Storage: Universal dynamic data storage layer for typed schemas, records, lists, query boundaries, persistence profiles, validation pipelines and portable SitePack-compatible data models.",
-  "type": "library",
-  "license": "Apache-2.0",
-  "authors": [
-    {
-      "name": "Rim Zabarov",
-      "homepage": "https://github.com/zabarov"
-    }
-  ],
-  "require": {
-    "php": "^8.3"
-  },
-  "autoload": {
-    "psr-4": {
-      "Larena\\Storage\\": "src/"
-    }
-  },
-  "autoload-dev": {
-    "psr-4": {
-      "Larena\\Storage\\Tests\\": "tests/"
-    }
-  },
-  "require-dev": {
-    "phpstan/phpstan": "^2.0"
-  },
-  "scripts": {
-    "test": [
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AccessScopedStorageRuntimeTest.php",
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryStorageRuntimeTest.php",
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageAuditEmissionTest.php",
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFailsClosedTest.php",
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StoragePersistenceFailClosedTest.php",
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSchemaContractTest.php",
-      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageTransactionBoundaryTest.php"
+    "name": "larena/storage",
+    "description": "Larena Storage: Universal dynamic data storage layer for typed schemas, records, lists, query boundaries, persistence profiles, validation pipelines and portable SitePack-compatible data models.",
+    "type": "library",
+    "license": "Apache-2.0",
+    "authors": [
+        {
+            "name": "Rim Zabarov",
+            "homepage": "https://github.com/zabarov"
+        }
     ],
-    "test:unit": [
-      "@test"
-    ],
-    "lint": "php scripts/lint.php",
-    "analyse": "php scripts/analyse.php",
-    "validate:larena": "php scripts/validate-larena-package.php",
-    "evidence:check": "php scripts/check-evidence.php",
-    "scope:check": "php tools/larena-scope-check.php",
-    "quality:gate": [
-      "@validate:larena",
-      "@lint",
-      "@analyse",
-      "@test",
-      "@evidence:check",
-      "@scope:check"
-    ]
-  },
-  "config": {
-    "sort-packages": true,
-    "allow-plugins": {}
-  },
-  "minimum-stability": "stable",
-  "prefer-stable": true
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "Larena\\Storage\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Larena\\Storage\\Tests\\": "tests/"
+        }
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.0"
+    },
+    "scripts": {
+        "test": [
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AccessScopedStorageRuntimeTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryStorageRuntimeTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageAuditEmissionTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFailsClosedTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StoragePersistenceFailClosedTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSchemaContractTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageTransactionBoundaryTest.php"
+        ],
+        "test:unit": [
+            "@test"
+        ],
+        "lint": "php scripts/lint.php",
+        "analyse": "php scripts/analyse.php",
+        "validate:larena": "php scripts/validate-larena-package.php",
+        "evidence:check": "php scripts/check-evidence.php",
+        "scope:check": "php tools/larena-scope-check.php",
+        "quality:gate": [
+            "@validate:larena",
+            "@lint",
+            "@analyse",
+            "@test",
+            "@larena:metadata:check",
+            "@evidence:check",
+            "@scope:check"
+        ],
+        "larena:metadata:check": "php scripts/check-metadata-sync.php"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {}
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }
