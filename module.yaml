@@ -1,8 +1,8 @@
 package: larena/storage
 title: Larena Storage
-status: repository_prepared
+status: coding_started
 cluster: data-content
-batch: batch-0-clean-pre-codegen-baseline
+batch: storage-batch-3-persistence-access-audit-integration
 features:
   - storage.encryption_key_policy
   - storage.persistence_profiles
@@ -16,4 +16,4 @@ runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/data-content/batch-0/storage-clean-baseline/
+  path: docs/project-management/evidence/data-content/batch-3/storage-persistence-access-audit/
