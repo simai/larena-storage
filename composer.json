@@ -27,12 +27,14 @@
   },
   "scripts": {
     "test": [
-      "php scripts/test-placeholder.php",
-      "php tests/Unit/AccessScopedStorageRuntimeTest.php",
-      "php tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
-      "php tests/Unit/StorageAuditEmissionTest.php",
-      "php tests/Unit/StoragePersistenceFailClosedTest.php",
-      "php tests/Unit/StorageTransactionBoundaryTest.php"
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AccessScopedStorageRuntimeTest.php",
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryStorageRuntimeTest.php",
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageAuditEmissionTest.php",
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFailsClosedTest.php",
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StoragePersistenceFailClosedTest.php",
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSchemaContractTest.php",
+      "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageTransactionBoundaryTest.php"
     ],
     "test:unit": [
       "@test"

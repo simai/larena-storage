@@ -38,7 +38,8 @@
     "tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
     "tests/Unit/StorageAuditEmissionTest.php",
     "tests/Unit/StoragePersistenceFailClosedTest.php",
-    "tests/Unit/StorageTransactionBoundaryTest.php"
+    "tests/Unit/StorageTransactionBoundaryTest.php",
+    "scripts/test-placeholder.php"
   ],
   "forbidden_files": [
     "config/*",
