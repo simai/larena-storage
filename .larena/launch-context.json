@@ -18,6 +18,7 @@
         ".larena/launch-context.json",
         "README.md",
         "composer.json",
+        "composer.lock",
         "phpstan.neon.dist",
         "docs/developer/README.md",
         "docs/developer/concepts.md",

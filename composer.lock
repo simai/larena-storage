@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "da756b053cfc4a30ac636752d45c3014",
+    "content-hash": "1bd83780fffeae9f2cadac4ff907a815",
     "packages": [],
     "packages-dev": [
         {
@@ -74,7 +74,10 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {
+        "larena/access": 20,
+        "larena/audit": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
