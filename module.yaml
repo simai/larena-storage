@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: storage-batch-3-persistence-access-audit-integration
+batch: typed-page-content-schema
 features:
   - storage.encryption_key_policy
   - storage.persistence_profiles
@@ -12,8 +12,14 @@ features:
   - storage.schema_registry
   - storage.sitepack_portability
   - storage.validation_pipeline
+  - storage.immutable_schema_versions
+  - storage.immutable_record_versions
+  - storage.compare_and_swap
+  - storage.access_and_security_audit
+  - storage.actor_checked_current_record_read
+  - storage.public_exact_version_projection
 runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/data-content/batch-3/storage-persistence-access-audit/
+  path: docs/project-management/evidence/typed-page-content-schema/

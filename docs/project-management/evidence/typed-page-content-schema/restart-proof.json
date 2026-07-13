@@ -1,0 +1,16 @@
+{
+  "schema": "larena.persistence_restart_proof.v1",
+  "package": "larena/storage",
+  "status": "package_new_connection_passed_root_process_pending",
+  "database": "generated_file_backed_sqlite",
+  "verified": [
+    "record_v1_survives_connection_recreation",
+    "record_v2_survives_connection_recreation",
+    "exact_historical_values_remain_immutable"
+  ],
+  "pending": [
+    "separate_process_restart_replay",
+    "isolated_mysql_restart_replay"
+  ],
+  "existing_application_database_used": false
+}

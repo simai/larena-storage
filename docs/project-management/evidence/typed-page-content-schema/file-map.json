@@ -1,0 +1,33 @@
+{
+  "schema": "larena.package_file_map.v1",
+  "package": "larena/storage",
+  "implementation": [
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "src/Contracts/VersionedStorage.php",
+    "src/Contracts/StorageSchemaVersionRef.php",
+    "src/Contracts/StorageSchemaVersion.php",
+    "src/Contracts/StorageRecordVersionRef.php",
+    "src/Contracts/StorageRecordVersion.php",
+    "src/Contracts/StorageWriteResult.php",
+    "src/Contracts/StoragePublicProjection.php",
+    "src/Runtime/VersionedStorage.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Audit/StorageVersionAuditEventDescriptor.php",
+    "src/Exceptions/StorageRejected.php",
+    "src/Exceptions/StorageConflict.php",
+    "src/Exceptions/StoragePersistenceFailed.php"
+  ],
+  "tests": [
+    "tests/Integration/VersionedStorageDatabaseTest.php"
+  ],
+  "metadata": [
+    "README.md",
+    "CHANGELOG.md",
+    "composer.json",
+    "composer.lock",
+    "module.yaml",
+    "access.yaml",
+    "audit.yaml"
+  ],
+  "evidence_directory": "docs/project-management/evidence/typed-page-content-schema/"
+}

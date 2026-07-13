@@ -10,7 +10,7 @@ function fail(string $message): never
 
 function normalize_path(string $path): string
 {
-    $path = str_replace('\\\\', '/', $path);
+    $path = str_replace('\\', '/', $path);
     $path = preg_replace('#^/+#', '', $path) ?? $path;
     return rtrim($path, '/');
 }
@@ -74,6 +74,13 @@ foreach ($diffOutputs as $diffOutput) {
 $errors = [];
 foreach (array_keys($changedFiles) as $file) {
     $exactlyAllowed = in_array($file, $allowedFiles, true);
+    $allowedByPattern = false;
+    foreach ($allowedFiles as $allowedPattern) {
+        if (matches_pattern($file, $allowedPattern)) {
+            $allowedByPattern = true;
+            break;
+        }
+    }
     $evidenceAllowed = $evidencePath !== '' && str_starts_with($file, $evidencePath . '/');
     foreach (['src/', 'config/', 'database/', 'routes/', 'resources/', 'tests/', 'lang/'] as $runtimeRoot) {
         if (str_starts_with($file, $runtimeRoot) && !$codingStarted) {
@@ -87,7 +94,7 @@ foreach (array_keys($changedFiles) as $file) {
             continue 2;
         }
     }
-    if (!$exactlyAllowed && !$evidenceAllowed) {
+    if (!$allowedByPattern && !$evidenceAllowed) {
         $errors[] = $file . ' is outside allowed_files and evidence_path';
     }
 }

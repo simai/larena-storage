@@ -1,0 +1,10 @@
+{
+  "schema": "larena.package_revision_map.v1",
+  "package": "larena/storage",
+  "branch": "codex/typed-page-content-schema",
+  "base_revision": "dbad671bec55ebe8a0eec1a7ef82b42715a45a48",
+  "specs_revision": "66938800984dcbd1b8bbe38be440d775ac07851f",
+  "implementation_revision": "pending_commit",
+  "commit_performed": false,
+  "push_performed": false
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "larena.typed_content_privacy_proof.v1",
+  "package": "larena/storage",
+  "status": "package_passed_root_composition_pending",
+  "verified": [
+    "actorless_full_record_read_absent_from_public_contract",
+    "admin_exact_read_requires_access_actor",
+    "admin_current_read_requires_access_actor",
+    "public_projection_contains_only_public_fields",
+    "admin_fields_absent_from_public_projection",
+    "audit_payload_contains_no_field_keys_or_values",
+    "validation_and_persistence_exceptions_are_code_only"
+  ],
+  "pending": [
+    "root_search_audit_diagnostics_sentinel_scan"
+  ]
+}

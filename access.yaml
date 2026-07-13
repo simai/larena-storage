@@ -1,0 +1,18 @@
+schema: larena.access.descriptor.v1
+package: larena/storage
+operations:
+  - code: storage.schema.create
+    risk: critical
+    audit: always
+  - code: storage.schema.version
+    risk: critical
+    audit: always
+  - code: storage.record.create
+    risk: high
+    audit: always
+  - code: storage.record.read
+    risk: high
+    audit: denial
+  - code: storage.record.update
+    risk: high
+    audit: always

@@ -1,0 +1,14 @@
+{
+  "schema": "larena.mysql_acceptance_proof.v1",
+  "package": "larena/storage",
+  "status": "pending_root_isolated_mysql_acceptance",
+  "requirements": [
+    "generated_allowlisted_schema",
+    "clean_install_upgrade_down_reapply",
+    "restart",
+    "two_writer_cas",
+    "cleanup"
+  ],
+  "existing_application_database_used": false,
+  "credentials_recorded": false
+}

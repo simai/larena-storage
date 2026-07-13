@@ -10,8 +10,11 @@
         }
     ],
     "require": {
+        "illuminate/database": "^13.0",
+        "illuminate/support": "^13.0",
         "larena/access": "dev-main",
         "larena/audit": "dev-main",
+        "larena/property": "dev-main",
         "php": "^8.3"
     },
     "autoload": {
@@ -41,6 +44,53 @@
             "options": {
                 "symlink": true
             }
+        },
+        {
+            "type": "path",
+            "url": "../property",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "larena/property": "dev-main"
+                }
+            }
+        },
+        {
+            "type": "path",
+            "url": "../core",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "larena/core": "dev-main"
+                }
+            }
+        },
+        {
+            "type": "path",
+            "url": "../licensing",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "larena/licensing": "dev-main"
+                }
+            }
+        },
+        {
+            "type": "path",
+            "url": "../ui",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "larena/ui": "dev-main"
+                }
+            }
+        },
+        {
+            "type": "path",
+            "url": "../*",
+            "options": {
+                "symlink": true
+            }
         }
     ],
     "scripts": {
@@ -53,7 +103,8 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFailsClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StoragePersistenceFailClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSchemaContractTest.php",
-            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageTransactionBoundaryTest.php"
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageTransactionBoundaryTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageDatabaseTest.php"
         ],
         "test:unit": [
             "@test"
@@ -76,8 +127,18 @@
     },
     "config": {
         "sort-packages": true,
-        "allow-plugins": {}
+        "allow-plugins": {},
+        "platform": {
+            "php": "8.3.31"
+        }
     },
-    "minimum-stability": "stable",
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Larena\\Storage\\Providers\\StorageServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
     "prefer-stable": true
 }

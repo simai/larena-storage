@@ -1,0 +1,14 @@
+{
+  "schema": "larena.storage_concurrency_proof.v1",
+  "package": "larena/storage",
+  "status": "stale_cas_passed_parallel_process_pending",
+  "verified": [
+    "first_compare_and_swap_advances_head",
+    "second_write_with_same_expected_revision_is_rejected",
+    "rejected_write_creates_no_immutable_version"
+  ],
+  "pending": [
+    "simultaneous_two_process_sqlite",
+    "simultaneous_two_connection_mysql"
+  ]
+}

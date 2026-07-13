@@ -1,0 +1,18 @@
+{
+  "schema": "mirai.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "goal": "typed-page-content-schema",
+  "proposal_status": "proposal_only",
+  "canonical_update_allowed": false,
+  "must_not_apply_automatically": true,
+  "proposed_capabilities": [
+    "storage.immutable_schema_versions",
+    "storage.immutable_record_versions",
+    "storage.compare_and_swap",
+    "storage.access_and_security_audit",
+    "storage.actor_checked_current_record_read",
+    "storage.public_exact_version_projection"
+  ],
+  "owner_review_required": true,
+  "notes": "No canonical graph or specification source was changed."
+}

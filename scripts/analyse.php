@@ -7,5 +7,5 @@ if (!is_file($phpstan)) {
     echo "PHPStan is not installed; skipping static analysis until composer install runs.\n";
     exit(0);
 }
-passthru($phpstan . ' analyse --configuration=phpstan.neon.dist --no-progress', $exitCode);
+passthru($phpstan . ' analyse --configuration=phpstan.neon.dist --no-progress --memory-limit=512M', $exitCode);
 exit($exitCode);
