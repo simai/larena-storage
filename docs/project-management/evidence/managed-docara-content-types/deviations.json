@@ -1,0 +1,19 @@
+{
+  "schema": "larena.package_deviations.v1",
+  "package": "larena/storage",
+  "goal": "managed-docara-content-types",
+  "batch": "M1/B1-storage-owned-table-shape-hardening",
+  "deviations": [],
+  "bounded_non_goals": [
+    "schema_compatibility_analysis_or_migration_plans",
+    "versioned_storage_evolution",
+    "docara_content_types_or_managed_pages",
+    "frontend_admin_rest_or_mcp",
+    "automatic_foreign_table_repair",
+    "production_readiness",
+    "all_41_packages_readiness"
+  ],
+  "remaining_gates": [
+    "exact_storage_revision_publication"
+  ]
+}

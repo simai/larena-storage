@@ -26,9 +26,18 @@ new writes:
   immutable reference; this versioned Storage contract does not expose a
   restore-as-new mutation.
 
-The new tables are additive. A clean unused migration can be rolled back and
+The package-owned tables are additive and protected by a shared shape guard.
+Before the first create or drop, the guard validates the complete column
+contract plus primary-key composition and the explicit names/compositions of
+unique and secondary indexes through Laravel's portable schema inspection
+APIs. A compatible empty partial topology
+can be completed. Foreign, damaged or data-bearing partial topologies fail
+closed without partial DDL. A clean unused migration can be rolled back and
 reapplied; rollback refuses before dropping anything when typed-content rows
 exist.
+
+See `docs/developer/owned-table-shape-guard.md` for the exact install, upgrade,
+diagnostic and rollback contract.
 
 Production readiness, encryption policy, SitePack portability and readiness of
 all Larena packages are not claimed by this slice.

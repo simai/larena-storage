@@ -14,6 +14,7 @@
 | `StoragePersistenceProfile` | Named persistence profile descriptor. |
 | `StorageAccessScopeResolver` | Consumes an access query scope decision. |
 | `StorageAuditEmitter` | Emits storage mutation audit descriptors. |
+| `VersionedStorage` | Exact immutable schema/record version service contract. |
 
 ## Runtime Classes
 
@@ -25,6 +26,15 @@
 | `AuditAwareStorageMutationRuntime` | Wraps storage mutations with audit event emission. |
 | `StorageTransactionBoundary` | Encapsulates transaction execution and fail-closed persistence behavior. |
 | `StorageValidationResult` | Runtime validation report implementation. |
+| `VersionedStorage` | Database-native immutable version/CAS runtime guarded by Access and Audit. |
+| `StorageOwnedTableShapeGuard` | Pre-DDL install/upgrade/down ownership verifier for package tables. |
+
+## Migration Diagnostics
+
+`StorageOwnedTableShapeRejected` exposes a stable `reasonCode` plus safe
+logical `tableKey`. Its message contains the reason code only. Consumers must
+not infer repair actions from the exception; recovery requires an explicit
+operator plan.
 
 ## Enum Classes
 

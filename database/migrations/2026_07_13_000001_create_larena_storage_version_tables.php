@@ -5,12 +5,15 @@ declare(strict_types=1);
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Larena\Storage\Database\StorageOwnedTableShapeGuard;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasTable('larena_storage_schemas')) {
+        $missingTables = (new StorageOwnedTableShapeGuard(Schema::getConnection()))->preflightUp();
+
+        if (in_array('larena_storage_schemas', $missingTables, true)) {
             Schema::create('larena_storage_schemas', static function (Blueprint $table): void {
                 $table->string('schema_id', 120)->primary();
                 $table->unsignedBigInteger('current_version');
@@ -19,7 +22,7 @@ return new class extends Migration
             });
         }
 
-        if (!Schema::hasTable('larena_storage_schema_versions')) {
+        if (in_array('larena_storage_schema_versions', $missingTables, true)) {
             Schema::create('larena_storage_schema_versions', static function (Blueprint $table): void {
                 $table->bigIncrements('id');
                 $table->string('schema_id', 120);
@@ -35,7 +38,7 @@ return new class extends Migration
             });
         }
 
-        if (!Schema::hasTable('larena_storage_records')) {
+        if (in_array('larena_storage_records', $missingTables, true)) {
             Schema::create('larena_storage_records', static function (Blueprint $table): void {
                 $table->string('record_id', 39)->primary();
                 $table->string('schema_id', 120);
@@ -49,7 +52,7 @@ return new class extends Migration
             });
         }
 
-        if (!Schema::hasTable('larena_storage_record_versions')) {
+        if (in_array('larena_storage_record_versions', $missingTables, true)) {
             Schema::create('larena_storage_record_versions', static function (Blueprint $table): void {
                 $table->bigIncrements('id');
                 $table->string('schema_id', 120);
@@ -67,25 +70,15 @@ return new class extends Migration
                 $table->index(['schema_id', 'owner_ref', 'revision'], 'storage_record_owner_index');
             });
         }
+
+        (new StorageOwnedTableShapeGuard(Schema::getConnection()))->assertCompleteCompatible();
     }
 
     public function down(): void
     {
-        $tables = [
-            'larena_storage_record_versions',
-            'larena_storage_records',
-            'larena_storage_schema_versions',
-            'larena_storage_schemas',
-        ];
-
+        $tables = (new StorageOwnedTableShapeGuard(Schema::getConnection()))->preflightDown();
         foreach ($tables as $table) {
-            if (Schema::hasTable($table) && Schema::getConnection()->table($table)->exists()) {
-                throw new RuntimeException('storage_typed_content_rollback_would_lose_data');
-            }
-        }
-
-        foreach ($tables as $table) {
-            Schema::dropIfExists($table);
+            Schema::drop($table);
         }
     }
 };

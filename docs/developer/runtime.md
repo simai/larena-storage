@@ -32,18 +32,22 @@ state and produce an inspectable decision/result.
 
 ## Persistence Boundary
 
-`LaravelDatabaseStorageAdapter` is a baseline adapter boundary. It exists to
-prove that storage can talk to Laravel database concepts without committing to
-production schema migrations.
+`LaravelDatabaseStorageAdapter` remains the generic baseline adapter boundary.
+The immutable typed-content slice additionally owns four additive
+`larena_storage_*` tables. Their current table shape, install/upgrade preflight
+and unused rollback are package contracts; this does not make the wider Storage
+platform production-ready.
 
-Future launch records must decide:
+`StorageOwnedTableShapeGuard` inspects each existing owned table before DDL. It
+normalizes SQLite/MySQL differences through Laravel column/index metadata and
+checks exact column names, portable type family, nullability, auto increment,
+MySQL length/unsigned metadata where exposed, ordered primary-key composition,
+and explicit unique/secondary index names and compositions. The creation migration runs the guard before DDL
+and again after creating missing tables. The following read-only migration
+validates already-installed tables during declared upgrades.
 
-- table shape;
-- migration lifecycle;
-- rollback behavior;
-- schema versioning;
-- query builder translation;
-- retention and cleanup policy.
+Future launch records must still decide query translation, retention, cleanup,
+large migrations, backup/restore and production rollout policy.
 
 ## Access And Audit Boundaries
 

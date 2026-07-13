@@ -1,0 +1,16 @@
+{
+  "schema": "mirai.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "goal": "managed-docara-content-types",
+  "batch": "M1/B1-storage-owned-table-shape-hardening",
+  "proposal_status": "proposal_only",
+  "canonical_update_allowed": false,
+  "must_not_apply_automatically": true,
+  "proposed_capabilities": [
+    "storage.owned_table_shape_guard",
+    "storage.owned_table_upgrade_validation",
+    "storage.fail_closed_owned_table_rollback"
+  ],
+  "owner_review_required": true,
+  "notes": "No canonical graph or specification source was changed."
+}

@@ -9,7 +9,9 @@
 - validation pipeline boundary;
 - persistence adapter/profile boundary;
 - transaction boundary used by storage mutations;
-- access-scope and audit emitter integration points.
+- access-scope and audit emitter integration points;
+- exact package-owned table shape and safe install/upgrade/unused rollback for
+  the immutable typed-content slice.
 
 `larena/storage` consumes:
 
@@ -36,14 +38,17 @@ The package is built around three layers:
    integration.
 3. Adapter wrappers: persistence, access and audit boundaries that can be
    replaced by production integrations later.
+4. Database-native versioned slice: exact immutable schema/record references,
+   compare-and-swap and guarded package-owned migrations.
 
-This keeps early batches useful without pretending that production persistence
-or full schema migration support is complete.
+This keeps the implemented slices useful without pretending that the wider
+Storage platform, arbitrary schema evolution or production rollout is complete.
 
 ## Current Non-Goals
 
-- No production database migrations.
-- No schema diff/version lifecycle.
+- No production-readiness claim or automatic repair of foreign table shapes.
+- No arbitrary/destructive schema evolution; managed optional-field evolution
+  belongs to the active goal beyond the shape-hardening checkpoint.
 - No encryption key policy.
 - No SitePack import/export runtime.
 - No admin UI or REST endpoints.

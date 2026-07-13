@@ -104,6 +104,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StoragePersistenceFailClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSchemaContractTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageTransactionBoundaryTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageOwnedTableShapeTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageDatabaseTest.php"
         ],
         "test:unit": [

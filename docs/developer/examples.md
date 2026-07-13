@@ -17,8 +17,9 @@ $record = $runtime->mutate(new ArrayStorageMutation(
 ));
 ```
 
-Use this style only for tests and early integration. Production persistence
-requires a separate launch record.
+Use this style only for tests and early integration. The separate database-native
+versioned slice is available for exact schema/record references, but wider
+production readiness is not claimed.
 
 ## Access-Scoped Read
 

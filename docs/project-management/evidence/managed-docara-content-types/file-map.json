@@ -1,0 +1,30 @@
+{
+  "schema": "larena.package_file_map.v1",
+  "package": "larena/storage",
+  "goal": "managed-docara-content-types",
+  "batch": "M1/B1-storage-owned-table-shape-hardening",
+  "implementation": [
+    "src/Database/StorageOwnedTableShapeGuard.php",
+    "src/Exceptions/StorageOwnedTableShapeRejected.php",
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "database/migrations/2026_07_14_000001_validate_larena_storage_version_table_shapes.php"
+  ],
+  "tests": [
+    "tests/Integration/StorageOwnedTableShapeTestSupport.php",
+    "tests/Integration/StorageOwnedTableShapeTest.php",
+    "tests/Integration/VersionedStorageDatabaseTest.php"
+  ],
+  "documentation": [
+    "README.md",
+    "CHANGELOG.md",
+    "docs/developer/README.md",
+    "docs/developer/api-reference.md",
+    "docs/developer/concepts.md",
+    "docs/developer/examples.md",
+    "docs/developer/owned-table-shape-guard.md",
+    "docs/developer/runtime.md",
+    "docs/developer/testing.md",
+    "docs/developer/troubleshooting.md"
+  ],
+  "evidence_directory": "docs/project-management/evidence/managed-docara-content-types/"
+}

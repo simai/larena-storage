@@ -1,0 +1,33 @@
+{
+  "schema": "larena.storage_owned_table_shape_mysql_proof.v1",
+  "package": "larena/storage",
+  "goal": "managed-docara-content-types",
+  "batch": "M1/B1-storage-owned-table-shape-hardening",
+  "ownership": "root_acceptance_harness",
+  "test": "tests/Integration/StorageOwnedTableShapeMySqlTest.php",
+  "database": "isolated_generated_real_mysql_schema",
+  "status": "passed",
+  "tests": 1,
+  "assertions": 77,
+  "duration_ms": 6646,
+  "proved": [
+    "foreign_table_rejected_before_ddl",
+    "compatible_empty_partial_topology_completed",
+    "data_bearing_partial_topology_rejected_before_ddl",
+    "primary_unique_secondary_name_and_composition_damage_rejected",
+    "exact_mysql_integer_width_and_char_varchar_contract_mismatches_rejected",
+    "portable_column_contract_mismatches_rejected",
+    "compatible_portable_column_contract_accepted",
+    "read_only_upgrade_validation_passed",
+    "clean_down_reapply_passed"
+  ],
+  "cleanup": {
+    "generated_schema_remaining": 0,
+    "asserted": true
+  },
+  "privacy": {
+    "credentials_recorded": false,
+    "schema_name_recorded": false,
+    "sql_recorded": false
+  }
+}
