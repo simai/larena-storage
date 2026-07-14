@@ -25,7 +25,13 @@ The current implemented slice covers:
 - additive database-native immutable schema/record versions with exact reads,
   compare-and-swap, Access and transactional Security Audit;
 - package-owned migration shape preflight and read-only upgrade validation for
-  SQLite/MySQL portable column/index contracts.
+  SQLite/MySQL portable column/index contracts;
+- optional-field-only schema analyze/plan/explain/apply with immutable safe
+  DTOs, content-addressed plans, exact-head locks and atomic record migration;
+- owner-neutral protected schema orchestration with container-local sealing,
+  exact outer-transaction scopes and consumer-owned one-shot capabilities;
+- isolated real-MySQL acceptance for the new table contracts, restart,
+  concurrency, exact value preservation and cleanup.
 
 Canonical evidence:
 
@@ -39,6 +45,7 @@ Canonical evidence:
 | Feature | Current state | Notes |
 | --- | --- | --- |
 | `storage.schema_registry` | Partial | In-memory baseline plus immutable database schema versions; broader lifecycle/evolution policy remains incomplete. |
+| `storage.schema_migration_policy` | Bounded checkpoint | Only new optional fields with empty constraints; destructive/arbitrary changes fail closed. |
 | `storage.persistence_profiles` | Partial | Only `laravel_database_default` baseline profile is represented. |
 | `storage.record_list` | Partial | Access scope boundary exists; full DB query translation is future work. |
 | `storage.record_mutation` | Partial | In-memory and exact-version database mutation slices exist; general-purpose production rollout is not claimed. |
@@ -51,8 +58,9 @@ Canonical evidence:
 2. Read `docs/developer/api-reference.md` for contracts and runtime classes.
 3. Read `docs/developer/runtime.md` for state and fail-closed behavior.
 4. Read `docs/developer/owned-table-shape-guard.md` before changing migrations.
-5. Read `docs/developer/testing.md` before changing implementation.
-6. Read `docs/developer/troubleshooting.md` when a smoke or evidence check
+5. Read `docs/developer/schema-evolution.md` before changing schema evolution.
+6. Read `docs/developer/testing.md` before changing implementation.
+7. Read `docs/developer/troubleshooting.md` when a smoke or evidence check
    reports a degraded state.
 
 ## Canonical Source Rules

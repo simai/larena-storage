@@ -10,6 +10,21 @@ events:
   - type: storage.schema.versioned
     category: storage_schema
     severity: security
+  - type: storage.schema.version_rejected
+    category: storage_schema
+    severity: security
+  - type: storage.schema_migration.analyzed
+    category: storage_schema_migration
+    severity: security
+  - type: storage.schema_migration.planned
+    category: storage_schema_migration
+    severity: security
+  - type: storage.schema_migration.applied
+    category: storage_schema_migration
+    severity: security
+  - type: storage.schema_migration.rejected
+    category: storage_schema_migration
+    severity: security
   - type: storage.record.created
     category: storage_record
     severity: security
@@ -17,6 +32,12 @@ events:
     category: storage_record
     severity: security
 forbidden_payload_fields:
+  - definition
+  - target_definition
+  - fields
+  - field
+  - field_key
+  - field_keys
   - value
   - values
   - field_value

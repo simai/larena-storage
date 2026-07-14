@@ -2,16 +2,20 @@
 
 ## Purpose
 
-The immutable typed-content slice owns exactly four tables. A same-named table
-is not assumed to belong to Storage merely because it exists. Install, upgrade
-and rollback first prove the package-owned shape through Laravel schema APIs.
+The immutable typed-content slice owns four version tables and the bounded
+schema-evolution slice owns four plan/result tables. A same-named table is not
+assumed to belong to Storage merely because it exists. Install, upgrade and
+rollback first prove the relevant complete package-owned shape through Laravel
+schema APIs. `StorageOwnedTableShapeGuard` and
+`StorageSchemaMigrationTableShapeGuard` keep these lifecycles separate.
 
 The guard validates:
 
 - the supported SQLite/MySQL driver before touching schema metadata or DDL;
 - the exact column-name set;
 - portable column families, nullability and auto-increment flags;
-- MySQL length and unsigned metadata when Laravel exposes it;
+- MySQL varchar/char kind and length, JSON family, integer width/sign and
+  auto-increment metadata;
 - ordered primary-key compositions;
 - explicit unique-index names and ordered compositions;
 - explicit non-unique secondary-index names and ordered compositions.
@@ -35,6 +39,11 @@ preflight before its first DDL statement:
 read-only declared-upgrade check. It requires the complete compatible topology
 and never repairs or rewrites a table.
 
+`2026_07_14_000002_create_larena_storage_schema_migration_tables.php` applies
+the same preflight/postflight ownership pattern to the four immutable
+migration plan/result tables. A compatible empty partial topology may finish;
+a foreign, damaged or data-bearing partial topology fails before DDL.
+
 ## Rollback
 
 The creation migration's `down()` has five outcomes:
@@ -47,6 +56,15 @@ The creation migration's `down()` has five outcomes:
   order.
 
 The validation migration's `down()` is read-only and does not alter tables.
+The evolution migration has the same all-or-nothing empty-topology rule and
+uses `storage_schema_migration_rollback_would_lose_data` when any plan/result
+row exists.
+
+The opt-in real-MySQL acceptance matrix exercises those exact contracts for
+all four migration tables, explicit partial-down preservation, clean
+down/reapply and used-down refusal. Its generated schema name is strictly
+allowlisted, a pre-existing schema is refused, and synchronous cleanup proves
+that zero generated schemas remain.
 
 ## Stable Diagnostics
 

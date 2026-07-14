@@ -1,21 +1,17 @@
-# Independent M1/B1 Review
+# Review State
 
-Verdict: `PASS_WITH_NOTES`.
+M1 previously passed independent reverse-outcome review for the original four
+version tables and retained real-MySQL evidence.
 
-The reverse-outcome review found and closed three pre-publication defects:
+M2/M3 implementation has package-local static analysis plus executable SQLite
+and real-MySQL evidence, including adversarial, owner-protection,
+provider-order and two-process concurrency coverage. Focused review findings
+for malformed-plan Audit privacy, direct-v2 rejection Audit, migration shape
+depth, strict value preservation, launch criterion 232 and test-gate inclusion
+were implemented and rerun. Root aggregate acceptance and the Docara consumer
+integration remain separate gates; this file therefore makes no full-goal
+independent-review pass claim.
 
-- MySQL now rejects `INT` for declared `BIGINT` and `VARCHAR` for declared
-  fixed `CHAR` columns;
-- SQLite native-JSON mode is normalized from the active connection config;
-- unsupported database drivers fail before PDO/schema inspection or DDL.
-
-Fresh package quality gates, file-backed SQLite lifecycle checks and the
-root-owned isolated MySQL matrix pass. There are no unresolved P0, P1 or P2
-findings.
-
-Residual P3 limits:
-
-- PostgreSQL and SQL Server are intentionally unsupported and fail closed;
-- the preflight/DDL sequence is not an interprocess lock;
-- rollback assumes stopped writers and disposable/test targets;
-- no production-readiness or all-packages-readiness claim is made.
+Known bounded limits are recorded in `deviations.json`. Production readiness,
+large online migrations, nullable semantics, Docara completion and readiness
+of all packages are not claimed.

@@ -24,17 +24,21 @@ use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use stdClass;
 use Throwable;
 
 final readonly class VersionedStorage implements VersionedStorageContract
 {
+    private SchemaDefinitionNormalizer $normalizer;
+
     public function __construct(
         private ConnectionInterface $database,
-        private PropertyTypeRegistry $propertyTypes,
+        PropertyTypeRegistry $propertyTypes,
         private ActorOperationAuthorizer $authorizer,
         private AuditEventPipeline $audit,
     ) {
+        $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
     }
 
     public function connection(): ConnectionInterface
@@ -49,10 +53,31 @@ final readonly class VersionedStorage implements VersionedStorageContract
         ?string $correlationId = null,
     ): StorageSchemaVersion {
         $this->assertActor($actor);
-        $accessOperation = $expectedHeadVersion === null ? 'storage.schema.create' : 'storage.schema.version';
-        $auditEvent = $expectedHeadVersion === null ? 'storage.schema.created' : 'storage.schema.versioned';
-        $this->authorizer->assertAllowed($actor, $accessOperation);
-        $normalized = $this->normalizeSchemaDefinition($definition);
+        $this->authorizer->assertAllowed(
+            $actor,
+            $expectedHeadVersion === null ? 'storage.schema.create' : 'storage.schema.version',
+        );
+        if ($expectedHeadVersion !== null) {
+            $safeCorrelationId = $this->correlationId($correlationId, 'storage-schema');
+            $safeSchemaId = $this->safeSchemaId($definition);
+            try {
+                $this->emit(
+                    'storage.schema.version_rejected',
+                    $actor,
+                    'storage-schema:' . $safeSchemaId,
+                    $safeCorrelationId,
+                    [
+                        'schema_id' => $safeSchemaId,
+                        'expected_head_version' => $expectedHeadVersion,
+                        'reason_code' => 'storage_schema_version_requires_migration_plan',
+                    ],
+                );
+            } catch (Throwable $exception) {
+                throw StoragePersistenceFailed::from($exception);
+            }
+            throw new StorageRejected('storage_schema_version_requires_migration_plan');
+        }
+        $normalized = $this->normalizer->normalize($definition);
         $schemaId = $normalized['schema_id'];
         $ownerPackage = $normalized['owner_package'];
         $fields = $normalized['fields'];
@@ -67,41 +92,21 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 $fields,
                 $definitionJson,
                 $definitionHash,
-                $expectedHeadVersion,
                 $actor,
                 $correlationId,
-                $auditEvent,
             ): StorageSchemaVersion {
                 $now = $this->timestamp();
-                if ($expectedHeadVersion === null) {
-                    if ($this->database->table('larena_storage_schemas')->where('schema_id', $schemaId)->exists()) {
-                        throw new StorageConflict('storage_schema_already_exists');
-                    }
-                    $version = 1;
-                    $this->database->table('larena_storage_schemas')->insert([
-                        'schema_id' => $schemaId,
-                        'current_version' => $version,
-                        'current_hash' => $definitionHash,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ]);
-                } else {
-                    if ($expectedHeadVersion < 1) {
-                        throw new StorageRejected('storage_schema_expected_version_invalid');
-                    }
-                    $version = $expectedHeadVersion + 1;
-                    $updated = $this->database->table('larena_storage_schemas')
-                        ->where('schema_id', $schemaId)
-                        ->where('current_version', $expectedHeadVersion)
-                        ->update([
-                            'current_version' => $version,
-                            'current_hash' => $definitionHash,
-                            'updated_at' => $now,
-                        ]);
-                    if ($updated !== 1) {
-                        throw new StorageConflict('storage_schema_version_conflict');
-                    }
+                if ($this->database->table('larena_storage_schemas')->where('schema_id', $schemaId)->exists()) {
+                    throw new StorageConflict('storage_schema_already_exists');
                 }
+                $version = 1;
+                $this->database->table('larena_storage_schemas')->insert([
+                    'schema_id' => $schemaId,
+                    'current_version' => $version,
+                    'current_hash' => $definitionHash,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
 
                 $this->database->table('larena_storage_schema_versions')->insert([
                     'schema_id' => $schemaId,
@@ -123,7 +128,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     $correlationId,
                     $now,
                 );
-                $this->emit($auditEvent, $actor, 'storage-schema:' . $schema->ref->key(), $correlationId, [
+                $this->emit('storage.schema.created', $actor, 'storage-schema:' . $schema->ref->key(), $correlationId, [
                     'schema_id' => $schemaId,
                     'schema_version' => $version,
                     'owner_package' => $ownerPackage,
@@ -158,8 +163,17 @@ final readonly class VersionedStorage implements VersionedStorageContract
 
         try {
             return $this->database->transaction(function () use ($ownerRef, $schema, $values, $actor, $correlationId): StorageWriteResult {
+                $schemaHead = $this->database->table('larena_storage_schemas')
+                    ->where('schema_id', $schema->schemaId)
+                    ->lockForUpdate()
+                    ->first();
                 $schemaVersion = $this->schemaVersion($schema);
-                $normalizedValues = $this->normalizeValues($schemaVersion, $values);
+                if (!$schemaHead instanceof stdClass
+                    || (int) $schemaHead->current_version !== $schema->version
+                    || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
+                    throw new StorageRejected('storage_record_schema_not_current');
+                }
+                $normalizedValues = $this->normalizer->normalizeValues($schemaVersion, $values);
                 $valuesJson = $this->canonicalJson($normalizedValues);
                 $contentHash = hash('sha256', $valuesJson);
                 $recordId = 'record-' . bin2hex(random_bytes(16));
@@ -283,11 +297,18 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 return null;
             }
 
-            return $this->recordVersionInternal(new StorageRecordVersionRef(
+            $record = $this->recordVersionInternal(new StorageRecordVersionRef(
                 $schemaId,
                 (string) $head->record_id,
                 (int) $head->current_revision,
             ));
+            if ($record->ownerRef !== $ownerRef
+                || $record->schema->version !== (int) $head->current_schema_version
+                || !hash_equals($record->contentHash, (string) $head->current_hash)) {
+                throw new StorageRejected('storage_record_head_corrupt');
+            }
+
+            return $record;
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -350,9 +371,20 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 $actor,
                 $correlationId,
             ): StorageWriteResult {
+                $schemaHead = $this->database->table('larena_storage_schemas')
+                    ->where('schema_id', $schema->schemaId)
+                    ->lockForUpdate()
+                    ->first();
+                $schemaVersion = $this->schemaVersion($schema);
+                if (!$schemaHead instanceof stdClass
+                    || (int) $schemaHead->current_version !== $schema->version
+                    || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
+                    throw new StorageRejected('storage_record_schema_not_current');
+                }
                 $head = $this->database->table('larena_storage_records')
                     ->where('record_id', $expected->recordId)
                     ->where('schema_id', $expected->schemaId)
+                    ->lockForUpdate()
                     ->first();
                 if (!$head instanceof stdClass) {
                     throw new StorageRejected('storage_record_unknown');
@@ -360,11 +392,20 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 if ((string) $head->owner_ref !== $ownerRef) {
                     throw new StorageRejected('storage_record_owner_mismatch');
                 }
-                $schemaVersion = $this->schemaVersion($schema);
                 if ($schemaVersion->ref->schemaId !== $expected->schemaId) {
                     throw new StorageRejected('storage_record_schema_mismatch');
                 }
-                $normalizedValues = $this->normalizeValues($schemaVersion, $values);
+                if ((int) $head->current_revision !== $expected->revision) {
+                    throw new StorageConflict('storage_record_revision_conflict');
+                }
+                $expectedVersion = $this->recordVersionInternal($expected);
+                if ($expectedVersion->ownerRef !== $ownerRef
+                    || $expectedVersion->schema->version !== (int) $head->current_schema_version
+                    || $expectedVersion->schema->version !== $schema->version
+                    || !hash_equals($expectedVersion->contentHash, (string) $head->current_hash)) {
+                    throw new StorageRejected('storage_record_head_corrupt');
+                }
+                $normalizedValues = $this->normalizer->normalizeValues($schemaVersion, $values);
                 $valuesJson = $this->canonicalJson($normalizedValues);
                 $contentHash = hash('sha256', $valuesJson);
                 $nextRevision = $expected->revision + 1;
@@ -451,125 +492,27 @@ final readonly class VersionedStorage implements VersionedStorageContract
         ]);
     }
 
-    /**
-     * @param array<string, mixed> $definition
-     * @return array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>}
-     */
-    private function normalizeSchemaDefinition(array $definition): array
-    {
-        $schemaId = is_string($definition['schema_id'] ?? null) ? trim($definition['schema_id']) : '';
-        $ownerPackage = is_string($definition['owner_package'] ?? null) ? trim($definition['owner_package']) : '';
-        $fields = $definition['fields'] ?? null;
-        if (preg_match('/^[a-z][a-z0-9_.:-]{1,119}$/', $schemaId) !== 1
-            || preg_match('/^[a-z][a-z0-9_.-]*\/[a-z][a-z0-9_.-]*$/', $ownerPackage) !== 1
-            || !is_array($fields)
-            || !array_is_list($fields)
-            || $fields === []) {
-            throw new StorageRejected('storage_schema_definition_invalid');
-        }
-
-        $normalizedFields = [];
-        $seen = [];
-        foreach ($fields as $field) {
-            if (!is_array($field)) {
-                throw new StorageRejected('storage_schema_field_invalid');
-            }
-            $key = is_string($field['key'] ?? null) ? trim($field['key']) : '';
-            $type = is_string($field['type'] ?? null) ? trim($field['type']) : '';
-            $typeVersion = $field['type_version'] ?? 1;
-            $required = $field['required'] ?? false;
-            $visibility = $field['visibility'] ?? null;
-            $constraints = $field['constraints'] ?? [];
-            if (preg_match('/^[a-z][a-z0-9_]{0,63}$/', $key) !== 1
-                || isset($seen[$key])
-                || !is_int($typeVersion)
-                || $typeVersion < 1
-                || !is_bool($required)
-                || !is_string($visibility)
-                || !in_array($visibility, ['public', 'admin'], true)
-                || !is_array($constraints)
-                || ($constraints !== [] && array_is_list($constraints))
-                || $this->propertyTypes->resolve($type, $typeVersion) === null) {
-                throw new StorageRejected('storage_schema_field_invalid');
-            }
-            foreach ($constraints as $constraintKey => $constraintValue) {
-                if (!is_string($constraintKey) || !is_scalar($constraintValue)) {
-                    throw new StorageRejected('storage_schema_constraint_invalid');
-                }
-            }
-            $seen[$key] = true;
-            $normalizedFields[] = [
-                'key' => $key,
-                'type' => $type,
-                'type_version' => $typeVersion,
-                'required' => $required,
-                'visibility' => $visibility,
-                'constraints' => $this->canonicalize($constraints),
-            ];
-        }
-
-        return [
-            'schema_id' => $schemaId,
-            'owner_package' => $ownerPackage,
-            'fields' => $normalizedFields,
-        ];
-    }
-
-    /**
-     * @param array<array-key, mixed> $values
-     * @return array<string, mixed>
-     */
-    private function normalizeValues(StorageSchemaVersion $schema, array $values): array
-    {
-        if ($values !== [] && array_is_list($values)) {
-            throw new StorageRejected('storage_record_values_invalid');
-        }
-        $fields = [];
-        foreach ($schema->fields as $field) {
-            $fields[(string) $field['key']] = $field;
-        }
-        foreach ($values as $key => $_value) {
-            if (!is_string($key) || !isset($fields[$key])) {
-                throw new StorageRejected('storage_record_unknown_field');
-            }
-        }
-
-        $normalized = [];
-        foreach ($fields as $key => $field) {
-            if (!array_key_exists($key, $values)) {
-                if (($field['required'] ?? false) === true) {
-                    throw new StorageRejected('storage_record_required_field_missing');
-                }
-                continue;
-            }
-            $result = $this->propertyTypes->normalizeAndValidate(
-                (string) $field['type'],
-                (int) $field['type_version'],
-                $values[$key],
-                is_array($field['constraints'] ?? null) ? $field['constraints'] : [],
-            );
-            if (!$result->canBePersistedByOwner()) {
-                throw new StorageRejected('storage_record_field_invalid');
-            }
-            $normalized[$key] = $result->normalizedValue;
-        }
-
-        return $normalized;
-    }
-
     private function hydrateSchemaVersion(stdClass $row): StorageSchemaVersion
     {
-        $definition = $this->decodeObject((string) $row->definition, 'storage_schema_definition_corrupt');
-        $fields = $definition['fields'] ?? null;
-        if (!is_array($fields) || !array_is_list($fields)) {
+        try {
+            $definition = $this->normalizer->normalize(
+                $this->decodeObject((string) $row->definition, 'storage_schema_definition_corrupt'),
+            );
+        } catch (StorageRejected) {
+            throw new StorageRejected('storage_schema_definition_corrupt');
+        }
+        $definitionHash = hash('sha256', $this->canonicalJson($definition));
+        if (!hash_equals((string) $row->definition_hash, $definitionHash)
+            || (string) $row->schema_id !== $definition['schema_id']
+            || (string) $row->owner_package !== $definition['owner_package']) {
             throw new StorageRejected('storage_schema_definition_corrupt');
         }
 
         return new StorageSchemaVersion(
             new StorageSchemaVersionRef((string) $row->schema_id, (int) $row->version),
             (string) $row->owner_package,
-            $fields,
-            (string) $row->definition_hash,
+            $definition['fields'],
+            $definitionHash,
             (string) $row->created_by,
             $row->correlation_id === null ? null : (string) $row->correlation_id,
             (string) $row->created_at,
@@ -578,12 +521,18 @@ final readonly class VersionedStorage implements VersionedStorageContract
 
     private function hydrateRecordVersion(stdClass $row): StorageRecordVersion
     {
+        $values = $this->decodeObject((string) $row->values_json, 'storage_record_values_corrupt');
+        $contentHash = hash('sha256', $this->canonicalJson($values));
+        if (!hash_equals((string) $row->content_hash, $contentHash)) {
+            throw new StorageRejected('storage_record_values_corrupt');
+        }
+
         return new StorageRecordVersion(
             new StorageRecordVersionRef((string) $row->schema_id, (string) $row->record_id, (int) $row->revision),
             (string) $row->owner_ref,
             new StorageSchemaVersionRef((string) $row->schema_id, (int) $row->schema_version),
-            $this->decodeObject((string) $row->values_json, 'storage_record_values_corrupt'),
-            (string) $row->content_hash,
+            $values,
+            $contentHash,
             (string) $row->operation,
             (string) $row->created_by,
             $row->correlation_id === null ? null : (string) $row->correlation_id,
@@ -594,16 +543,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
     /** @return array<string, mixed> */
     private function decodeObject(string $json, string $reason): array
     {
-        try {
-            $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        } catch (Throwable) {
-            throw new StorageRejected($reason);
-        }
-        if (!is_array($decoded) || array_is_list($decoded)) {
-            throw new StorageRejected($reason);
-        }
-
-        return $decoded;
+        return $this->normalizer->decodeObject($json, $reason);
     }
 
     /** @param array<string, mixed> $payload */
@@ -656,6 +596,14 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
+    /** @param array<string, mixed> $definition */
+    private function safeSchemaId(array $definition): string
+    {
+        $schemaId = is_string($definition['schema_id'] ?? null) ? trim($definition['schema_id']) : '';
+
+        return preg_match('/^[a-z][a-z0-9_.:-]{1,119}$/', $schemaId) === 1 ? $schemaId : 'unknown';
+    }
+
     private function correlationId(?string $correlationId, string $prefix): string
     {
         if ($correlationId === null) {
@@ -675,26 +623,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
 
     private function canonicalJson(mixed $value): string
     {
-        return json_encode(
-            $this->canonicalize($value),
-            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION,
-        );
-    }
-
-    private function canonicalize(mixed $value): mixed
-    {
-        if (!is_array($value)) {
-            return $value;
-        }
-        if (array_is_list($value)) {
-            return array_map(fn (mixed $item): mixed => $this->canonicalize($item), $value);
-        }
-        ksort($value, SORT_STRING);
-        foreach ($value as $key => $item) {
-            $value[$key] = $this->canonicalize($item);
-        }
-
-        return $value;
+        return $this->normalizer->canonicalJson($value);
     }
 
     private function isConstraintConflict(QueryException $exception): bool

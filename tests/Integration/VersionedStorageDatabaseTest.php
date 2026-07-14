@@ -19,6 +19,8 @@ use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\VersionedStorage;
+use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
+use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -117,6 +119,11 @@ function versionedStorageDatabaseMigration(): object
     return require __DIR__ . '/../../database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php';
 }
 
+function versionedStorageDatabaseEvolutionMigration(): object
+{
+    return require __DIR__ . '/../../database/migrations/2026_07_14_000002_create_larena_storage_schema_migration_tables.php';
+}
+
 function versionedStorageDatabaseExpect(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -168,7 +175,7 @@ function versionedStorageDatabaseSchemaDefinition(int $revision): array
             'type_version' => 1,
             'required' => false,
             'visibility' => 'public',
-            'constraints' => ['max_length' => 120],
+            'constraints' => [],
         ];
     }
 
@@ -210,6 +217,7 @@ try {
     $primary = versionedStorageDatabaseOpen($primaryPath);
     $migration = versionedStorageDatabaseMigration();
     $migration->up();
+    versionedStorageDatabaseEvolutionMigration()->up();
 
     $connection = $primary['connection'];
     $tables = [
@@ -227,12 +235,17 @@ try {
 
     $auditSink = new VersionedStorageDatabaseRecordingAuditSink();
     $authorizer = new VersionedStorageDatabaseRecordingAuthorizer();
+    $propertyTypes = PropertyTypeRegistry::builtIns();
+    $audit = new AuditEventPipeline(new DefaultAuditRedactor(), [$auditSink]);
     $storage = new VersionedStorage(
         $connection,
-        PropertyTypeRegistry::builtIns(),
+        $propertyTypes,
         $authorizer,
-        new AuditEventPipeline(new DefaultAuditRedactor(), [$auditSink]),
+        $audit,
     );
+    $ownerPolicies = new StorageSchemaEvolutionOwnerPolicyRegistry();
+    $ownerPolicies->seal();
+    $evolution = new DatabaseStorageSchemaEvolution($connection, $propertyTypes, $authorizer, $audit, $ownerPolicies);
 
     $invalidConstraintSchema = versionedStorageDatabaseSchemaDefinition(1);
     $invalidConstraintSchema['schema_id'] = 'docara.page.invalid_constraints';
@@ -264,12 +277,24 @@ try {
         'user:admin:1',
         $correlationSentinel,
     );
-    $schemaV2 = $storage->registerSchemaVersion(
-        versionedStorageDatabaseSchemaDefinition(2),
-        1,
-        'user:admin:1',
-        'storage-schema-v2',
-    );
+    $directV2DefinitionSentinel = 'PRIVATE_DIRECT_V2_DEFINITION_MUST_NOT_LEAK';
+    $directV2CorrelationSentinel = 'PRIVATE_DIRECT_V2_CORRELATION_MUST_NOT_LEAK';
+    $directV2Definition = versionedStorageDatabaseSchemaDefinition(2);
+    $directV2Definition['private_runtime_input'] = $directV2DefinitionSentinel;
+    try {
+        $storage->registerSchemaVersion(
+            $directV2Definition,
+            1,
+            'user:admin:1',
+            $directV2CorrelationSentinel,
+        );
+        throw new RuntimeException('direct schema v2 unexpectedly succeeded');
+    } catch (StorageRejected $exception) {
+        versionedStorageDatabaseExpect(
+            $exception->reasonCode === 'storage_schema_version_requires_migration_plan',
+            'direct schema v2 rejection reason mismatch',
+        );
+    }
     versionedStorageDatabaseExpect($schemaV1->ref->version === 1, 'schema v1 ref mismatch');
     versionedStorageDatabaseExpect(
         $schemaV1->correlationId !== $correlationSentinel
@@ -282,18 +307,31 @@ try {
             ->exists(),
         'raw caller correlation id persisted in the schema version',
     );
-    versionedStorageDatabaseExpect($schemaV2->ref->version === 2, 'schema v2 ref mismatch');
-    versionedStorageDatabaseExpect(count($storage->schemaVersion($schemaV1->ref)->fields) === 4, 'schema v1 mutated');
-    versionedStorageDatabaseExpect(count($storage->schemaVersion($schemaV2->ref)->fields) === 5, 'schema v2 missing field');
-    versionedStorageDatabaseExpect(
-        $storage->schemaVersion($schemaV1->ref)->definitionHash !== $schemaV2->definitionHash,
-        'schema versions must have distinct immutable hashes',
-    );
     versionedStorageDatabaseExpect(
         in_array('storage.schema.create', $authorizer->operations(), true)
             && in_array('storage.schema.version', $authorizer->operations(), true),
         'schema create and version must use distinct Access operations',
     );
+    $directV2AuditEvents = array_values(array_filter(
+        $auditSink->events(),
+        static fn (AuditEvent $event): bool => $event->type === 'storage.schema.version_rejected',
+    ));
+    versionedStorageDatabaseExpect(count($directV2AuditEvents) === 1, 'direct schema v2 rejection Audit missing');
+    versionedStorageDatabaseExpect(
+        $directV2AuditEvents[0]->payload === [
+            'schema_id' => 'docara.page.article',
+            'expected_head_version' => 1,
+            'reason_code' => 'storage_schema_version_requires_migration_plan',
+        ],
+        'direct schema v2 rejection Audit payload is not the exact sanitized contract',
+    );
+    $directV2AuditJson = json_encode($directV2AuditEvents, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    foreach ([$directV2DefinitionSentinel, $directV2CorrelationSentinel, 'subtitle'] as $privateDirectV2Material) {
+        versionedStorageDatabaseExpect(
+            !str_contains($directV2AuditJson, $privateDirectV2Material),
+            'direct schema v2 rejection Audit leaked raw definition or correlation material',
+        );
+    }
 
     $v1Raw = versionedStorageDatabaseValues(
         '  public v1 is exact  ',
@@ -325,6 +363,70 @@ try {
         'internal_note' => 'admin v1 must stay private',
     ], 'string/integer/boolean normalization mismatch');
 
+    $schemaPlan = $evolution->plan(
+        $schemaV1->ref,
+        versionedStorageDatabaseSchemaDefinition(2),
+        'user:admin:1',
+        'storage-schema-plan-v2',
+    );
+    $schemaResult = $evolution->apply(
+        $schemaPlan->planRef,
+        $schemaPlan->planHash,
+        'user:admin:1',
+        'storage-schema-apply-v2',
+    );
+    $schemaV2 = $storage->schemaVersion($schemaResult->target);
+    $migratedV2 = $storage->readAdminCurrentVersion(
+        $recordV1->ref->schemaId,
+        'docara:page:typed-1',
+        'user:admin:1',
+    );
+    if ($migratedV2 === null) {
+        throw new RuntimeException('schema evolution lost the record head');
+    }
+    versionedStorageDatabaseExpect($schemaV2->ref->version === 2, 'schema v2 ref mismatch');
+    versionedStorageDatabaseExpect(count($storage->schemaVersion($schemaV1->ref)->fields) === 4, 'schema v1 mutated');
+    versionedStorageDatabaseExpect(count($storage->schemaVersion($schemaV2->ref)->fields) === 5, 'schema v2 missing field');
+    versionedStorageDatabaseExpect(
+        $storage->schemaVersion($schemaV1->ref)->definitionHash !== $schemaV2->definitionHash,
+        'schema versions must have distinct immutable hashes',
+    );
+    versionedStorageDatabaseExpect(
+        $migratedV2->ref->revision === 2 && $migratedV2->operation === 'schema_migration',
+        'schema evolution did not create immutable record revision 2',
+    );
+    try {
+        $storage->create(
+            'docara:page:stale-schema-create',
+            $schemaV1->ref,
+            $v1Raw,
+            'user:admin:1',
+            'stale-schema-create',
+        );
+        throw new RuntimeException('create under stale schema unexpectedly succeeded');
+    } catch (StorageRejected $exception) {
+        versionedStorageDatabaseExpect(
+            $exception->reasonCode === 'storage_record_schema_not_current',
+            'stale-schema create reason mismatch',
+        );
+    }
+    try {
+        $storage->compareAndSwap(
+            'docara:page:typed-1',
+            $migratedV2->ref,
+            $schemaV1->ref,
+            $v1Raw,
+            'user:admin:1',
+            'stale-schema-cas',
+        );
+        throw new RuntimeException('CAS under stale schema unexpectedly succeeded');
+    } catch (StorageRejected $exception) {
+        versionedStorageDatabaseExpect(
+            $exception->reasonCode === 'storage_record_schema_not_current',
+            'stale-schema CAS reason mismatch',
+        );
+    }
+
     $v2Raw = versionedStorageDatabaseValues(
         'public v2',
         '-7',
@@ -334,14 +436,14 @@ try {
     );
     $updated = $storage->compareAndSwap(
         'docara:page:typed-1',
-        $recordV1->ref,
+        $migratedV2->ref,
         $schemaV2->ref,
         $v2Raw,
         'user:admin:1',
         'storage-record-v2',
     );
     $recordV2 = $updated->version;
-    versionedStorageDatabaseExpect($recordV2->ref->revision === 2, 'record v2 ref mismatch');
+    versionedStorageDatabaseExpect($recordV2->ref->revision === 3, 'record v2 ref mismatch');
     versionedStorageDatabaseExpect($recordV2->operation === 'update', 'CAS must create an update version');
     versionedStorageDatabaseExpect($recordV2->values['priority'] === -7, 'integer normalization not persisted');
     versionedStorageDatabaseExpect($recordV2->values['featured'] === false, 'boolean normalization not persisted');
@@ -353,7 +455,7 @@ try {
     try {
         $storage->compareAndSwap(
             'docara:page:typed-1',
-            $recordV1->ref,
+            $migratedV2->ref,
             $schemaV2->ref,
             versionedStorageDatabaseValues('stale loser', '8', 'true', 'stale private', 'stale subtitle'),
             'user:admin:1',
@@ -367,7 +469,7 @@ try {
         );
     }
     versionedStorageDatabaseExpect(
-        $connection->table('larena_storage_record_versions')->count() === 2,
+        $connection->table('larena_storage_record_versions')->count() === 3,
         'stale CAS persisted a record version',
     );
 
@@ -376,7 +478,7 @@ try {
             $recordV2->ref->schemaId,
             'docara:page:typed-1',
             'user:admin:1',
-        )?->ref->revision === 2,
+        )?->ref->revision === 3,
         'actor-checked current record read did not return v2',
     );
     versionedStorageDatabaseExpect(
@@ -435,6 +537,21 @@ try {
         new VersionedStorageDatabaseDenyAllAuthorizer(),
         new AuditEventPipeline(new DefaultAuditRedactor(), [$deniedAudit]),
     );
+    try {
+        $deniedStorage->registerSchemaVersion(
+            ['schema_id' => 'docara.page.denied_version', 'private_runtime_input' => 'DENIED_SCHEMA_SECRET'],
+            1,
+            'user:reader:2',
+            'DENIED_SCHEMA_CORRELATION_SECRET',
+        );
+        throw new RuntimeException('denied direct schema version unexpectedly reached rejection Audit');
+    } catch (AccessMutationRejected $exception) {
+        versionedStorageDatabaseExpect(
+            $exception->reasonCode === 'access_actor_forbidden',
+            'direct schema version Access denial reason mismatch',
+        );
+    }
+    versionedStorageDatabaseExpect($deniedAudit->events() === [], 'Access-denied schema version emitted Audit');
     try {
         $deniedStorage->create(
             'docara:page:denied',

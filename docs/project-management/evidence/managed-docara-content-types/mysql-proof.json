@@ -1,9 +1,9 @@
 {
-  "schema": "larena.storage_owned_table_shape_mysql_proof.v1",
+  "schema": "larena.storage_mysql_acceptance_proof.v2",
   "package": "larena/storage",
   "goal": "managed-docara-content-types",
-  "batch": "M1/B1-storage-owned-table-shape-hardening",
-  "ownership": "root_acceptance_harness",
+  "batch": "M1-M3-storage-safe-schema-evolution",
+  "ownership": "root_and_package_acceptance_harnesses",
   "test": "tests/Integration/StorageOwnedTableShapeMySqlTest.php",
   "database": "isolated_generated_real_mysql_schema",
   "status": "passed",
@@ -29,5 +29,36 @@
     "credentials_recorded": false,
     "schema_name_recorded": false,
     "sql_recorded": false
+  },
+  "schema_evolution_acceptance": {
+    "test": "tests/Integration/StorageSchemaEvolutionMySqlTest.php",
+    "runtime": "ServBay PHP with pdo_mysql and pcntl",
+    "database": "strict_allowlisted_random_disposable_real_mysql_schema",
+    "status": "passed",
+    "opt_in": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1",
+    "proved": [
+      "credential_file_exact_path_ignored_untracked_mode_0600_and_local_host_only",
+      "preexisting_schema_refused_and_random_schema_name_strictly_allowlisted",
+      "all_four_migration_tables_reject_wrong_type_nullability_extra_column_primary_unique_and_secondary_contracts_before_ddl",
+      "mysql_varchar_length_char_varchar_signed_bigint_integer_width_json_text_and_auto_increment_drift_rejected_before_ddl",
+      "explicit_partial_down_refused_without_mutating_remaining_tables",
+      "clean_install_validation_unused_down_and_reapply_passed",
+      "explicit_null_required_addition_and_constraint_bearing_addition_rejected_without_state",
+      "persisted_plan_explained_after_disconnect_and_reconnect",
+      "two_fresh_processes_apply_one_plan_with_exactly_one_winner",
+      "zero_false_empty_string_unicode_content_hash_canonical_json_and_absent_optional_fields_preserved_strictly",
+      "used_migration_down_refused_without_mutating_tables",
+      "generated_schema_remaining_zero"
+    ],
+    "cleanup": {
+      "generated_schema_remaining": 0,
+      "asserted": true,
+      "shutdown_fallback_limited_to_owner_pid": true
+    },
+    "privacy": {
+      "credentials_recorded": false,
+      "schema_name_recorded": false,
+      "sql_or_exception_details_recorded": false
+    }
   }
 }

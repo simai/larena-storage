@@ -20,7 +20,22 @@ tests/Unit/StorageAuditEmissionTest.php
 tests/Unit/StoragePersistenceFailClosedTest.php
 tests/Unit/StorageTransactionBoundaryTest.php
 tests/Integration/StorageOwnedTableShapeTest.php
+tests/Integration/StorageSchemaMigrationTableShapeTest.php
+tests/Integration/StorageSchemaEvolutionTest.php
+tests/Integration/StorageSchemaEvolutionAdversarialTest.php
+tests/Integration/StorageSchemaEvolutionOwnerProtectionTest.php
+tests/Integration/StorageSchemaEvolutionOwnerPolicyProviderOrderTest.php
+tests/Integration/StorageSchemaEvolutionConcurrencyTest.php
+tests/Integration/StorageSchemaEvolutionMySqlTest.php
 tests/Integration/VersionedStorageDatabaseTest.php
+```
+
+The real-MySQL schema-evolution harness is opt-in and uses only the ignored
+root test credential file. It creates and removes one strict-allowlisted random
+schema and refuses a pre-existing name:
+
+```bash
+composer run test:mysql-schema-evolution
 ```
 
 Entry app smoke:
@@ -61,3 +76,17 @@ location map.
 - upgrade validation is read-only;
 - `down()` drops only the complete compatible empty topology and clean
   down/reapply is reproducible.
+- only optional additions with empty constraints are compatible;
+- plan/source/record/hash tampering and stale heads produce no partial writes;
+- `0`, `false`, empty string, Unicode and absent optional keys survive exact
+  record migration, while explicit unsupported null remains rejected by
+  Property-owned validation;
+- Plan/apply Audit failure rolls back plans, schema, records and result; two processes applying
+  one plan produce exactly one winner.
+- protected-owner direct plan/apply and forged/replayed capabilities fail
+  before mutation, while a one-shot transaction-bound owner capability passes;
+- provider registration protects the final container singleton for every
+  supported Storage/consumer resolution order;
+- real MySQL rejects exact length, char/varchar, integer width/sign, JSON and
+  auto-increment drift, survives restart/concurrent apply and removes the
+  generated schema completely.

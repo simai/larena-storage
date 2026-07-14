@@ -11,7 +11,11 @@
 - transaction boundary used by storage mutations;
 - access-scope and audit emitter integration points;
 - exact package-owned table shape and safe install/upgrade/unused rollback for
-  the immutable typed-content slice.
+  the immutable typed-content slice;
+- bounded optional-field compatibility, immutable migration plans/results and
+  atomic schema plus record-head evolution;
+- the owner-neutral registry and exact transaction-scope proof used when a
+  consumer protects its schema namespace.
 
 `larena/storage` consumes:
 
@@ -19,6 +23,11 @@
 - `larena/audit` event emission boundary;
 - future `larena/secret` and encryption policy decisions;
 - future SitePack portability contracts.
+
+The protected schema owner, not Storage, owns capability issuance, aggregate
+orchestration and any additional Page/domain-head checks. Storage owns only the
+generic policy registry, verified Storage hashes and exact connection/scope
+proof.
 
 `larena/storage` must not own:
 
@@ -47,8 +56,11 @@ Storage platform, arbitrary schema evolution or production rollout is complete.
 ## Current Non-Goals
 
 - No production-readiness claim or automatic repair of foreign table shapes.
-- No arbitrary/destructive schema evolution; managed optional-field evolution
-  belongs to the active goal beyond the shape-hardening checkpoint.
+- No arbitrary/destructive schema evolution. The implemented checkpoint only
+  adds optional fields with empty constraints while preserving all existing
+  descriptors and their relative order.
+- No implicit nullable semantics: `required=false` means a key may be absent,
+  not that explicit `null` bypasses Property validation.
 - No encryption key policy.
 - No SitePack import/export runtime.
 - No admin UI or REST endpoints.

@@ -33,8 +33,8 @@ state and produce an inspectable decision/result.
 ## Persistence Boundary
 
 `LaravelDatabaseStorageAdapter` remains the generic baseline adapter boundary.
-The immutable typed-content slice additionally owns four additive
-`larena_storage_*` tables. Their current table shape, install/upgrade preflight
+The immutable typed-content slice additionally owns four version tables and
+four migration plan/result tables. Their current table shape, install/upgrade preflight
 and unused rollback are package contracts; this does not make the wider Storage
 platform production-ready.
 
@@ -48,6 +48,28 @@ validates already-installed tables during declared upgrades.
 
 Future launch records must still decide query translation, retention, cleanup,
 large migrations, backup/restore and production rollout policy.
+
+## Schema Evolution Boundary
+
+The evolution sequence is `analyze -> plan -> explain/apply`. Direct v2+
+registration fails with `storage_schema_version_requires_migration_plan`.
+Plans and results are insert-only and content-addressed. Apply uses the common
+lock order `schema head -> ordered record heads`, recomputes plan/source/value
+hashes, then writes the target schema, record revisions, result and Security
+Audit event in one database transaction. Audit failure rolls everything back.
+
+Only optional added fields with empty constraints are accepted. Existing field
+descriptors and their relative order must be unchanged. Unknown definition
+keys, explicit nulls unsupported by Property, removals, reorders, required
+additions and added-field constraints fail closed.
+
+The container-local owner-policy registry is sealed at Storage provider boot.
+An owner may protect its package/schema prefix and require a one-shot
+capability inside the exact outer transaction and database connection. Direct
+generic plan/apply, wrong actor/operation/ref/hash, forged or replayed
+capabilities, expired scopes and cross-connection reuse all fail before
+mutation. Storage verifies scope; the consumer owns capability issuance and
+its aggregate transaction.
 
 ## Access And Audit Boundaries
 

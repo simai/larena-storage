@@ -9,18 +9,17 @@ use Larena\Audit\Contracts\AuditEventDescriptor;
 use Larena\Audit\Enums\AuditRetentionClass;
 use Larena\Audit\Enums\AuditSeverity;
 
-final readonly class StorageVersionAuditEventDescriptor implements AuditEventDescriptor
+final readonly class StorageSchemaMigrationAuditEventDescriptor implements AuditEventDescriptor
 {
     public function __construct(private string $eventType)
     {
         if (!in_array($eventType, [
-            'storage.schema.created',
-            'storage.schema.versioned',
-            'storage.schema.version_rejected',
-            'storage.record.created',
-            'storage.record.updated',
+            'storage.schema_migration.analyzed',
+            'storage.schema_migration.planned',
+            'storage.schema_migration.applied',
+            'storage.schema_migration.rejected',
         ], true)) {
-            throw new InvalidArgumentException('storage_audit_event_type_invalid');
+            throw new InvalidArgumentException('storage_schema_migration_audit_event_type_invalid');
         }
     }
 
@@ -31,7 +30,7 @@ final readonly class StorageVersionAuditEventDescriptor implements AuditEventDes
 
     public function category(): string
     {
-        return str_starts_with($this->eventType, 'storage.schema.') ? 'storage_schema' : 'storage_record';
+        return 'storage_schema_migration';
     }
 
     public function type(): string
@@ -57,24 +56,9 @@ final readonly class StorageVersionAuditEventDescriptor implements AuditEventDes
     public function forbiddenPayloadFields(): array
     {
         return [
-            'definition',
-            'target_definition',
-            'fields',
-            'field',
-            'field_key',
-            'field_keys',
-            'value',
-            'values',
-            'field_value',
-            'field_values',
-            'raw_value',
-            'raw_values',
-            'payload',
-            'content',
-            'secret',
-            'token',
-            'credential',
-            'password',
+            'definition', 'target_definition', 'fields', 'field', 'field_key', 'field_keys',
+            'value', 'values', 'field_value', 'field_values', 'raw_value', 'raw_values',
+            'payload', 'content', 'secret', 'token', 'credential', 'password',
         ];
     }
 

@@ -2,11 +2,22 @@
   "schema": "larena.package_deviations.v1",
   "package": "larena/storage",
   "goal": "managed-docara-content-types",
-  "batch": "M1/B1-storage-owned-table-shape-hardening",
-  "deviations": [],
+  "batch": "M1-M3-storage-safe-schema-evolution",
+  "deviations": [
+    {
+      "code": "nullable_contract_not_available",
+      "status": "bounded_nonclaim",
+      "detail": "Frozen Property built-ins reject explicit null. required=false permits an absent key only; Storage does not bypass Property validation."
+    },
+    {
+      "code": "added_field_constraints_empty_only",
+      "status": "fail_closed_scope_reduction",
+      "detail": "Frozen Property API has no schema-level constraint validator, so new optional fields require constraints=[] until an owner-faithful validator exists."
+    }
+  ],
   "bounded_non_goals": [
-    "schema_compatibility_analysis_or_migration_plans",
-    "versioned_storage_evolution",
+    "destructive_or_arbitrary_schema_evolution",
+    "online_large_dataset_migration",
     "docara_content_types_or_managed_pages",
     "frontend_admin_rest_or_mcp",
     "automatic_foreign_table_repair",
@@ -14,6 +25,8 @@
     "all_41_packages_readiness"
   ],
   "remaining_gates": [
-    "exact_storage_revision_publication"
+    "independent_root_acceptance",
+    "docara_consumer_integration",
+    "entry_app_publication"
   ]
 }

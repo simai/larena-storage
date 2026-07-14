@@ -23,6 +23,23 @@ All notable changes to `larena/storage` are documented in this file.
 - Add a read-only upgrade validation migration and file-backed SQLite
   adversarial coverage for foreign/partial tables, missing and wrongly composed
   indexes, idempotent completion and rollback/reapply.
+- Add the public `StorageSchemaEvolution` contract with immutable compatibility,
+  plan and result DTOs that expose only safe refs, counts and hashes.
+- Add an optional-field-only compatibility analyzer, content-addressed plans,
+  atomic schema/record migration results and four guarded migration tables.
+- Add sanitized Access operations and Security Audit events for analyze, plan,
+  explain, dispatch, apply and rejection paths.
+- Add adversarial file-backed SQLite coverage for incompatible definitions,
+  unknown keys, tampered plan/source/record state, stale heads, Access denial,
+  Audit failure rollback and a two-process one-winner apply race.
+- Add a sealed container-local owner policy registry with opaque
+  transaction-scoped proof and consumer-validated one-shot orchestration
+  capabilities for protected schema namespaces.
+- Add provider-order and protected-owner adversarial coverage for direct,
+  forged, cloned, expired, mismatched and replayed plan/apply attempts.
+- Add opt-in isolated real-MySQL acceptance for all four migration-table shape
+  contracts, clean install/down/reapply, restart, concurrent one-winner apply,
+  strict value preservation, used rollback refusal and cleanup to zero.
 
 ### Changed
 
@@ -33,10 +50,16 @@ All notable changes to `larena/storage` are documented in this file.
   record version and `storage.record.updated` Audit event.
 - Run the full owned-table preflight before the first DDL statement and verify
   the completed topology again after creating missing tables.
+- Block direct schema version 2+ registration and require a verified migration
+  plan for evolution.
+- Require create/CAS to lock and match the current exact schema head; harden
+  immutable reads against transplanted definitions, owner mismatches and
+  content-hash corruption.
 
 ### Migration notes
 
-- The migration is additive and creates four `larena_storage_*` tables.
+- The original migration is additive and creates four version tables. The
+  schema-evolution migration adds four immutable plan/result tables.
 - A correct empty subset of those tables may be completed during install.
 - Install and upgrade refuse foreign columns, incompatible portable column
   metadata, missing or wrongly composed indexes, and data-bearing partial
@@ -46,6 +69,9 @@ All notable changes to `larena/storage` are documented in this file.
   compatible, empty owned topology.
 - Clean unused databases support deterministic down/reapply; the second
   migration performs read-only upgrade validation.
+- The evolution migration performs its own full SQLite/MySQL shape preflight.
+  It refuses foreign/damaged/used partial shapes and refuses `down()` when any
+  plan/result data exists.
 
 This unreleased slice does not claim production readiness or readiness of all
 Larena packages.

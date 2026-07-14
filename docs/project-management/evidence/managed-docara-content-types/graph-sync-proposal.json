@@ -2,15 +2,19 @@
   "schema": "mirai.graph_sync_proposal.v1",
   "package": "larena/storage",
   "goal": "managed-docara-content-types",
-  "batch": "M1/B1-storage-owned-table-shape-hardening",
+  "batch": "M1-M3-storage-safe-schema-evolution",
   "proposal_status": "proposal_only",
   "canonical_update_allowed": false,
   "must_not_apply_automatically": true,
   "proposed_capabilities": [
     "storage.owned_table_shape_guard",
-    "storage.owned_table_upgrade_validation",
-    "storage.fail_closed_owned_table_rollback"
+    "storage.schema_migration_optional_additions",
+    "storage.immutable_schema_migration_plans",
+    "storage.atomic_record_schema_migration",
+    "storage.fail_closed_schema_migration_concurrency",
+    "storage.owner_protected_schema_migration_orchestration",
+    "storage.sanitized_schema_migration_audit"
   ],
   "owner_review_required": true,
-  "notes": "No canonical graph or specification source was changed."
+  "notes": "No canonical graph/spec or external package source was changed. The owner-neutral protection seam is implemented; Docara remains responsible for its concrete one-shot capability issuer and aggregate transaction. Explicit-null and constrained optional additions remain owner-review gaps."
 }

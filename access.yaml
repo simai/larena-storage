@@ -7,6 +7,18 @@ operations:
   - code: storage.schema.version
     risk: critical
     audit: always
+  - code: storage.schema_migration.diff
+    risk: high
+    audit: denial
+  - code: storage.schema_migration.plan
+    risk: critical
+    audit: always
+  - code: storage.schema_migration.dispatch
+    risk: critical
+    audit: always
+  - code: storage.schema_migration.explain
+    risk: high
+    audit: denial
   - code: storage.record.create
     risk: high
     audit: always

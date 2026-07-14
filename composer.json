@@ -105,8 +105,16 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSchemaContractTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageTransactionBoundaryTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageOwnedTableShapeTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaMigrationTableShapeTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionAdversarialTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionOwnerProtectionTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionOwnerPolicyProviderOrderTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionConcurrencyTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageDatabaseTest.php"
         ],
+        "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
         "test:unit": [
             "@test"
         ],

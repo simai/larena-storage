@@ -1,33 +1,51 @@
 # Tests
 
-Runtime: ServBay PHP.
+Runtime: ServBay PHP with disposable file-backed SQLite plus an explicitly
+opted-in, generated allowlisted real-MySQL schema.
 
-Fresh package evidence for this checkpoint:
+Executable coverage:
 
-- `tests/Integration/StorageOwnedTableShapeTest.php`: passed;
-- `tests/Integration/VersionedStorageDatabaseTest.php`: passed after migration
-  hardening;
-- package `composer run quality:gate`: passed (59 PHP files linted, PHPStan
-  clean, 11 package script tests passed, metadata/evidence/scope checks passed);
-- `composer validate --strict`: passed; Composer emitted upstream PHP 8.4
-  deprecation notices but no manifest error;
-- root-owned isolated real-MySQL shape test after the final named-index and
-  column-contract freeze: passed (1 test, 77 assertions, 6646 ms); generated
-  schema cleanup asserted zero remaining schemas. No schema name or credential
-  was copied into package evidence.
+- `StorageOwnedTableShapeTest.php`: original version-table shape lifecycle;
+- `StorageSchemaMigrationTableShapeTest.php`: unsupported/foreign/partial/
+  index-damaged/down-refusal/clean-reapply migration-table lifecycle;
+- `StorageSchemaEvolutionTest.php`: RED-then-GREEN happy path, direct-v2 block,
+  safe DTOs, exact values, Access operations, Audit sanitation and repeat apply;
+- `StorageSchemaEvolutionAdversarialTest.php`: identity/type/type-version/
+  required/visibility/constraint/removal/reorder/no-op/unknown rejection,
+  explicit-null rejection, legacy omitted defaults, hash/definition/item/
+  source/record tamper, stale schema/record heads, Access validation-oracle
+  denial, injected plan/apply Audit rollback and immutable-read corruption;
+- `StorageSchemaEvolutionOwnerProtectionTest.php`: launch criterion 232 direct
+  protected plan/apply denial, Access-before-policy ordering, exact
+  actor/operation/source/target/plan/hash/connection/transaction binding,
+  forged/cloned/expired capability denial, successful sealed outer
+  transaction, one-shot replay denial and unchanged unprotected-owner flow;
+- `StorageSchemaEvolutionOwnerPolicyProviderOrderTest.php`: Storage-first,
+  consumer-first, already-resolved Storage and transient-registry-before-
+  singleton provider permutations. Registration state is scoped to registry
+  identity so the singleton is always protected before seal;
+- `StorageSchemaEvolutionConcurrencyTest.php`: two forked processes and two
+  SQLite connections apply one plan with exactly one result winner;
+- `StorageSchemaEvolutionMySqlTest.php`: all four new table shape matrices,
+  including varchar length, char/varchar, signed/width, JSON/text and
+  auto-increment drift; clean install/down/reapply, null/required/constraint
+  rejection, plan restart/reconnect, two-process one-winner apply, strict
+  value/hash/JSON preservation, used-down refusal and cleanup remaining zero;
+- `VersionedStorageDatabaseTest.php`: legacy exact reads/CAS/restart/Audit
+  atomicity through the new schema-evolution path.
 
-The SQLite matrix covers foreign/missing/extra columns, portable column
-contract and auto-increment mismatch, missing/wrong primary key, missing/wrong unique index,
-missing/wrong/renamed secondary and unique indexes, no DDL after failed preflight, compatible empty
-partial completion, data-bearing partial refusal, idempotent full topology,
-read-only upgrade rejection, absent/partial/incompatible/data-bearing down and
-clean down/reapply.
+The two criterion-232 tests and the MySQL harness are included in
+`composer test`; the MySQL harness exits successfully as an explicit skip
+unless opted in. Run the real database path with:
 
-An unsupported-driver preflight proves that install, validation and rollback
-fail with a sanitized code before requesting PDO/schema metadata or executing
-DDL. SQLite native-JSON mode is covered by fresh install, validation and clean
-down/reapply.
+```bash
+composer run test:mysql-schema-evolution
+```
 
-The MySQL matrix additionally rejects `INT` in place of the declared `BIGINT`
-and `VARCHAR` in place of the declared fixed `CHAR`, as well as wrong length,
-nullability and unsigned metadata.
+The focused real-MySQL run passed without recording credentials or the random
+schema name, and cleanup asserted zero remaining generated schemas. Final
+package `composer quality:gate` passed: launch validation, 81 PHP files linted,
+PHPStan clean, 18 executable package test scripts passed (the MySQL script
+performed its expected non-opted-in skip inside the default gate), metadata and
+evidence checks passed, and scope-check accepted 58 changed files. Composer PHP
+8.4 deprecation notices are upstream noise and not test failures.
