@@ -355,6 +355,134 @@ function storageEvolutionMySqlForkApply(
     }
 }
 
+/**
+ * @param list<int> $pids
+ * @return array<int, int>
+ */
+function storageEvolutionMySqlWaitForChildren(array $pids, float $timeoutSeconds): array
+{
+    if (!function_exists('posix_kill')) {
+        throw new RuntimeException('storage_mysql_posix_kill_required');
+    }
+
+    $remaining = array_fill_keys($pids, true);
+    $statuses = [];
+    $failure = null;
+    $deadline = microtime(true) + $timeoutSeconds;
+    while ($remaining !== [] && microtime(true) < $deadline) {
+        foreach (array_keys($remaining) as $pid) {
+            $status = 0;
+            $waited = pcntl_waitpid($pid, $status, WNOHANG);
+            if ($waited === $pid) {
+                $statuses[$pid] = $status;
+                unset($remaining[$pid]);
+            } elseif ($waited === -1) {
+                $error = pcntl_get_last_error();
+                if (defined('PCNTL_EINTR') && $error === constant('PCNTL_EINTR')) {
+                    continue;
+                }
+                if (defined('PCNTL_ECHILD') && $error === constant('PCNTL_ECHILD')) {
+                    unset($remaining[$pid]);
+                    continue;
+                }
+                $failure = 'storage_mysql_wait_failed';
+                break 2;
+            }
+        }
+        if ($remaining !== []) {
+            usleep(20_000);
+        }
+    }
+
+    if ($remaining !== [] && $failure === null) {
+        $failure = 'storage_mysql_children_timeout';
+    }
+
+    foreach (array_keys($remaining) as $pid) {
+        @posix_kill($pid, SIGTERM);
+    }
+    $terminateDeadline = microtime(true) + 1.0;
+    while ($remaining !== [] && microtime(true) < $terminateDeadline) {
+        foreach (array_keys($remaining) as $pid) {
+            $status = 0;
+            $waited = pcntl_waitpid($pid, $status, WNOHANG);
+            if ($waited === $pid) {
+                $statuses[$pid] = $status;
+                unset($remaining[$pid]);
+            } elseif ($waited === -1
+                && defined('PCNTL_ECHILD')
+                && pcntl_get_last_error() === constant('PCNTL_ECHILD')) {
+                unset($remaining[$pid]);
+            }
+        }
+        if ($remaining !== []) {
+            usleep(20_000);
+        }
+    }
+    foreach (array_keys($remaining) as $pid) {
+        @posix_kill($pid, SIGKILL);
+    }
+    foreach (array_keys($remaining) as $pid) {
+        while (true) {
+            $status = 0;
+            $waited = pcntl_waitpid($pid, $status);
+            if ($waited === $pid) {
+                $statuses[$pid] = $status;
+                unset($remaining[$pid]);
+                break;
+            }
+            if ($waited === -1
+                && defined('PCNTL_EINTR')
+                && pcntl_get_last_error() === constant('PCNTL_EINTR')) {
+                continue;
+            }
+            $failure ??= 'storage_mysql_reap_failed';
+            unset($remaining[$pid]);
+            break;
+        }
+    }
+
+    if ($failure !== null) {
+        throw new RuntimeException($failure);
+    }
+
+    return $statuses;
+}
+
+function storageEvolutionMySqlAssertTimeoutCleanup(): void
+{
+    $pid = pcntl_fork();
+    if ($pid === -1) {
+        throw new RuntimeException('storage_mysql_timeout_probe_fork_failed');
+    }
+    if ($pid === 0) {
+        usleep(5_000_000);
+        exit(0);
+    }
+
+    $startedAt = microtime(true);
+    $failure = null;
+    try {
+        storageEvolutionMySqlWaitForChildren([$pid], 0.05);
+    } catch (RuntimeException $exception) {
+        $failure = $exception->getMessage();
+    }
+    storageEvolutionMySqlExpect($failure === 'storage_mysql_children_timeout', 'storage_mysql_timeout_probe_reason_invalid');
+    storageEvolutionMySqlExpect(microtime(true) - $startedAt < 3.0, 'storage_mysql_timeout_probe_deadline_exceeded');
+    $status = 0;
+    do {
+        $waited = pcntl_waitpid($pid, $status, WNOHANG);
+    } while ($waited === -1
+        && defined('PCNTL_EINTR')
+        && pcntl_get_last_error() === constant('PCNTL_EINTR'));
+    storageEvolutionMySqlExpect(
+        $waited === -1
+            && defined('PCNTL_ECHILD')
+            && pcntl_get_last_error() === constant('PCNTL_ECHILD'),
+        'storage_mysql_timeout_probe_not_reaped',
+    );
+}
+
 /** @param array{host: string, port: int, username: string, password: string} $credentials */
 function storageEvolutionMySqlRegisterCleanup(
     bool &$cleanupPending,
@@ -394,6 +522,7 @@ if (!is_string($optIn) || !filter_var($optIn, FILTER_VALIDATE_BOOL)) {
 }
 storageEvolutionMySqlExpect(extension_loaded('pdo_mysql'), 'storage_mysql_pdo_extension_missing');
 storageEvolutionMySqlExpect(extension_loaded('pcntl'), 'storage_mysql_pcntl_extension_missing');
+storageEvolutionMySqlAssertTimeoutCleanup();
 
 $credentials = storageEvolutionMySqlCredentials();
 $database = 'larena_storage_evolution_test_' . strtolower(bin2hex(random_bytes(6)));
@@ -523,8 +652,9 @@ try {
     $pidA = storageEvolutionMySqlForkApply($config, $barrier, $outputA, $plan->planRef, $plan->planHash, 'user:worker:a');
     $pidB = storageEvolutionMySqlForkApply($config, $barrier, $outputB, $plan->planRef, $plan->planHash, 'user:worker:b');
     storageEvolutionMySqlExpect(file_put_contents($barrier, 'go') !== false, 'storage_mysql_barrier_create_failed');
-    pcntl_waitpid($pidA, $statusA);
-    pcntl_waitpid($pidB, $statusB);
+    $statuses = storageEvolutionMySqlWaitForChildren([$pidA, $pidB], 30.0);
+    $statusA = $statuses[$pidA];
+    $statusB = $statuses[$pidB];
     storageEvolutionMySqlExpect(pcntl_wifexited($statusA) && pcntl_wexitstatus($statusA) === 0, 'storage_mysql_worker_a_failed');
     storageEvolutionMySqlExpect(pcntl_wifexited($statusB) && pcntl_wexitstatus($statusB) === 0, 'storage_mysql_worker_b_failed');
     $outcomes = [trim((string) file_get_contents($outputA)), trim((string) file_get_contents($outputB))];

@@ -25,12 +25,14 @@ Executable coverage:
   singleton provider permutations. Registration state is scoped to registry
   identity so the singleton is always protected before seal;
 - `StorageSchemaEvolutionConcurrencyTest.php`: two forked processes and two
-  SQLite connections apply one plan with exactly one result winner;
+  SQLite connections apply one plan with exactly one result winner; a forced
+  parent timeout proves TERM/KILL cleanup is bounded and the child is reaped;
 - `StorageSchemaEvolutionMySqlTest.php`: all four new table shape matrices,
   including varchar length, char/varchar, signed/width, JSON/text and
   auto-increment drift; clean install/down/reapply, null/required/constraint
   rejection, plan restart/reconnect, two-process one-winner apply, strict
-  value/hash/JSON preservation, used-down refusal and cleanup remaining zero;
+  value/hash/JSON preservation, bounded/reaped worker timeout handling,
+  used-down refusal and cleanup remaining zero;
 - `VersionedStorageDatabaseTest.php`: legacy exact reads/CAS/restart/Audit
   atomicity through the new schema-evolution path.
 

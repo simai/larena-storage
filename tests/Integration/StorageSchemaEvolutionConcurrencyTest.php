@@ -86,6 +86,136 @@ function storageEvolutionForkApply(
     }
 }
 
+/**
+ * @param list<int> $pids
+ * @return array<int, int>
+ */
+function storageEvolutionWaitForChildren(array $pids, float $timeoutSeconds): array
+{
+    if (!function_exists('posix_kill')) {
+        throw new RuntimeException('storage_evolution_posix_kill_required');
+    }
+
+    $remaining = array_fill_keys($pids, true);
+    $statuses = [];
+    $failure = null;
+    $deadline = microtime(true) + $timeoutSeconds;
+    while ($remaining !== [] && microtime(true) < $deadline) {
+        foreach (array_keys($remaining) as $pid) {
+            $status = 0;
+            $waited = pcntl_waitpid($pid, $status, WNOHANG);
+            if ($waited === $pid) {
+                $statuses[$pid] = $status;
+                unset($remaining[$pid]);
+            } elseif ($waited === -1) {
+                $error = pcntl_get_last_error();
+                if (defined('PCNTL_EINTR') && $error === constant('PCNTL_EINTR')) {
+                    continue;
+                }
+                if (defined('PCNTL_ECHILD') && $error === constant('PCNTL_ECHILD')) {
+                    unset($remaining[$pid]);
+                    continue;
+                }
+                $failure = 'storage_evolution_wait_failed';
+                break 2;
+            }
+        }
+        if ($remaining !== []) {
+            usleep(20_000);
+        }
+    }
+
+    if ($remaining !== [] && $failure === null) {
+        $failure = 'storage_evolution_children_timeout';
+    }
+
+    foreach (array_keys($remaining) as $pid) {
+        @posix_kill($pid, SIGTERM);
+    }
+    $terminateDeadline = microtime(true) + 1.0;
+    while ($remaining !== [] && microtime(true) < $terminateDeadline) {
+        foreach (array_keys($remaining) as $pid) {
+            $status = 0;
+            $waited = pcntl_waitpid($pid, $status, WNOHANG);
+            if ($waited === $pid) {
+                $statuses[$pid] = $status;
+                unset($remaining[$pid]);
+            } elseif ($waited === -1
+                && defined('PCNTL_ECHILD')
+                && pcntl_get_last_error() === constant('PCNTL_ECHILD')) {
+                unset($remaining[$pid]);
+            }
+        }
+        if ($remaining !== []) {
+            usleep(20_000);
+        }
+    }
+    foreach (array_keys($remaining) as $pid) {
+        @posix_kill($pid, SIGKILL);
+    }
+    foreach (array_keys($remaining) as $pid) {
+        while (true) {
+            $status = 0;
+            $waited = pcntl_waitpid($pid, $status);
+            if ($waited === $pid) {
+                $statuses[$pid] = $status;
+                unset($remaining[$pid]);
+                break;
+            }
+            if ($waited === -1
+                && defined('PCNTL_EINTR')
+                && pcntl_get_last_error() === constant('PCNTL_EINTR')) {
+                continue;
+            }
+            $failure ??= 'storage_evolution_reap_failed';
+            unset($remaining[$pid]);
+            break;
+        }
+    }
+
+    if ($failure !== null) {
+        throw new RuntimeException($failure);
+    }
+
+    return $statuses;
+}
+
+function storageEvolutionAssertTimeoutCleanup(): void
+{
+    $pid = pcntl_fork();
+    if ($pid === -1) {
+        throw new RuntimeException('storage_evolution_timeout_probe_fork_failed');
+    }
+    if ($pid === 0) {
+        usleep(5_000_000);
+        exit(0);
+    }
+
+    $startedAt = microtime(true);
+    $failure = null;
+    try {
+        storageEvolutionWaitForChildren([$pid], 0.05);
+    } catch (RuntimeException $exception) {
+        $failure = $exception->getMessage();
+    }
+    storageEvolutionExpect($failure === 'storage_evolution_children_timeout', 'timeout probe did not fail with the bounded reason');
+    storageEvolutionExpect(microtime(true) - $startedAt < 3.0, 'timeout probe exceeded the parent hard deadline');
+    $status = 0;
+    do {
+        $waited = pcntl_waitpid($pid, $status, WNOHANG);
+    } while ($waited === -1
+        && defined('PCNTL_EINTR')
+        && pcntl_get_last_error() === constant('PCNTL_EINTR'));
+    storageEvolutionExpect(
+        $waited === -1
+            && defined('PCNTL_ECHILD')
+            && pcntl_get_last_error() === constant('PCNTL_ECHILD'),
+        'timeout probe child was not reaped',
+    );
+}
+
+storageEvolutionAssertTimeoutCleanup();
+
 $opened = storageEvolutionOpen();
 $barrier = tempnam(sys_get_temp_dir(), 'larena-storage-barrier-');
 $outputA = tempnam(sys_get_temp_dir(), 'larena-storage-worker-a-');
@@ -122,10 +252,11 @@ try {
     if (file_put_contents($barrier, 'go') === false) {
         throw new RuntimeException('storage_evolution_barrier_create_failed');
     }
-    pcntl_waitpid($pidA, $statusA);
-    pcntl_waitpid($pidB, $statusB);
-    storageEvolutionExpect(pcntl_wexitstatus($statusA) === 0, 'worker A crashed');
-    storageEvolutionExpect(pcntl_wexitstatus($statusB) === 0, 'worker B crashed');
+    $statuses = storageEvolutionWaitForChildren([$pidA, $pidB], 20.0);
+    $statusA = $statuses[$pidA];
+    $statusB = $statuses[$pidB];
+    storageEvolutionExpect(pcntl_wifexited($statusA) && pcntl_wexitstatus($statusA) === 0, 'worker A crashed');
+    storageEvolutionExpect(pcntl_wifexited($statusB) && pcntl_wexitstatus($statusB) === 0, 'worker B crashed');
     $outcomes = [trim((string) file_get_contents($outputA)), trim((string) file_get_contents($outputB))];
     storageEvolutionExpect(count(array_filter($outcomes, static fn (string $outcome): bool => $outcome === 'applied')) === 1, 'concurrent apply did not produce exactly one winner: ' . implode(',', $outcomes));
     storageEvolutionExpect(
