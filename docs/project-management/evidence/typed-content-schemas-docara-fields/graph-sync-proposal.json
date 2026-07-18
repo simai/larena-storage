@@ -1,0 +1,13 @@
+{
+  "schema": "mirai.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "goal": "typed-content-schemas-docara-fields",
+  "proposal_status": "proposal_only",
+  "canonical_update_allowed": false,
+  "must_not_apply_automatically": true,
+  "proposed_capabilities": [
+    "storage.schema_constraint_preflight"
+  ],
+  "owner_review_required": true,
+  "notes": "Candidate capability metadata only; no canonical graph source may be changed automatically."
+}

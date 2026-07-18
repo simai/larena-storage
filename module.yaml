@@ -1,8 +1,8 @@
 package: larena/storage
 title: Larena Storage
-status: coding_started
+status: reviewed
 cluster: data-content
-batch: managed-docara-content-types
+batch: typed-content-schemas-docara-fields
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -19,8 +19,9 @@ features:
   - storage.access_and_security_audit
   - storage.actor_checked_current_record_read
   - storage.public_exact_version_projection
+  - storage.schema_constraint_preflight
 runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/managed-docara-content-types/
+  path: docs/project-management/evidence/typed-content-schemas-docara-fields/

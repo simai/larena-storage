@@ -40,6 +40,13 @@ All notable changes to `larena/storage` are documented in this file.
 - Add opt-in isolated real-MySQL acceptance for all four migration-table shape
   contracts, clean install/down/reapply, restart, concurrent one-winner apply,
   strict value preservation, used rollback refusal and cleanup to zero.
+- Validate Property constraints before persisting an immutable schema version,
+  rejecting unsupported keys, wrong types and contradictory ranges atomically.
+- Preserve exact reads and visibility projection for previously stored schemas
+  with legacy scalar-but-invalid constraints, while blocking all new writes
+  against them without mutation or a success Audit event.
+- Require the additive Property constraint-validation capability for new schema
+  registration without changing the original Property registry interface.
 
 ### Changed
 

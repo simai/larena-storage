@@ -10,9 +10,19 @@ relative order of existing fields, and add at least one field with
 
 Removals, reorders, type/type-version/required/visibility/constraint changes,
 required additions, constrained additions, no-op candidates and unknown keys
-fail closed. The constrained-addition limit is intentional: the frozen
-Property API validates values but does not expose a schema-level constraint
-validator capable of proving a new empty-valued field usable.
+fail closed. Property now validates an exact type/version constraint set before
+Storage persists an immutable schema. The constrained-addition limit remains
+intentional because migration compatibility currently proves only optional
+fields whose empty constraint set cannot invalidate existing records.
+
+New registrations also require the separate Property constraint-validator
+capability. A registry implementing only the historical type-registry contract
+fails closed at this boundary. Storage does not retrofit or rewrite an old
+immutable definition that predates this validation: exact schema/record reads
+and public visibility projection remain available, while create/CAS and schema
+evolution fail with stable codes if the historical constraints cannot validate
+new values. Such a schema must be superseded through a future explicit,
+non-destructive owner migration; silent repair is forbidden.
 
 ## Public Flow
 

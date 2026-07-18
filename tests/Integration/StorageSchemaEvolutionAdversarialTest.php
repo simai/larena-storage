@@ -170,7 +170,7 @@ storageEvolutionScenario(static function (array $runtime): void {
         'storage_schema_field_unknown_key',
     );
     $unknown = storageEvolutionDefinition(true);
-    $unknown['fields'][0]['type_version'] = 2;
+    $unknown['fields'][0]['type_version'] = 3;
     storageEvolutionExpectRejected(
         static fn () => $evolution->analyze($v1->ref, $unknown, 'user:admin:1', 'unknown-type-version'),
         'storage_schema_field_invalid',

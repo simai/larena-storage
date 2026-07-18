@@ -10,6 +10,12 @@ for immutable schema versions, immutable record versions, compare-and-swap,
 Access authorization, transactional Security Audit and exact public
 projection.
 
+For durable typed content, the canonical container contract is
+`Larena\Storage\Contracts\VersionedStorage` backed by the database-native
+`Larena\Storage\Runtime\VersionedStorage`. The older
+`LaravelDatabaseStorageAdapter` delegates to the in-memory foundation and is
+not a persistent typed-content adapter.
+
 The database-native slice now also exposes a bounded schema-evolution service.
 It can analyze, persist, explain and atomically apply only additive optional
 fields with empty constraints. Direct publication of schema version 2+ is
@@ -23,6 +29,19 @@ Storage provider boot. Protected namespaces require the consumer's one-shot
 capability inside the exact outer transaction and connection; direct generic,
 forged, expired or replayed plan/apply calls fail closed before mutation.
 Storage does not issue consumer capabilities or own their aggregate workflow.
+
+Initial immutable schema registration validates each exact Property
+type/version constraint set before any schema head or version is written.
+Unsupported keys, wrong scalar types and contradictory ranges fail closed
+without a success Audit event.
+
+The validation capability is additive and fail-closed: a third-party Property
+registry that implements the original registry contract but not
+`PropertyConstraintValidator` cannot register a new Storage schema. Historical
+schema rows created before this preflight remain exact and readable, including
+their public/admin visibility projection, but an invalid historical constraint
+blocks every new record write with a stable code. Storage never rewrites that
+immutable history.
 
 The versioned database contract deliberately separates historical reads from
 new writes:

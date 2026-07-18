@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\SchemaEvolution;
 
+use Larena\Property\Contracts\PropertyConstraintValidator;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\Exceptions\StorageRejected;
@@ -19,7 +20,7 @@ final readonly class SchemaDefinitionNormalizer
      * @param array<string, mixed> $definition
      * @return array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>}
      */
-    public function normalize(array $definition): array
+    public function normalize(array $definition, bool $validateConstraints = true): array
     {
         $definitionKeys = array_keys($definition);
         sort($definitionKeys);
@@ -74,6 +75,9 @@ final readonly class SchemaDefinitionNormalizer
                     throw new StorageRejected('storage_schema_constraint_invalid');
                 }
             }
+            if ($validateConstraints) {
+                $this->assertConstraintsValid($type, $typeVersion, $constraints);
+            }
             $seen[$key] = true;
             $normalizedFields[] = [
                 'key' => $key,
@@ -99,6 +103,12 @@ final readonly class SchemaDefinitionNormalizer
         }
         $fields = [];
         foreach ($schema->fields as $field) {
+            $constraints = is_array($field['constraints'] ?? null) ? $field['constraints'] : [];
+            $this->assertConstraintsValid(
+                (string) ($field['type'] ?? ''),
+                (int) ($field['type_version'] ?? 0),
+                $constraints,
+            );
             $fields[(string) $field['key']] = $field;
         }
         foreach ($values as $key => $_value) {
@@ -128,6 +138,15 @@ final readonly class SchemaDefinitionNormalizer
         }
 
         return $normalized;
+    }
+
+    /** @param array<string, mixed> $constraints */
+    private function assertConstraintsValid(string $type, int $version, array $constraints): void
+    {
+        if (!$this->propertyTypes instanceof PropertyConstraintValidator
+            || !$this->propertyTypes->validateConstraints($type, $version, $constraints)->canBePersistedByOwner()) {
+            throw new StorageRejected('storage_schema_constraint_invalid');
+        }
     }
 
     public function canonicalJson(mixed $value): string

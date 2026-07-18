@@ -497,6 +497,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         try {
             $definition = $this->normalizer->normalize(
                 $this->decodeObject((string) $row->definition, 'storage_schema_definition_corrupt'),
+                false,
             );
         } catch (StorageRejected) {
             throw new StorageRejected('storage_schema_definition_corrupt');

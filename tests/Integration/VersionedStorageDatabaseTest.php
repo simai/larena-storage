@@ -20,6 +20,7 @@ use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
+use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
@@ -247,6 +248,90 @@ try {
     $ownerPolicies->seal();
     $evolution = new DatabaseStorageSchemaEvolution($connection, $propertyTypes, $authorizer, $audit, $ownerPolicies);
 
+    $legacyRegistryWithoutConstraintCapability = new class($propertyTypes) implements \Larena\Property\Contracts\PropertyTypeRegistry
+    {
+        public function __construct(private \Larena\Property\Contracts\PropertyTypeRegistry $delegate)
+        {
+        }
+
+        public function version(): int
+        {
+            return $this->delegate->version();
+        }
+
+        public function registryVersion(): int
+        {
+            return $this->delegate->registryVersion();
+        }
+
+        public function fingerprint(): string
+        {
+            return $this->delegate->fingerprint();
+        }
+
+        public function all(): array
+        {
+            return $this->delegate->all();
+        }
+
+        public function descriptors(): array
+        {
+            return $this->delegate->descriptors();
+        }
+
+        public function resolve(string $typeKey, int $version): ?\Larena\Property\Contracts\PropertyTypeDescriptor
+        {
+            return $this->delegate->resolve($typeKey, $version);
+        }
+
+        public function latest(string $typeKey): ?\Larena\Property\Contracts\PropertyTypeDescriptor
+        {
+            return $this->delegate->latest($typeKey);
+        }
+
+        public function normalize(
+            string $typeKey,
+            int $version,
+            mixed $rawValue,
+            array $constraints = [],
+        ): \Larena\Property\Contracts\PropertyValidationResult {
+            return $this->delegate->normalize($typeKey, $version, $rawValue, $constraints);
+        }
+
+        public function validate(
+            string $typeKey,
+            int $version,
+            mixed $normalizedValue,
+            array $constraints = [],
+        ): \Larena\Property\Contracts\PropertyValidationResult {
+            return $this->delegate->validate($typeKey, $version, $normalizedValue, $constraints);
+        }
+
+        public function normalizeAndValidate(
+            string $typeKey,
+            int $version,
+            mixed $rawValue,
+            array $constraints = [],
+        ): \Larena\Property\Contracts\PropertyValidationResult {
+            return $this->delegate->normalizeAndValidate($typeKey, $version, $rawValue, $constraints);
+        }
+
+        public function diff(\Larena\Property\Contracts\PropertyTypeRegistry $other): \Larena\Property\Contracts\PropertyRegistryDiff
+        {
+            return $this->delegate->diff($other);
+        }
+    };
+    try {
+        (new SchemaDefinitionNormalizer($legacyRegistryWithoutConstraintCapability))
+            ->normalize(versionedStorageDatabaseSchemaDefinition(1));
+        throw new RuntimeException('registry without constraint capability unexpectedly accepted');
+    } catch (StorageRejected $exception) {
+        versionedStorageDatabaseExpect(
+            $exception->reasonCode === 'storage_schema_constraint_invalid',
+            'missing constraint capability reason mismatch',
+        );
+    }
+
     $invalidConstraintSchema = versionedStorageDatabaseSchemaDefinition(1);
     $invalidConstraintSchema['schema_id'] = 'docara.page.invalid_constraints';
     $invalidConstraintSchema['fields'][0]['constraints'] = ['min_length' => null];
@@ -269,6 +354,42 @@ try {
         'invalid schema constraint persisted a schema head',
     );
     versionedStorageDatabaseExpect($auditSink->events() === [], 'invalid schema emitted success audit');
+
+    $semanticConstraintCases = [
+        ['field' => 0, 'constraints' => ['minimum' => 1], 'name' => 'unsupported-string-key'],
+        ['field' => 0, 'constraints' => ['min_length' => '1'], 'name' => 'wrong-string-type'],
+        ['field' => 0, 'constraints' => ['min_length' => 2, 'max_length' => 1], 'name' => 'contradictory-string-range'],
+        ['field' => 1, 'constraints' => ['min' => 2, 'max' => 1], 'name' => 'contradictory-integer-range'],
+        ['field' => 2, 'constraints' => ['required' => true], 'name' => 'unsupported-boolean-constraint'],
+    ];
+    foreach ($semanticConstraintCases as $case) {
+        $invalidSemanticSchema = versionedStorageDatabaseSchemaDefinition(1);
+        $invalidSemanticSchema['schema_id'] = 'docara.page.invalid.' . $case['name'];
+        $invalidSemanticSchema['fields'][$case['field']]['constraints'] = $case['constraints'];
+        try {
+            $storage->registerSchemaVersion(
+                $invalidSemanticSchema,
+                null,
+                'user:admin:1',
+                'storage-schema-' . $case['name'],
+            );
+            throw new RuntimeException($case['name'] . ' schema constraint unexpectedly accepted');
+        } catch (StorageRejected $exception) {
+            versionedStorageDatabaseExpect(
+                $exception->reasonCode === 'storage_schema_constraint_invalid',
+                $case['name'] . ' schema constraint reason mismatch',
+            );
+        }
+    }
+    versionedStorageDatabaseExpect(
+        $connection->table('larena_storage_schemas')->count() === 0,
+        'semantic invalid schema constraint persisted a schema head',
+    );
+    versionedStorageDatabaseExpect(
+        $connection->table('larena_storage_schema_versions')->count() === 0,
+        'semantic invalid schema constraint persisted an immutable version',
+    );
+    versionedStorageDatabaseExpect($auditSink->events() === [], 'semantic invalid schema emitted success audit');
 
     $correlationSentinel = 'PRIVATE_CORRELATION_VALUE_MUST_NOT_LEAK';
     $schemaV1 = $storage->registerSchemaVersion(
@@ -684,6 +805,138 @@ try {
     versionedStorageDatabaseExpect(
         $connection->table('larena_storage_record_versions')->count() === $beforeAuditFailureCount,
         'audit failure persisted an immutable record version',
+    );
+
+    $legacyNormalizer = new SchemaDefinitionNormalizer($propertyTypes);
+    $legacyDefinition = versionedStorageDatabaseSchemaDefinition(2);
+    $legacyDefinition['schema_id'] = 'docara.page.legacy_constraints';
+    $legacyDefinition['fields'][4]['constraints'] = ['min_length' => '2'];
+    $legacyDefinitionJson = $legacyNormalizer->canonicalJson($legacyDefinition);
+    $legacyDefinitionHash = hash('sha256', $legacyDefinitionJson);
+    $legacyValues = [
+        'summary' => 'legacy public value',
+        'priority' => 7,
+        'featured' => true,
+        'internal_note' => 'legacy admin value',
+    ];
+    $legacyValuesJson = $legacyNormalizer->canonicalJson($legacyValues);
+    $legacyContentHash = hash('sha256', $legacyValuesJson);
+    $legacyRecordId = 'record-00000000000000000000000000000001';
+    $legacyNow = gmdate('Y-m-d H:i:s');
+    $connection->table('larena_storage_schemas')->insert([
+        'schema_id' => $legacyDefinition['schema_id'],
+        'current_version' => 1,
+        'current_hash' => $legacyDefinitionHash,
+        'created_at' => $legacyNow,
+        'updated_at' => $legacyNow,
+    ]);
+    $connection->table('larena_storage_schema_versions')->insert([
+        'schema_id' => $legacyDefinition['schema_id'],
+        'version' => 1,
+        'definition' => $legacyDefinitionJson,
+        'definition_hash' => $legacyDefinitionHash,
+        'owner_package' => 'larena/docara',
+        'created_by' => 'legacy-import',
+        'correlation_id' => null,
+        'created_at' => $legacyNow,
+    ]);
+    $connection->table('larena_storage_records')->insert([
+        'record_id' => $legacyRecordId,
+        'schema_id' => $legacyDefinition['schema_id'],
+        'owner_ref' => 'docara:page:legacy-1',
+        'current_revision' => 1,
+        'current_schema_version' => 1,
+        'current_hash' => $legacyContentHash,
+        'created_at' => $legacyNow,
+        'updated_at' => $legacyNow,
+    ]);
+    $connection->table('larena_storage_record_versions')->insert([
+        'schema_id' => $legacyDefinition['schema_id'],
+        'record_id' => $legacyRecordId,
+        'revision' => 1,
+        'owner_ref' => 'docara:page:legacy-1',
+        'schema_version' => 1,
+        'values_json' => $legacyValuesJson,
+        'content_hash' => $legacyContentHash,
+        'operation' => 'create',
+        'created_by' => 'legacy-import',
+        'correlation_id' => null,
+        'created_at' => $legacyNow,
+    ]);
+    $legacyRef = new \Larena\Storage\Contracts\StorageRecordVersionRef(
+        $legacyDefinition['schema_id'],
+        $legacyRecordId,
+        1,
+    );
+    versionedStorageDatabaseExpect(
+        $storage->schemaVersion(new \Larena\Storage\Contracts\StorageSchemaVersionRef(
+            $legacyDefinition['schema_id'],
+            1,
+        ))->fields[4]['constraints'] === ['min_length' => '2'],
+        'legacy immutable schema constraints were rewritten or hidden',
+    );
+    versionedStorageDatabaseExpect(
+        $storage->readAdminVersion($legacyRef, 'user:admin:1')->values == $legacyValues,
+        'legacy immutable record became unreadable',
+    );
+    versionedStorageDatabaseExpect(
+        $storage->projectPublicVersion($legacyRef)->values === [
+            'summary' => 'legacy public value',
+            'featured' => true,
+        ],
+        'legacy public projection exposed admin data or lost public data',
+    );
+    $legacyAuditCount = count($auditSink->events());
+    $legacyHeadCount = $connection->table('larena_storage_records')->count();
+    $legacyVersionCount = $connection->table('larena_storage_record_versions')->count();
+    try {
+        $storage->create(
+            'docara:page:legacy-2',
+            new \Larena\Storage\Contracts\StorageSchemaVersionRef($legacyDefinition['schema_id'], 1),
+            $legacyValues,
+            'user:admin:1',
+            'legacy-invalid-constraint-write',
+        );
+        throw new RuntimeException('legacy invalid schema unexpectedly accepted a new write');
+    } catch (StorageRejected $exception) {
+        versionedStorageDatabaseExpect(
+            $exception->reasonCode === 'storage_schema_constraint_invalid',
+            'legacy invalid schema write reason mismatch',
+        );
+    }
+    try {
+        $storage->compareAndSwap(
+            'docara:page:legacy-1',
+            $legacyRef,
+            new \Larena\Storage\Contracts\StorageSchemaVersionRef($legacyDefinition['schema_id'], 1),
+            $legacyValues,
+            'user:admin:1',
+            'legacy-invalid-constraint-cas',
+        );
+        throw new RuntimeException('legacy invalid schema unexpectedly accepted compare-and-swap');
+    } catch (StorageRejected $exception) {
+        versionedStorageDatabaseExpect(
+            $exception->reasonCode === 'storage_schema_constraint_invalid',
+            'legacy invalid schema compare-and-swap reason mismatch',
+        );
+    }
+    versionedStorageDatabaseExpect(
+        !$connection->table('larena_storage_records')
+            ->where('owner_ref', 'docara:page:legacy-2')
+            ->exists(),
+        'legacy invalid schema write persisted a record head',
+    );
+    versionedStorageDatabaseExpect(
+        $connection->table('larena_storage_records')->count() === $legacyHeadCount,
+        'legacy invalid schema mutation moved or added a record head',
+    );
+    versionedStorageDatabaseExpect(
+        $connection->table('larena_storage_record_versions')->count() === $legacyVersionCount,
+        'legacy invalid schema mutation persisted an immutable record version',
+    );
+    versionedStorageDatabaseExpect(
+        count($auditSink->events()) === $legacyAuditCount,
+        'legacy invalid schema write emitted a success Audit event',
     );
 
     $restart = versionedStorageDatabaseOpen($primaryPath);
