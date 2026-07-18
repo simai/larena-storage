@@ -5,8 +5,9 @@
   "base_revision": "2e868016da9f8c203f1f592b4669791bd25c6b77",
   "root_base_revision": "ce7181153774ece8fbcb06da57ce39f12e1cc107",
   "specs_revision": "66938800984dcbd1b8bbe38be440d775ac07851f",
-  "implementation_revision": null,
-  "commit_performed": false,
-  "push_performed": false,
+  "implementation_revision": "bc935952f7ea049979808da7b95fd8a4e9961e0c",
+  "publication_revision_policy": "The published package revision is the branch head that contains this immutable implementation commit and its acceptance evidence.",
+  "commit_performed": true,
+  "push_performed": true,
   "review_status": "pass"
 }
