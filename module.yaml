@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: reviewed
 cluster: data-content
-batch: typed-content-schemas-docara-fields
+batch: storage-content-platform-v1-protected-visibility
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -24,4 +24,4 @@ runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/typed-content-schemas-docara-fields/
+  path: docs/project-management/evidence/data-content/content-platform-v1-storage-protected-visibility/

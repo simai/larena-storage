@@ -1,0 +1,14 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "batch": "data-content/content-platform-v1-storage-protected-visibility",
+  "status": "no_canonical_graph_change_requested",
+  "canonical_update_allowed": false,
+  "must_not_apply_automatically": true,
+  "summary": "Implementation follows the already frozen owner compatibility amendment; no canonical feature or package graph mutation is requested.",
+  "observations": [
+    "Protected visibility remains distinct from admin visibility in immutable schemas.",
+    "Public projections use exact-public inclusion and fail closed for all legacy visibility drift."
+  ],
+  "proposed_updates": []
+}

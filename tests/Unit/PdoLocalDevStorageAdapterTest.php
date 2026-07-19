@@ -68,9 +68,11 @@ $delete = new ArrayStorageMutation('cms.public_content_link', 'link-1', Mutation
 assert($adapter->mutate($create) === StorageDecisionStatus::Allowed);
 $afterCreate = $adapter->records(new ArrayStorageQuery('cms.public_content_link', 'cms.public_content_link.read', ['slug' => 'local-dev-persisted-link']));
 assert(count($afterCreate) === 1);
-assert(($afterCreate[0]->projection()['title'] ?? null) === 'Local dev persisted link');
-assert(($afterCreate[0]->projection()['operator_note_private'] ?? null) === '[redacted]');
-assert(($afterCreate[0]->projection()['hidden_secret_probe'] ?? null) === '[redacted]');
+assert($afterCreate[0]->projection() === [
+    'title' => 'Local dev persisted link',
+    'slug' => 'local-dev-persisted-link',
+    'status' => 'Draft',
+]);
 
 assert($adapter->mutate($update) === StorageDecisionStatus::Allowed);
 $afterUpdate = $adapter->records(new ArrayStorageQuery('cms.public_content_link', 'cms.public_content_link.read', ['slug' => 'local-dev-persisted-link']));

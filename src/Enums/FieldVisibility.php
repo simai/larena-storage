@@ -14,6 +14,6 @@ enum FieldVisibility: string
 
     public function requiresProtectedProjection(): bool
     {
-        return in_array($this, [self::Admin, self::Hidden, self::Encrypted], true);
+        return in_array($this, [self::Protected, self::Admin, self::Hidden, self::Encrypted], true);
     }
 }

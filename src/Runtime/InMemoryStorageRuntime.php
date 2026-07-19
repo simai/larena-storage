@@ -236,9 +236,9 @@ final class InMemoryStorageRuntime implements StorageRuntime
                 continue;
             }
 
-            $projection[$name] = $this->fieldRequiresRedaction($field)
-                ? '[redacted]'
-                : $payload[$name];
+            if ($this->fieldIsPublic($field)) {
+                $projection[$name] = $payload[$name];
+            }
         }
 
         return $projection;
@@ -247,12 +247,12 @@ final class InMemoryStorageRuntime implements StorageRuntime
     /**
      * @param array<string, scalar|null> $field
      */
-    private function fieldRequiresRedaction(array $field): bool
+    private function fieldIsPublic(array $field): bool
     {
-        $visibility = (string) ($field['visibility'] ?? FieldVisibility::Public->value);
-        $fieldVisibility = FieldVisibility::tryFrom($visibility);
+        $visibility = $field['visibility'] ?? null;
+        $fieldVisibility = is_string($visibility) ? FieldVisibility::tryFrom($visibility) : null;
 
-        return $fieldVisibility?->requiresProtectedProjection() ?? false;
+        return $fieldVisibility === FieldVisibility::Public;
     }
 
     /**

@@ -68,8 +68,8 @@ if (count($records) !== 1) {
 }
 
 $projection = $records[0]->projection();
-if (($projection['secret_note'] ?? null) !== '[redacted]') {
-    fwrite(STDERR, "Hidden field must be redacted in projection.\n");
+if ($projection !== ['title' => 'Hello Larena']) {
+    fwrite(STDERR, "Projection must contain only exact-public fields.\n");
     exit(1);
 }
 

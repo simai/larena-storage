@@ -64,7 +64,7 @@ final readonly class SchemaDefinitionNormalizer
                 || $typeVersion < 1
                 || !is_bool($required)
                 || !is_string($visibility)
-                || !in_array($visibility, ['public', 'admin'], true)
+                || !in_array($visibility, ['public', 'protected', 'admin'], true)
                 || !is_array($constraints)
                 || ($constraints !== [] && array_is_list($constraints))
                 || $this->propertyTypes->resolve($type, $typeVersion) === null) {

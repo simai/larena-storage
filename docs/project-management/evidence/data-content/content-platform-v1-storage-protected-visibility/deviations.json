@@ -1,0 +1,8 @@
+{
+  "schema": "larena.evidence.deviations.v1",
+  "package": "larena/storage",
+  "batch": "data-content/content-platform-v1-storage-protected-visibility",
+  "critical_deviations": [],
+  "known_deviations": [],
+  "canonical_graph_changes_requested": false
+}

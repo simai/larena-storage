@@ -47,6 +47,10 @@ All notable changes to `larena/storage` are documented in this file.
   against them without mutation or a success Audit event.
 - Require the additive Property constraint-validation capability for new schema
   registration without changing the original Property registry interface.
+- Admit `protected` as a distinct immutable schema visibility alongside
+  `public` and `admin`, preserving it through canonical round-trip.
+- Add a focused Content compatibility proof covering versioned, in-memory and
+  disposable-PDO exact-public projections.
 
 ### Changed
 
@@ -62,6 +66,9 @@ All notable changes to `larena/storage` are documented in this file.
 - Require create/CAS to lock and match the current exact schema head; harden
   immutable reads against transplanted definitions, owner mismatches and
   content-hash corruption.
+- Classify `protected`, `admin`, `hidden` and `encrypted` as protected and make
+  legacy in-memory/PDO public projections omit every field that is not exactly
+  `public`, including unknown, missing and invalid visibility values.
 
 ### Migration notes
 
@@ -79,6 +86,8 @@ All notable changes to `larena/storage` are documented in this file.
 - The evolution migration performs its own full SQLite/MySQL shape preflight.
   It refuses foreign/damaged/used partial shapes and refuses `down()` when any
   plan/result data exists.
+- The protected-visibility compatibility change has no migration and is
+  reverted by reverting its bounded package commit.
 
-This unreleased slice does not claim production readiness or readiness of all
-Larena packages.
+This unreleased slice does not claim frontend or production readiness, Content
+runtime readiness, or readiness of all Larena packages.

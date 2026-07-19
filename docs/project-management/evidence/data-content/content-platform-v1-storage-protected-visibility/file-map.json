@@ -1,0 +1,27 @@
+{
+  "schema": "larena.evidence.file_map.v1",
+  "package": "larena/storage",
+  "batch": "data-content/content-platform-v1-storage-protected-visibility",
+  "implementation": [
+    "src/Enums/FieldVisibility.php",
+    "src/SchemaEvolution/SchemaDefinitionNormalizer.php",
+    "src/Runtime/InMemoryStorageRuntime.php",
+    "src/Runtime/PdoLocalDevStorageAdapter.php"
+  ],
+  "tests": [
+    "tests/Integration/StorageContentVisibilityCompatibilityTest.php",
+    "tests/Unit/InMemoryStorageRuntimeTest.php",
+    "tests/Unit/PdoLocalDevStorageAdapterTest.php"
+  ],
+  "metadata": [
+    ".larena/launch-context.json",
+    ".larena/spec-ref.json",
+    "README.md",
+    "CHANGELOG.md",
+    "composer.json",
+    "module.yaml"
+  ],
+  "evidence_directory": "docs/project-management/evidence/data-content/content-platform-v1-storage-protected-visibility/",
+  "forbidden_files_changed": [],
+  "out_of_scope_files_changed": []
+}

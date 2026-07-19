@@ -35,6 +35,13 @@ type/version constraint set before any schema head or version is written.
 Unsupported keys, wrong scalar types and contradictory ranges fail closed
 without a success Audit event.
 
+Immutable schemas admit exactly `public`, `protected` and `admin` visibility.
+`protected` is preserved as a distinct canonical value for owner packages such
+as Content. Database-native, in-memory and disposable-PDO public projections
+include only fields whose visibility is exactly `public`; protected, admin,
+hidden, encrypted, unknown, missing and invalid legacy visibility values fail
+closed and are omitted.
+
 The validation capability is additive and fail-closed: a third-party Property
 registry that implements the original registry contract but not
 `PropertyConstraintValidator` cannot register a new Storage schema. Historical
@@ -77,8 +84,10 @@ See `docs/developer/schema-evolution.md` for the bounded evolution contract and
 `docs/developer/owned-table-shape-guard.md` for the exact install, upgrade,
 diagnostic and rollback contracts.
 
-Production readiness, encryption policy, SitePack portability and readiness of
-all Larena packages are not claimed by this slice.
+This compatibility slice does not add a table, migration, route, provider,
+Content-owned behavior or live database operation. Production readiness,
+frontend readiness, encryption policy, SitePack portability and readiness of
+all Larena packages are not claimed.
 
 Canonical specifications are in `simai/larena-specs`.
 
