@@ -167,7 +167,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     ->where('schema_id', $schema->schemaId)
                     ->lockForUpdate()
                     ->first();
-                $schemaVersion = $this->schemaVersion($schema);
+                $schemaVersion = $this->schemaVersion($schema, true);
                 if (!$schemaHead instanceof stdClass
                     || (int) $schemaHead->current_version !== $schema->version
                     || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
@@ -251,13 +251,19 @@ final readonly class VersionedStorage implements VersionedStorageContract
         );
     }
 
-    public function schemaVersion(StorageSchemaVersionRef $ref): StorageSchemaVersion
+    public function schemaVersion(
+        StorageSchemaVersionRef $ref,
+        bool $forUpdate = false,
+    ): StorageSchemaVersion
     {
         try {
-            $row = $this->database->table('larena_storage_schema_versions')
+            $query = $this->database->table('larena_storage_schema_versions')
                 ->where('schema_id', $ref->schemaId)
-                ->where('version', $ref->version)
-                ->first();
+                ->where('version', $ref->version);
+            if ($forUpdate) {
+                $query->lockForUpdate();
+            }
+            $row = $query->first();
             if (!$row instanceof stdClass) {
                 throw new StorageRejected('storage_schema_version_unknown');
             }
@@ -270,18 +276,22 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
-    public function readAdminVersion(StorageRecordVersionRef $ref, string $actor): StorageRecordVersion
-    {
+    public function readAdminVersion(
+        StorageRecordVersionRef $ref,
+        string $actor,
+        bool $forUpdate = false,
+    ): StorageRecordVersion {
         $this->assertActor($actor);
         $this->authorizer->assertAllowed($actor, 'storage.record.read');
 
-        return $this->recordVersionInternal($ref);
+        return $this->recordVersionInternal($ref, $forUpdate);
     }
 
     public function readAdminCurrentVersion(
         string $schemaId,
         string $ownerRef,
         string $actor,
+        bool $forUpdate = false,
     ): ?StorageRecordVersion {
         $this->assertSchemaId($schemaId);
         $this->assertOwnerRef($ownerRef);
@@ -289,19 +299,25 @@ final readonly class VersionedStorage implements VersionedStorageContract
         $this->authorizer->assertAllowed($actor, 'storage.record.read');
 
         try {
-            $head = $this->database->table('larena_storage_records')
+            $headQuery = $this->database->table('larena_storage_records')
                 ->where('schema_id', $schemaId)
-                ->where('owner_ref', $ownerRef)
-                ->first();
+                ->where('owner_ref', $ownerRef);
+            if ($forUpdate) {
+                $headQuery->lockForUpdate();
+            }
+            $head = $headQuery->first();
             if (!$head instanceof stdClass) {
                 return null;
             }
 
-            $record = $this->recordVersionInternal(new StorageRecordVersionRef(
-                $schemaId,
-                (string) $head->record_id,
-                (int) $head->current_revision,
-            ));
+            $record = $this->recordVersionInternal(
+                new StorageRecordVersionRef(
+                    $schemaId,
+                    (string) $head->record_id,
+                    (int) $head->current_revision,
+                ),
+                $forUpdate,
+            );
             if ($record->ownerRef !== $ownerRef
                 || $record->schema->version !== (int) $head->current_schema_version
                 || !hash_equals($record->contentHash, (string) $head->current_hash)) {
@@ -316,10 +332,13 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
-    public function projectPublicVersion(StorageRecordVersionRef $ref): StoragePublicProjection
+    public function projectPublicVersion(
+        StorageRecordVersionRef $ref,
+        bool $forUpdate = false,
+    ): StoragePublicProjection
     {
-        $record = $this->recordVersionInternal($ref);
-        $schema = $this->schemaVersion($record->schema);
+        $record = $this->recordVersionInternal($ref, $forUpdate);
+        $schema = $this->schemaVersion($record->schema, $forUpdate);
         $public = [];
         foreach ($schema->fields as $field) {
             $key = (string) $field['key'];
@@ -331,14 +350,20 @@ final readonly class VersionedStorage implements VersionedStorageContract
         return new StoragePublicProjection($record->ref, $record->ownerRef, $record->schema, $public);
     }
 
-    private function recordVersionInternal(StorageRecordVersionRef $ref): StorageRecordVersion
+    private function recordVersionInternal(
+        StorageRecordVersionRef $ref,
+        bool $forUpdate = false,
+    ): StorageRecordVersion
     {
         try {
-            $row = $this->database->table('larena_storage_record_versions')
+            $query = $this->database->table('larena_storage_record_versions')
                 ->where('schema_id', $ref->schemaId)
                 ->where('record_id', $ref->recordId)
-                ->where('revision', $ref->revision)
-                ->first();
+                ->where('revision', $ref->revision);
+            if ($forUpdate) {
+                $query->lockForUpdate();
+            }
+            $row = $query->first();
             if (!$row instanceof stdClass) {
                 throw new StorageRejected('storage_record_version_unknown');
             }
@@ -375,7 +400,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     ->where('schema_id', $schema->schemaId)
                     ->lockForUpdate()
                     ->first();
-                $schemaVersion = $this->schemaVersion($schema);
+                $schemaVersion = $this->schemaVersion($schema, true);
                 if (!$schemaHead instanceof stdClass
                     || (int) $schemaHead->current_version !== $schema->version
                     || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
@@ -398,7 +423,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 if ((int) $head->current_revision !== $expected->revision) {
                     throw new StorageConflict('storage_record_revision_conflict');
                 }
-                $expectedVersion = $this->recordVersionInternal($expected);
+                $expectedVersion = $this->recordVersionInternal($expected, true);
                 if ($expectedVersion->ownerRef !== $ownerRef
                     || $expectedVersion->schema->version !== (int) $head->current_schema_version
                     || $expectedVersion->schema->version !== $schema->version

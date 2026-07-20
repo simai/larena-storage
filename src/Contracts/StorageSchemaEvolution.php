@@ -8,12 +8,17 @@ use Illuminate\Database\ConnectionInterface;
 
 interface StorageSchemaEvolution
 {
-    /** @param array<string, mixed> $candidateDefinition */
+    /**
+     * A locking analysis is effective only inside an ambient database transaction.
+     *
+     * @param array<string, mixed> $candidateDefinition
+     */
     public function analyze(
         StorageSchemaVersionRef $source,
         array $candidateDefinition,
         string $actor,
         ?string $correlationId = null,
+        bool $forUpdate = false,
     ): StorageSchemaCompatibilityReport;
 
     /** @param array<string, mixed> $candidateDefinition */

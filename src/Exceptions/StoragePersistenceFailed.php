@@ -10,6 +10,6 @@ final class StoragePersistenceFailed extends StorageRejected
 {
     public static function from(Throwable $exception): self
     {
-        return new self('storage_persistence_failed');
+        return new self('storage_persistence_failed', $exception);
     }
 }

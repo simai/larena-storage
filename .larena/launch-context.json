@@ -3,15 +3,18 @@
   "package": "larena/storage",
   "repository_class": "continuation_repository",
   "repository_contains_prior_implementation": true,
-  "launch_record_ref": "simai/larena-specs@467b5aba4a797fa2005a0ace133efb294fca55de:specs/implementation-planning/launch-records/storage-content-platform-v1-protected-visibility.json",
-  "launch_record_commit": "467b5aba4a797fa2005a0ace133efb294fca55de",
+  "launch_record_ref": "simai/larena-specs@b5ea1bc2386544d4a6f4e4af4ce172a28988f0be:specs/implementation-planning/content-model-administration-api-v1-contract.json",
+  "launch_record_commit": "b5ea1bc2386544d4a6f4e4af4ce172a28988f0be",
+  "predecessor_launch_record_ref": "simai/larena-specs@467b5aba4a797fa2005a0ace133efb294fca55de:specs/implementation-planning/launch-records/storage-content-platform-v1-protected-visibility.json",
   "specs_repo": "simai/larena-specs",
-  "specs_commit": "4ee994762907a703ea9e24939627d9111d89f16d",
-  "base_commit": "c2b3d03ee0c576a67aaad978dc2943b9e64c1237",
-  "branch": "codex/content-platform-v1-protected-visibility",
+  "specs_commit": "b5ea1bc2386544d4a6f4e4af4ce172a28988f0be",
+  "base_commit": "7645c0124999eeab6150edc0b0b949adc17be310",
+  "branch": "codex/content-model-administration-api-v1",
   "selected_features": [
     "storage.schema_registry",
-    "storage.validation_pipeline"
+    "storage.validation_pipeline",
+    "storage.mysql_repeatable_read_current_consistency",
+    "storage.persistence_failure_cause_preservation"
   ],
   "allowed_files": [
     ".larena/launch-context.json",
@@ -25,11 +28,19 @@
     "scripts/check-evidence.php",
     "scripts/validate-larena-package.php",
     "src/Enums/FieldVisibility.php",
+    "src/Contracts/StorageSchemaEvolution.php",
+    "src/Contracts/VersionedStorage.php",
+    "src/Exceptions/StoragePersistenceFailed.php",
+    "src/Exceptions/StorageRejected.php",
+    "src/SchemaEvolution/DatabaseStorageSchemaEvolution.php",
     "src/SchemaEvolution/SchemaDefinitionNormalizer.php",
     "src/Runtime/InMemoryStorageRuntime.php",
     "src/Runtime/PdoLocalDevStorageAdapter.php",
+    "src/Runtime/VersionedStorage.php",
     "tests/Unit/InMemoryStorageRuntimeTest.php",
     "tests/Unit/PdoLocalDevStorageAdapterTest.php",
+    "tests/Unit/StoragePersistenceFailClosedTest.php",
+    "tests/Integration/StorageCurrentReadLockingTest.php",
     "tests/Integration/StorageContentVisibilityCompatibilityTest.php",
     "docs/project-management/evidence/data-content/content-platform-v1-storage-protected-visibility/README.md",
     "docs/project-management/evidence/data-content/content-platform-v1-storage-protected-visibility/implementation-summary.md",
@@ -76,27 +87,27 @@
   "coding_allowed": true,
   "coding_started": true,
   "repository_enforcement_installed": true,
-  "repository_reset_pre_codegen": true,
+  "repository_reset_pre_codegen": false,
   "review_completed": true,
-  "independent_review_verdict": "pass",
+  "independent_review_verdict": "pass_with_notes",
   "independent_review_findings": {
     "p0": 0,
     "p1": 0,
-    "p2": 0
+    "p2": 2
   },
   "action_gate": {
     "status": "success",
     "phase": "preflight",
-    "evidence_ref": "/private/tmp/larena-content-platform-v1/dependencies/larena-storage/source/output/action-gates/action-gate-report-20260719135645.json"
+    "evidence_ref": "source/output/action-gates/action-gate-report-20260720132405.json"
   },
   "git_boundary_gate": {
     "status": "success",
     "phase": "preflight",
-    "evidence_ref": "/private/tmp/larena-content-platform-v1/dependencies/larena-storage/source/output/action-gates/action-gate-report-20260719141855.json"
+    "evidence_ref": "source/output/action-gates/action-gate-report-20260720132405.json"
   },
   "runtime_toolchain": {
     "status": "ok",
-    "report_ref": "/private/tmp/larena-content-platform-v1/larena-specs/generated/reports/runtime-toolchain-gate-validation.json",
+    "report_ref": null,
     "php_path": "/Applications/ServBay/package/php/8.4/8.4.20/bin/php",
     "php_version": "8.4.20",
     "composer_path": "/Applications/ServBay/bin/composer",
@@ -105,11 +116,19 @@
   "test_database_policy": {
     "environment": "local_test_only",
     "sqlite": "disposable_file_or_memory",
-    "mysql": "not_required_for_this_non_migration_compatibility_batch",
+    "mysql": "revision_bound_root_acceptance_required_before_final_publication",
     "existing_application_database": "forbidden",
     "cleanup": "required"
   },
-  "coding_branch": "codex/content-platform-v1-protected-visibility",
+  "defect_correction": {
+    "reason_code": "schema_migration_item_head_mismatch",
+    "confirmed_environment": "local_disposable_mysql_8_repeatable_read",
+    "correction": "consistent_current_locking_reads_for_head_and_exact_version_pairs",
+    "isolation_level_changed": false,
+    "package_quality_gate": "passed",
+    "final_dynamic_evidence_owner": "simai/larena root revision-bound MySQL harness"
+  },
+  "coding_branch": "codex/content-model-administration-api-v1",
   "next_transition": "package_commit_and_publication",
-  "remote_push_status": "branch_not_pushed"
+  "remote_push_status": "push_expected_after_commit"
 }

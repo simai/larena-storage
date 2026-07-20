@@ -41,17 +41,40 @@ interface VersionedStorage
         ?string $correlationId = null,
     ): StorageWriteResult;
 
-    public function schemaVersion(StorageSchemaVersionRef $ref): StorageSchemaVersion;
+    /**
+     * A locking read is effective only inside an ambient database transaction.
+     */
+    public function schemaVersion(
+        StorageSchemaVersionRef $ref,
+        bool $forUpdate = false,
+    ): StorageSchemaVersion;
 
-    public function readAdminVersion(StorageRecordVersionRef $ref, string $actor): StorageRecordVersion;
+    /**
+     * A locking read is effective only inside an ambient database transaction.
+     */
+    public function readAdminVersion(
+        StorageRecordVersionRef $ref,
+        string $actor,
+        bool $forUpdate = false,
+    ): StorageRecordVersion;
 
+    /**
+     * A locking read is effective only inside an ambient database transaction.
+     */
     public function readAdminCurrentVersion(
         string $schemaId,
         string $ownerRef,
         string $actor,
+        bool $forUpdate = false,
     ): ?StorageRecordVersion;
 
-    public function projectPublicVersion(StorageRecordVersionRef $ref): StoragePublicProjection;
+    /**
+     * A locking projection is effective only inside an ambient database transaction.
+     */
+    public function projectPublicVersion(
+        StorageRecordVersionRef $ref,
+        bool $forUpdate = false,
+    ): StoragePublicProjection;
 
     public function connection(): ConnectionInterface;
 }

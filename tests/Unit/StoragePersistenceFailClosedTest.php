@@ -8,6 +8,7 @@ use Larena\Audit\Runtime\InMemoryAuditSink;
 use Larena\Storage\Enums\FieldVisibility;
 use Larena\Storage\Enums\MutationType;
 use Larena\Storage\Enums\StorageDecisionStatus;
+use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Runtime\ArrayStorageMutation;
 use Larena\Storage\Runtime\ArrayStorageQuery;
 use Larena\Storage\Runtime\ArrayStorageSchema;
@@ -51,6 +52,19 @@ if ($storageRuntime->records(new ArrayStorageQuery('articles', 'scope:articles')
 
 if ($sink->events() !== []) {
     fwrite(STDERR, "Invalid storage payload must not emit success audit event.\n");
+    exit(1);
+}
+
+$sensitiveCause = new RuntimeException('private_database_host_and_query_must_not_leak');
+$mappedFailure = StoragePersistenceFailed::from($sensitiveCause);
+if ($mappedFailure->getPrevious() !== $sensitiveCause) {
+    fwrite(STDERR, "Storage persistence failure must preserve the trusted PDO cause identity.\n");
+    exit(1);
+}
+if ($mappedFailure->reasonCode !== 'storage_persistence_failed'
+    || $mappedFailure->getMessage() !== 'storage_persistence_failed'
+    || str_contains($mappedFailure->getMessage(), $sensitiveCause->getMessage())) {
+    fwrite(STDERR, "Storage persistence failure exposed the private cause in its public message.\n");
     exit(1);
 }
 

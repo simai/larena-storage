@@ -57,13 +57,14 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
         array $candidateDefinition,
         string $actor,
         ?string $correlationId = null,
+        bool $forUpdate = false,
     ): StorageSchemaCompatibilityReport {
         $this->assertActor($actor);
         $this->authorizer->assertAllowed($actor, 'storage.schema_migration.diff');
         $correlationId = $this->correlationId($correlationId);
 
         try {
-            $snapshot = $this->snapshot($source, $candidateDefinition, false);
+            $snapshot = $this->snapshot($source, $candidateDefinition, $forUpdate);
             $eventType = $snapshot['report']->compatible
                 ? 'storage.schema_migration.analyzed'
                 : 'storage.schema_migration.rejected';
@@ -256,7 +257,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                 $targetDefinition = $this->normalizer->normalize(
                     $this->normalizer->decodeObject((string) $planRow->target_definition, 'storage_schema_migration_plan_tampered'),
                 );
-                $sourceDefinition = $this->loadVerifiedDefinition($plan->source);
+                $sourceDefinition = $this->loadVerifiedDefinition($plan->source, true);
                 if (!hash_equals(
                     hash('sha256', $this->normalizer->canonicalJson($sourceDefinition)),
                     $plan->sourceHash,
@@ -304,6 +305,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                         ->where('schema_id', $expected->before->schemaId)
                         ->where('record_id', $expected->before->recordId)
                         ->where('revision', $expected->before->revision)
+                        ->lockForUpdate()
                         ->first();
                     if (!$version instanceof stdClass
                         || (string) $version->owner_ref !== $expected->ownerRef
@@ -467,7 +469,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
             || (int) $head->current_version !== $source->version) {
             throw new StorageRejected('storage_schema_migration_source_not_head');
         }
-        $sourceDefinition = $this->loadVerifiedDefinition($source);
+        $sourceDefinition = $this->loadVerifiedDefinition($source, $lock);
         $sourceHash = hash('sha256', $this->normalizer->canonicalJson($sourceDefinition));
         if (!hash_equals((string) $head->current_hash, $sourceHash)) {
             throw new StorageRejected('storage_schema_migration_plan_tampered');
@@ -484,11 +486,14 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
         }
         $records = [];
         foreach ($recordsQuery->get() as $headRow) {
-            $version = $this->database->table('larena_storage_record_versions')
+            $versionQuery = $this->database->table('larena_storage_record_versions')
                 ->where('schema_id', $source->schemaId)
                 ->where('record_id', (string) $headRow->record_id)
-                ->where('revision', (int) $headRow->current_revision)
-                ->first();
+                ->where('revision', (int) $headRow->current_revision);
+            if ($lock) {
+                $versionQuery->lockForUpdate();
+            }
+            $version = $versionQuery->first();
             if (!$version instanceof stdClass
                 || (int) $headRow->current_schema_version !== $source->version
                 || (int) $version->schema_version !== $source->version
@@ -552,12 +557,18 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
     }
 
     /** @return array{schema_id:string,owner_package:string,fields:list<array<string,mixed>>} */
-    private function loadVerifiedDefinition(StorageSchemaVersionRef $ref): array
+    private function loadVerifiedDefinition(
+        StorageSchemaVersionRef $ref,
+        bool $forUpdate = false,
+    ): array
     {
-        $row = $this->database->table('larena_storage_schema_versions')
+        $query = $this->database->table('larena_storage_schema_versions')
             ->where('schema_id', $ref->schemaId)
-            ->where('version', $ref->version)
-            ->first();
+            ->where('version', $ref->version);
+        if ($forUpdate) {
+            $query->lockForUpdate();
+        }
+        $row = $query->first();
         if (!$row instanceof stdClass) {
             throw new StorageRejected('storage_schema_version_unknown');
         }
