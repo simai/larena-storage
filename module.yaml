@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: reviewed
 cluster: data-content
-batch: storage-content-platform-v1-protected-visibility
+batch: content-model-administration-api-v1
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -20,6 +20,8 @@ features:
   - storage.actor_checked_current_record_read
   - storage.public_exact_version_projection
   - storage.schema_constraint_preflight
+  - storage.mysql_repeatable_read_current_consistency
+  - storage.persistence_failure_cause_preservation
 runtime:
   php: "^8.3"
   laravel: "^13.0"
