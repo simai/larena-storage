@@ -14,4 +14,8 @@ Dependency wiring for executor verification is explicit and read-only:
 | larena/property | `7773692a9e1cf60f641a050e4ebf99e1fe37c159` |
 | larena/ui | `4ff429cb47b8ebbe232d683ee1333d3a27ad417e` |
 
-No dependency source was changed. The independent clone result is pending the local Storage commit and will be appended before handoff.
+No dependency source was changed.
+
+Independent reproduction used `/tmp/larena-storage-s01-clean.rIAJii/packages/storage`, created with `git clone --no-local` at Storage revision `410ec36d1e983a5486fef5033ab5d7bb0729b641`; every dependency was separately cloned with `--no-local` and detached at the revision above. A fresh Composer install completed with 74 installs. The focused 21-scenario restart/metamorphic test, `composer validate --strict` and the full `composer run quality:gate` all exited `0`.
+
+The first orchestration wrapper correctly created and verified all clones but then invoked Composer from `/tmp`, where no `composer.json` exists. That wrapper failed before tests. It was corrected by setting the exact clean Storage clone as working directory; the unchanged commands then passed as recorded above.

@@ -30,4 +30,4 @@ Toolchain: `/opt/homebrew/opt/php@8.3/bin/php` 8.3.31 and `/Applications/ServBay
 - `composer run quality:gate`: PASS, including 87-file lint, PHPStan with zero errors, metadata, evidence and 25-file scope checks.
 - `git diff --check`: PASS.
 
-Independent no-local clean-clone reproduction is recorded in `smoke.md` and `verification.json` after the package commit exists.
+Independent no-local clean-clone reproduction at implementation revision `410ec36d1e983a5486fef5033ab5d7bb0729b641` is PASS and recorded in `smoke.md` and `verification.json`.
