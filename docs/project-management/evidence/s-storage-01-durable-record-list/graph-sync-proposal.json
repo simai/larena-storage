@@ -1,0 +1,13 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "batch": "S-STORAGE-01",
+  "canonical_update_allowed": false,
+  "status": "proposal_only_pending_independent_audit",
+  "proposals": [
+    {
+      "feature": "storage.record_list",
+      "proposed_evidence_level": "TESTED",
+      "summary": "Database-native current-head list with exact Access scope, public projection, typed equality filters and scope-bound opaque continuation."
+    }
+  ]
+}

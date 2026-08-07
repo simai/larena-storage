@@ -1,8 +1,8 @@
 package: larena/storage
 title: Larena Storage
-status: reviewed
+status: coding_started
 cluster: data-content
-batch: content-model-administration-api-v1
+batch: s-storage-01-durable-record-list
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -26,4 +26,4 @@ runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/data-content/content-platform-v1-storage-protected-visibility/
+  path: docs/project-management/evidence/s-storage-01-durable-record-list/

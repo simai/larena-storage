@@ -8,6 +8,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\ServiceProvider;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
+use Larena\Access\Contracts\QueryScopeProvider;
 use Larena\Access\Runtime\AccessOperationRegistry;
 use Larena\Access\ValueObjects\AccessOperationDescriptor;
 use Larena\Audit\Runtime\AuditEventPipeline;
@@ -35,6 +36,10 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(PropertyTypeRegistry::class),
                 $app->make(ActorOperationAuthorizer::class),
                 $app->make(AuditEventPipeline::class),
+                $app->bound(QueryScopeProvider::class) ? $app->make(QueryScopeProvider::class) : null,
+                is_string($app->make('config')->get('app.key'))
+                    ? $app->make('config')->get('app.key')
+                    : null,
             );
         });
         $this->app->alias(VersionedStorage::class, VersionedStorageContract::class);
@@ -81,6 +86,7 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.schema_migration.explain', 'schema_migration_explain', 'read', 'high'],
             ['storage.record.create', 'record_create', 'create', 'high'],
             ['storage.record.read', 'record_read', 'read', 'high'],
+            ['storage.record.list', 'record_list', 'read', 'high'],
             ['storage.record.update', 'record_update', 'update', 'high'],
         ] as [$code, $label, $grant, $risk]) {
             $registered = $registry->register(new AccessOperationDescriptor(

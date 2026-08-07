@@ -1,0 +1,18 @@
+{
+  "schema": "larena.evidence_deviations.v1",
+  "status": "recorded",
+  "items": [
+    {
+      "kind": "environment",
+      "detail": "Ambient PHP 8.2 fails before script execution because ICU 73 is absent; all authoritative checks use explicit Homebrew PHP 8.3.31 without repairing the environment."
+    },
+    {
+      "kind": "migration",
+      "detail": "No migration was added because the existing schema_id indexes, record-head primary key and immutable-version unique key support the exact current-head join; generic schema-owned values remain JSON."
+    },
+    {
+      "kind": "audit",
+      "detail": "List reads emit no package Audit event because there is no caller-controlled correlation input and no raw query/value diagnostic; Access remains responsible for its decision/denial audit contract."
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema": "larena.package_batch_launch_record.v1",
+  "batch": "S-STORAGE-01",
+  "goal": "Implement a generic database-native, access-scoped, bounded and deterministic list boundary over current immutable record heads without Content or Docara knowledge.",
+  "repository": "larena/storage",
+  "base_revision": "7c606e092591dbcb40fbe7c45ef30bb917f1df68",
+  "branch": "codex/s-storage-01-durable-record-list",
+  "canonical_feature": {
+    "revision": "97b91cecafa36343f11166afb9db7c7036dac803",
+    "path": "specs/packages/storage/features/record-list/feature.json",
+    "sha256": "af6131dc0f7d4f13040216704064f67b4b8800f3efe445c5ce5e168654619421"
+  },
+  "before_gap": {
+    "command": "/opt/homebrew/opt/php@8.3/bin/php -r <VersionedStorage::listCurrentRecords reflection check>",
+    "exit_code": 23,
+    "diagnostic": "persistent VersionedStorage has exact/current reads but no durable scoped current-record list contract"
+  },
+  "allowed_files_ref": ".larena/launch-context.json#allowed_files",
+  "forbidden_files_ref": ".larena/launch-context.json#forbidden_files",
+  "evidence_path": "docs/project-management/evidence/s-storage-01-durable-record-list/",
+  "tests": [
+    "generic two-schema current-head list",
+    "CAS update plus separate exact historical read",
+    "cross-process disposable SQLite restart",
+    "access, schema, filter, limit, cursor and projection negative controls",
+    "filter-order and clean-path metamorphic controls",
+    "zero storage mutation on rejected queries",
+    "composer validate --strict and composer run quality:gate",
+    "independent no-local clean-clone reproduction"
+  ],
+  "rollback": "Delete the isolated branch/worktree or revert its single package-local commit; there is no migration, accepted-pin change, runtime action or user-data mutation.",
+  "stop_conditions": [
+    "write required in Specs or another package",
+    "public product contract must change outside storage.record_list",
+    "new cross-package ownership model required",
+    "green test requires weaker Access, projection, cursor integrity or durability",
+    "live, data, secret or destructive boundary encountered"
+  ],
+  "action_gate": {
+    "result": "success",
+    "classification": "bounded reversible local source change",
+    "evidence": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage/source/output/action-gates/action-gate-report-20260807191833.json"
+  },
+  "readiness_ceiling": "TESTED",
+  "status": "launched"
+}

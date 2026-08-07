@@ -8,6 +8,7 @@ use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
+use Larena\Access\Contracts\QueryScopeProvider;
 use Larena\Audit\Contracts\AuditEvent;
 use Larena\Audit\Enums\AuditRetentionClass;
 use Larena\Audit\Enums\AuditSeverity;
@@ -15,6 +16,9 @@ use Larena\Audit\Runtime\AuditEventPipeline;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Audit\StorageVersionAuditEventDescriptor;
 use Larena\Storage\Contracts\StoragePublicProjection;
+use Larena\Storage\Contracts\StorageRecordListItem;
+use Larena\Storage\Contracts\StorageRecordListPage;
+use Larena\Storage\Contracts\StorageRecordListQuery;
 use Larena\Storage\Contracts\StorageRecordVersion;
 use Larena\Storage\Contracts\StorageRecordVersionRef;
 use Larena\Storage\Contracts\StorageSchemaVersion;
@@ -34,9 +38,11 @@ final readonly class VersionedStorage implements VersionedStorageContract
 
     public function __construct(
         private ConnectionInterface $database,
-        PropertyTypeRegistry $propertyTypes,
+        private PropertyTypeRegistry $propertyTypes,
         private ActorOperationAuthorizer $authorizer,
         private AuditEventPipeline $audit,
+        private ?QueryScopeProvider $queryScopeProvider = null,
+        private ?string $recordListCursorKey = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
     }
@@ -332,6 +338,166 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
+    public function listCurrentRecords(
+        StorageRecordListQuery $query,
+        string $actor,
+    ): StorageRecordListPage {
+        $this->assertActor($actor);
+        $this->assertSchemaId($query->schemaId);
+        if ($query->limit < 1 || $query->limit > 100) {
+            throw new StorageRejected('storage_record_list_limit_invalid');
+        }
+        if ($this->queryScopeProvider === null
+            || !$this->queryScopeProvider->supports('storage.record:' . $query->schemaId, 'storage.record.list')) {
+            throw new StorageRejected('storage_record_list_scope_missing');
+        }
+        if (!is_string($this->recordListCursorKey) || strlen($this->recordListCursorKey) < 32) {
+            throw new StorageRejected('storage_record_list_cursor_key_missing');
+        }
+
+        $resourceType = 'storage.record:' . $query->schemaId;
+        $context = ['resource_type' => $resourceType];
+        $decision = $this->queryScopeProvider->explain(
+            $resourceType,
+            $actor,
+            'storage.record.list',
+            $context,
+        );
+        if (!$decision->isAllowed()) {
+            throw new StorageRejected('storage_record_list_scope_denied');
+        }
+        if ($decision->operation !== 'storage.record.list' || $decision->actor !== $actor) {
+            throw new StorageRejected('storage_record_list_scope_invalid');
+        }
+
+        $requestedFilters = $this->normalizeListFilters($query->filters, null);
+        $scopedQuery = $this->queryScopeProvider->scope(
+            ['schema_id' => $query->schemaId, 'filters' => $requestedFilters],
+            $actor,
+            'storage.record.list',
+            $context,
+        );
+        $scopedKeys = array_keys($scopedQuery);
+        sort($scopedKeys, SORT_STRING);
+        if ($scopedKeys !== ['filters', 'schema_id']
+            || ($scopedQuery['schema_id'] ?? null) !== $query->schemaId
+            || !is_array($scopedQuery['filters'] ?? null)) {
+            throw new StorageRejected('storage_record_list_scope_invalid');
+        }
+
+        $this->authorizer->assertAllowed($actor, 'storage.record.list');
+
+        try {
+            $schemaHead = $this->database->table('larena_storage_schemas')
+                ->where('schema_id', $query->schemaId)
+                ->first();
+            if (!$schemaHead instanceof stdClass) {
+                throw new StorageRejected('storage_record_list_schema_unknown');
+            }
+            $schema = $this->schemaVersion(new StorageSchemaVersionRef(
+                $query->schemaId,
+                (int) $schemaHead->current_version,
+            ));
+            if (!hash_equals((string) $schemaHead->current_hash, $schema->definitionHash)) {
+                throw new StorageRejected('storage_schema_definition_corrupt');
+            }
+
+            /** @var array<string, array{operator: string, value: mixed}> $rawScopedFilters */
+            $rawScopedFilters = $scopedQuery['filters'];
+            $normalizedRequestedFilters = $this->normalizeListFilters($requestedFilters, $schema);
+            $filters = $this->normalizeListFilters($rawScopedFilters, $schema);
+            foreach ($normalizedRequestedFilters as $field => $filter) {
+                if (($filters[$field] ?? null) !== $filter) {
+                    throw new StorageRejected('storage_record_list_scope_invalid');
+                }
+            }
+            $queryIdentity = hash('sha256', $this->canonicalJson([
+                'schema_id' => $query->schemaId,
+                'filters' => $normalizedRequestedFilters,
+            ]));
+            $scopeIdentity = hash('sha256', $this->canonicalJson([
+                'actor' => $decision->actor,
+                'target' => $decision->target,
+                'reason_code' => $decision->reasonCode,
+                'scoped_query' => ['schema_id' => $query->schemaId, 'filters' => $filters],
+            ]));
+            $afterRecordId = $this->decodeListContinuation(
+                $query->continuation,
+                $queryIdentity,
+                $scopeIdentity,
+            );
+
+            $builder = $this->database->table('larena_storage_records as heads')
+                ->join('larena_storage_record_versions as versions', static function ($join): void {
+                    $join->on('versions.schema_id', '=', 'heads.schema_id')
+                        ->on('versions.record_id', '=', 'heads.record_id')
+                        ->on('versions.revision', '=', 'heads.current_revision');
+                })
+                ->where('heads.schema_id', $query->schemaId)
+                ->where('heads.current_schema_version', $schema->ref->version)
+                ->orderBy('heads.record_id')
+                ->limit($query->limit + 1)
+                ->select([
+                    'versions.schema_id',
+                    'versions.record_id',
+                    'versions.revision',
+                    'versions.owner_ref',
+                    'versions.schema_version',
+                    'versions.values_json',
+                    'versions.content_hash',
+                    'versions.operation',
+                    'versions.created_by',
+                    'versions.correlation_id',
+                    'versions.created_at',
+                    'heads.current_hash as head_hash',
+                ]);
+            if ($afterRecordId !== null) {
+                $builder->where('heads.record_id', '>', $afterRecordId);
+            }
+            foreach ($filters as $field => $filter) {
+                $builder->where('versions.values_json->' . $field, '=', $filter['value']);
+            }
+
+            /** @var list<stdClass> $rows */
+            $rows = $builder->get()->all();
+            $hasMore = count($rows) > $query->limit;
+            if ($hasMore) {
+                array_pop($rows);
+            }
+            $items = [];
+            foreach ($rows as $row) {
+                $record = $this->hydrateRecordVersion($row);
+                if ($record->schema->version !== $schema->ref->version
+                    || !hash_equals($record->contentHash, (string) $row->head_hash)) {
+                    throw new StorageRejected('storage_record_head_corrupt');
+                }
+                $items[] = new StorageRecordListItem(
+                    $record->ref,
+                    $record->schema,
+                    $this->publicValues($schema, $record->values),
+                );
+            }
+
+            $continuation = null;
+            if ($hasMore && $items !== []) {
+                $last = $items[array_key_last($items)];
+                $continuation = $this->encodeListContinuation(
+                    $last->ref->recordId,
+                    $queryIdentity,
+                    $scopeIdentity,
+                );
+            }
+
+            return new StorageRecordListPage($items, $continuation);
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
     public function projectPublicVersion(
         StorageRecordVersionRef $ref,
         bool $forUpdate = false,
@@ -339,13 +505,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
     {
         $record = $this->recordVersionInternal($ref, $forUpdate);
         $schema = $this->schemaVersion($record->schema, $forUpdate);
-        $public = [];
-        foreach ($schema->fields as $field) {
-            $key = (string) $field['key'];
-            if (($field['visibility'] ?? null) === 'public' && array_key_exists($key, $record->values)) {
-                $public[$key] = $record->values[$key];
-            }
-        }
+        $public = $this->publicValues($schema, $record->values);
 
         return new StoragePublicProjection($record->ref, $record->ownerRef, $record->schema, $public);
     }
@@ -564,6 +724,140 @@ final readonly class VersionedStorage implements VersionedStorageContract
             $row->correlation_id === null ? null : (string) $row->correlation_id,
             (string) $row->created_at,
         );
+    }
+
+    /**
+     * @param array<array-key, mixed> $filters
+     * @return array<string, array{operator: 'eq', value: scalar|null}>
+     */
+    private function normalizeListFilters(array $filters, ?StorageSchemaVersion $schema): array
+    {
+        if ($filters !== [] && array_is_list($filters)) {
+            throw new StorageRejected('storage_record_list_filters_invalid');
+        }
+        $fields = [];
+        if ($schema !== null) {
+            foreach ($schema->fields as $field) {
+                $fields[(string) $field['key']] = $field;
+            }
+        }
+        $normalized = [];
+        foreach ($filters as $field => $filter) {
+            if (!is_string($field) || preg_match('/^[a-z][a-z0-9_]{0,63}$/', $field) !== 1 || !is_array($filter)) {
+                throw new StorageRejected('storage_record_list_filter_invalid');
+            }
+            $keys = array_keys($filter);
+            sort($keys, SORT_STRING);
+            if ($keys !== ['operator', 'value'] || ($filter['operator'] ?? null) !== 'eq') {
+                throw new StorageRejected('storage_record_list_filter_operator_unknown');
+            }
+            $value = $filter['value'] ?? null;
+            if (!is_scalar($value) && $value !== null) {
+                throw new StorageRejected('storage_record_list_filter_invalid');
+            }
+            if ($schema !== null) {
+                if (!isset($fields[$field])) {
+                    throw new StorageRejected('storage_record_list_filter_field_unknown');
+                }
+                if (($fields[$field]['visibility'] ?? null) !== 'public') {
+                    throw new StorageRejected('storage_record_list_filter_field_not_public');
+                }
+                $result = $this->propertyTypes->normalizeAndValidate(
+                    (string) $fields[$field]['type'],
+                    (int) $fields[$field]['type_version'],
+                    $value,
+                    is_array($fields[$field]['constraints'] ?? null) ? $fields[$field]['constraints'] : [],
+                );
+                if (!$result->canBePersistedByOwner()) {
+                    throw new StorageRejected('storage_record_list_filter_value_invalid');
+                }
+                $value = $result->normalizedValue;
+            }
+            $normalized[$field] = ['operator' => 'eq', 'value' => $value];
+        }
+        ksort($normalized, SORT_STRING);
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     * @return array<string, mixed>
+     */
+    private function publicValues(StorageSchemaVersion $schema, array $values): array
+    {
+        $public = [];
+        foreach ($schema->fields as $field) {
+            $key = (string) $field['key'];
+            if (($field['visibility'] ?? null) === 'public' && array_key_exists($key, $values)) {
+                $public[$key] = $values[$key];
+            }
+        }
+
+        return $public;
+    }
+
+    private function decodeListContinuation(?string $continuation, string $queryIdentity, string $scopeIdentity): ?string
+    {
+        if ($continuation === null) {
+            return null;
+        }
+        if ($continuation === '' || strlen($continuation) > 2048) {
+            throw new StorageRejected('storage_record_list_continuation_invalid');
+        }
+        $encoded = strtr($continuation, '-_', '+/');
+        $padding = strlen($encoded) % 4;
+        if ($padding !== 0) {
+            $encoded .= str_repeat('=', 4 - $padding);
+        }
+        $json = base64_decode($encoded, true);
+        if (!is_string($json)) {
+            throw new StorageRejected('storage_record_list_continuation_invalid');
+        }
+        $payload = $this->decodeObject($json, 'storage_record_list_continuation_invalid');
+        $keys = array_keys($payload);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['after', 'query', 'scope', 'signature', 'version']
+            || ($payload['version'] ?? null) !== 1
+            || !is_string($payload['after'] ?? null)
+            || !is_string($payload['query'] ?? null)
+            || !is_string($payload['scope'] ?? null)
+            || !is_string($payload['signature'] ?? null)) {
+            throw new StorageRejected('storage_record_list_continuation_invalid');
+        }
+        $signed = [
+            'version' => 1,
+            'query' => $payload['query'],
+            'scope' => $payload['scope'],
+            'after' => $payload['after'],
+        ];
+        $expected = hash_hmac('sha256', $this->canonicalJson($signed), (string) $this->recordListCursorKey);
+        if (!hash_equals($expected, $payload['signature'])
+            || !hash_equals($queryIdentity, $payload['query'])
+            || !hash_equals($scopeIdentity, $payload['scope'])
+            || preg_match('/^record-[a-f0-9]{32}$/', $payload['after']) !== 1) {
+            throw new StorageRejected('storage_record_list_continuation_invalid');
+        }
+
+        return $payload['after'];
+    }
+
+    private function encodeListContinuation(string $after, string $queryIdentity, string $scopeIdentity): string
+    {
+        $payload = [
+            'version' => 1,
+            'query' => $queryIdentity,
+            'scope' => $scopeIdentity,
+            'after' => $after,
+        ];
+        $payload['signature'] = hash_hmac(
+            'sha256',
+            $this->canonicalJson($payload),
+            (string) $this->recordListCursorKey,
+        );
+        $encoded = base64_encode($this->canonicalJson($payload));
+
+        return rtrim(strtr($encoded, '+/', '-_'), '=');
     }
 
     /** @return array<string, mixed> */

@@ -69,6 +69,15 @@ interface VersionedStorage
     ): ?StorageRecordVersion;
 
     /**
+     * Lists public projections of current record heads after Access has resolved
+     * the caller's exact query scope. Missing or invalid scope fails closed.
+     */
+    public function listCurrentRecords(
+        StorageRecordListQuery $query,
+        string $actor,
+    ): StorageRecordListPage;
+
+    /**
      * A locking projection is effective only inside an ambient database transaction.
      */
     public function projectPublicVersion(

@@ -6,6 +6,17 @@ All notable changes to `larena/storage` are documented in this file.
 
 ### Added
 
+- Add a database-native `VersionedStorage::listCurrentRecords()` contract for
+  deterministic, bounded current-head pages across arbitrary Storage schemas.
+- Resolve canonical Access query scope before Storage data access; bind opaque
+  HMAC continuations to schema, normalized filters and resolved scope; reject
+  missing/denied/invalid scope, cursor tampering and cross-query/scope reuse.
+- Add exact Property-typed equality filters and schema-owned public projection,
+  rejecting unknown fields/operators and protected/admin filter inference.
+- Add disposable SQLite integration evidence for two unrelated schemas, CAS
+  current-head uniqueness, exact history, negative controls, key-order
+  metamorphism, zero mutation and cross-process/cross-path durability.
+
 - Add additive database tables and contracts for immutable schema and record
   versions.
 - Add exact-version admin reads, an actor-checked current-version resolver and
@@ -71,6 +82,9 @@ All notable changes to `larena/storage` are documented in this file.
   `public`, including unknown, missing and invalid visibility values.
 
 ### Migration notes
+
+- S-STORAGE-01 adds no migration or table change. Rollback is the package commit
+  revert; previously persisted immutable records are untouched.
 
 - The original migration is additive and creates four version tables. The
   schema-evolution migration adds four immutable plan/result tables.

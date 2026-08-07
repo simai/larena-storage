@@ -28,6 +28,7 @@ tests/Integration/StorageSchemaEvolutionOwnerPolicyProviderOrderTest.php
 tests/Integration/StorageSchemaEvolutionConcurrencyTest.php
 tests/Integration/StorageSchemaEvolutionMySqlTest.php
 tests/Integration/VersionedStorageDatabaseTest.php
+tests/Integration/VersionedStorageRecordListTest.php
 ```
 
 The real-MySQL schema-evolution harness is opt-in and uses only the ignored
@@ -62,6 +63,13 @@ location map.
 ## What Tests Must Prove
 
 - schema registration and record mutation are deterministic;
+- a database-native list resolves Access scope before Storage data, returns
+  only exact current heads and public values, and works for unrelated schemas;
+- limits, unknown fields/operators, hidden filters, invalid scopes and
+  tampered/cross-query/cross-scope continuations fail closed without mutation;
+- filter-key permutation preserves the logical result and continuation, while
+  a new PHP process and an identical SQLite copy in another path reproduce the
+  same persisted result;
 - validation happens before mutation;
 - access scope denial blocks reads/mutations as expected;
 - persistence failures do not silently mutate state;

@@ -1,0 +1,31 @@
+{
+  "schema": "larena.evidence_file_map.v1",
+  "status": "implemented_pending_independent_audit",
+  "files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "README.md",
+    "composer.json",
+    "docs/developer/api-reference.md",
+    "docs/developer/testing.md",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/README.md",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/code-review-feedback.md",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/deviations.json",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/file-map.json",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/graph-sync-proposal.json",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/implementation-summary.md",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/independent-review.md",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/smoke.md",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/tests.md",
+    "docs/project-management/evidence/s-storage-01-durable-record-list/verification.json",
+    "docs/project-management/launch-records/s-storage-01-durable-record-list.json",
+    "module.yaml",
+    "src/Contracts/StorageRecordListItem.php",
+    "src/Contracts/StorageRecordListPage.php",
+    "src/Contracts/StorageRecordListQuery.php",
+    "src/Contracts/VersionedStorage.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Runtime/VersionedStorage.php",
+    "tests/Integration/VersionedStorageRecordListTest.php"
+  ]
+}

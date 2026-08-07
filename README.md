@@ -10,6 +10,24 @@ for immutable schema versions, immutable record versions, compare-and-swap,
 Access authorization, transactional Security Audit and exact public
 projection.
 
+The durable slice also exposes `listCurrentRecords()` for generic current-head
+queries. It joins the package-owned record heads to their exact immutable
+versions in the database, resolves a `QueryScopeProvider` decision before any
+Storage data lookup, accepts only schema-known public fields with exact `eq`
+filters, orders by stable record identity, and bounds pages to `1..100` items.
+Continuation tokens are HMAC-protected and bound to the exact schema,
+Property-normalized filters and resolved Access scope. Missing/denied/malformed
+scope, an absent cursor key, unknown fields/operators, hidden-field filters,
+tampering and cross-query/cross-scope reuse all fail closed. Returned items
+contain only schema-owned `public` values; owner references, protected/admin
+values and caller correlation material are not included.
+
+This is not the older in-memory/local-development list adapter. It runs against
+the existing immutable version tables, needs no migration, and has disposable
+SQLite evidence that survives a PHP-process restart. The container binding uses
+the application key as the cursor integrity key and requires a bound canonical
+Access `QueryScopeProvider`; direct construction must supply both explicitly.
+
 For durable typed content, the canonical container contract is
 `Larena\Storage\Contracts\VersionedStorage` backed by the database-native
 `Larena\Storage\Runtime\VersionedStorage`. The older
@@ -88,6 +106,10 @@ This compatibility slice does not add a table, migration, route, provider,
 Content-owned behavior or live database operation. Production readiness,
 frontend readiness, encryption policy, SitePack portability and readiness of
 all Larena packages are not claimed.
+
+S-STORAGE-01 is claimed only as `TESTED`. It does not change accepted Root or
+Workspace pins and does not claim adoption, runtime readiness or production
+readiness.
 
 Canonical specifications are in `simai/larena-specs`.
 

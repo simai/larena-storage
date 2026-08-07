@@ -1,0 +1,21 @@
+{
+  "schema": "larena.package_batch_verification.v1",
+  "batch": "S-STORAGE-01",
+  "base_revision": "7c606e092591dbcb40fbe7c45ef30bb917f1df68",
+  "tested_worktree": "/Users/rim/.codex/worktrees/s-storage-01-durable-record-list",
+  "status": "executor_checks_passed_clean_clone_pending",
+  "claim": "TESTED",
+  "commands": [
+    {"name": "before_gap", "exit_code": 23, "result": "expected_gap_reproduced"},
+    {"name": "composer_validate_strict", "exit_code": 0, "result": "passed"},
+    {"name": "focused_record_list_21_scenarios", "exit_code": 0, "result": "passed"},
+    {"name": "composer_test_21_commands", "exit_code": 0, "result": "passed_mysql_opt_in_skipped"},
+    {"name": "composer_quality_gate", "exit_code": 0, "result": "passed"},
+    {"name": "phpstan", "exit_code": 0, "result": "zero_errors"},
+    {"name": "lint", "exit_code": 0, "result": "87_php_files"},
+    {"name": "scope_check", "exit_code": 0, "result": "25_changed_files"},
+    {"name": "git_diff_check", "exit_code": 0, "result": "passed"}
+  ],
+  "clean_clone": {"status": "pending_commit"},
+  "independent_audit": "pending"
+}
