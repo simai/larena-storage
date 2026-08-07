@@ -1,32 +1,36 @@
 {
   "schema": "larena.package_batch_verification.v1",
   "batch": "S-STORAGE-01",
-  "base_revision": "7c606e092591dbcb40fbe7c45ef30bb917f1df68",
-  "implementation_revision": "410ec36d1e983a5486fef5033ab5d7bb0729b641",
-  "tested_worktree": "/Users/rim/.codex/worktrees/s-storage-01-durable-record-list",
-  "status": "executor_and_clean_clone_checks_passed_pending_independent_audit",
+  "status": "correction_local_checks_passed_clean_clone_pending",
+  "recorded_at": "2026-08-07T20:20:00Z",
+  "binding": {
+    "mode": "containing_git_commit",
+    "predecessor_revision": "70710de246cc3c974a2fc3f6466befe4663c5b7f",
+    "branch": "codex/s-storage-01-durable-record-list",
+    "note": "Implementation and exact containing evidence commit bindings are populated after the correction commits exist."
+  },
   "claim": "TESTED",
-  "commands": [
-    {"name": "before_gap", "exit_code": 23, "result": "expected_gap_reproduced"},
+  "auditor_counterexamples_before": {
+    "real_provider_resource_support": {"storage.record": true, "storage.record:inventory.widget": false},
+    "protected_provider_scope": "storage_record_list_filter_field_not_public",
+    "evidence_revision_drift": "410ec36 clean clone versus 70710de handoff"
+  },
+  "local_checks": [
+    {"name": "focused_record_list", "exit_code": 0, "result": "30_scenarios_passed"},
+    {"name": "real_provider_container_binding", "exit_code": 0, "result": "7_scenarios_passed"},
     {"name": "composer_validate_strict", "exit_code": 0, "result": "passed"},
-    {"name": "focused_record_list_21_scenarios", "exit_code": 0, "result": "passed"},
-    {"name": "composer_test_21_commands", "exit_code": 0, "result": "passed_mysql_opt_in_skipped"},
+    {"name": "composer_test", "exit_code": 0, "result": "22_commands_passed_mysql_opt_in_skipped"},
     {"name": "composer_quality_gate", "exit_code": 0, "result": "passed"},
     {"name": "phpstan", "exit_code": 0, "result": "zero_errors"},
-    {"name": "lint", "exit_code": 0, "result": "87_php_files"},
-    {"name": "scope_check", "exit_code": 0, "result": "25_changed_files"},
-    {"name": "git_diff_check", "exit_code": 0, "result": "passed"},
-    {"name": "clean_clone_initial_wrapper", "exit_code": 1, "result": "orchestration_cwd_error_before_tests_corrected"},
-    {"name": "clean_clone_composer_install_74_packages", "exit_code": 0, "result": "passed"},
-    {"name": "clean_clone_focused_record_list_21_scenarios", "exit_code": 0, "result": "passed"},
-    {"name": "clean_clone_composer_validate_strict", "exit_code": 0, "result": "passed"},
-    {"name": "clean_clone_composer_quality_gate", "exit_code": 0, "result": "passed"}
+    {"name": "lint", "exit_code": 0, "result": "88_php_files"},
+    {"name": "git_diff_check", "exit_code": 0, "result": "passed"}
   ],
-  "clean_clone": {
-    "status": "passed",
-    "path": "/tmp/larena-storage-s01-clean.rIAJii/packages/storage",
-    "revision": "410ec36d1e983a5486fef5033ab5d7bb0729b641",
-    "dependency_wiring": "seven separately cloned exact detached package revisions listed in smoke.md"
-  },
-  "independent_audit": "pending"
+  "clean_clone": {"status": "pending_correction_commit"},
+  "independent_audit": "pending_reaudit",
+  "nonclaims": {
+    "root_integration": false,
+    "mysql_json_equality": false,
+    "production_ready": false,
+    "adopted": false
+  }
 }

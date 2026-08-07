@@ -13,8 +13,11 @@ projection.
 The durable slice also exposes `listCurrentRecords()` for generic current-head
 queries. It joins the package-owned record heads to their exact immutable
 versions in the database, resolves a `QueryScopeProvider` decision before any
-Storage data lookup, accepts only schema-known public fields with exact `eq`
-filters, orders by stable record identity, and bounds pages to `1..100` items.
+Storage data lookup. Caller filters accept only schema-known `public` fields
+with exact `eq`; a trusted provider may additionally add exact typed `public`
+or `protected` filters, but cannot remove/change caller filters or use unknown,
+`admin` or arbitrary operators. Queries order by stable record identity and
+bound pages to `1..100` items.
 Continuation tokens are HMAC-protected and bound to the exact schema,
 Property-normalized filters and resolved Access scope. Missing/denied/malformed
 scope, an absent cursor key, unknown fields/operators, hidden-field filters,
@@ -27,6 +30,14 @@ the existing immutable version tables, needs no migration, and has disposable
 SQLite evidence that survives a PHP-process restart. The container binding uses
 the application key as the cursor integrity key and requires a bound canonical
 Access `QueryScopeProvider`; direct construction must supply both explicitly.
+Storage calls that provider with the operation-compatible resource type
+`storage.record`; the exact schema id remains inside the typed query and both
+cursor identities. Consumers must explicitly bind their chosen
+`QueryScopeProvider` interface before resolving Storage. Access intentionally
+does not provide a global default interface binding, and Storage fails closed
+when the consumer has not selected one. Package tests prove compatibility with
+the concrete `PersistentGlobalRoleQueryScopeProvider`; this is not a Root or
+production container-integration claim.
 
 For durable typed content, the canonical container contract is
 `Larena\Storage\Contracts\VersionedStorage` backed by the database-native

@@ -34,6 +34,8 @@ use Throwable;
 
 final readonly class VersionedStorage implements VersionedStorageContract
 {
+    private const RECORD_LIST_RESOURCE_TYPE = 'storage.record';
+
     private SchemaDefinitionNormalizer $normalizer;
 
     public function __construct(
@@ -348,14 +350,14 @@ final readonly class VersionedStorage implements VersionedStorageContract
             throw new StorageRejected('storage_record_list_limit_invalid');
         }
         if ($this->queryScopeProvider === null
-            || !$this->queryScopeProvider->supports('storage.record:' . $query->schemaId, 'storage.record.list')) {
+            || !$this->queryScopeProvider->supports(self::RECORD_LIST_RESOURCE_TYPE, 'storage.record.list')) {
             throw new StorageRejected('storage_record_list_scope_missing');
         }
         if (!is_string($this->recordListCursorKey) || strlen($this->recordListCursorKey) < 32) {
             throw new StorageRejected('storage_record_list_cursor_key_missing');
         }
 
-        $resourceType = 'storage.record:' . $query->schemaId;
+        $resourceType = self::RECORD_LIST_RESOURCE_TYPE;
         $context = ['resource_type' => $resourceType];
         $decision = $this->queryScopeProvider->explain(
             $resourceType,
@@ -370,7 +372,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
             throw new StorageRejected('storage_record_list_scope_invalid');
         }
 
-        $requestedFilters = $this->normalizeListFilters($query->filters, null);
+        $requestedFilters = $this->normalizeListFilters($query->filters, null, 'caller');
         $scopedQuery = $this->queryScopeProvider->scope(
             ['schema_id' => $query->schemaId, 'filters' => $requestedFilters],
             $actor,
@@ -404,8 +406,8 @@ final readonly class VersionedStorage implements VersionedStorageContract
 
             /** @var array<string, array{operator: string, value: mixed}> $rawScopedFilters */
             $rawScopedFilters = $scopedQuery['filters'];
-            $normalizedRequestedFilters = $this->normalizeListFilters($requestedFilters, $schema);
-            $filters = $this->normalizeListFilters($rawScopedFilters, $schema);
+            $normalizedRequestedFilters = $this->normalizeListFilters($requestedFilters, $schema, 'caller');
+            $filters = $this->normalizeListFilters($rawScopedFilters, $schema, 'provider');
             foreach ($normalizedRequestedFilters as $field => $filter) {
                 if (($filters[$field] ?? null) !== $filter) {
                     throw new StorageRejected('storage_record_list_scope_invalid');
@@ -730,10 +732,17 @@ final readonly class VersionedStorage implements VersionedStorageContract
      * @param array<array-key, mixed> $filters
      * @return array<string, array{operator: 'eq', value: scalar|null}>
      */
-    private function normalizeListFilters(array $filters, ?StorageSchemaVersion $schema): array
+    private function normalizeListFilters(
+        array $filters,
+        ?StorageSchemaVersion $schema,
+        string $surface,
+    ): array
     {
+        $reasonPrefix = $surface === 'provider'
+            ? 'storage_record_list_scope_filter_'
+            : 'storage_record_list_filter_';
         if ($filters !== [] && array_is_list($filters)) {
-            throw new StorageRejected('storage_record_list_filters_invalid');
+            throw new StorageRejected($reasonPrefix . 'collection_invalid');
         }
         $fields = [];
         if ($schema !== null) {
@@ -744,23 +753,27 @@ final readonly class VersionedStorage implements VersionedStorageContract
         $normalized = [];
         foreach ($filters as $field => $filter) {
             if (!is_string($field) || preg_match('/^[a-z][a-z0-9_]{0,63}$/', $field) !== 1 || !is_array($filter)) {
-                throw new StorageRejected('storage_record_list_filter_invalid');
+                throw new StorageRejected($reasonPrefix . 'invalid');
             }
             $keys = array_keys($filter);
             sort($keys, SORT_STRING);
             if ($keys !== ['operator', 'value'] || ($filter['operator'] ?? null) !== 'eq') {
-                throw new StorageRejected('storage_record_list_filter_operator_unknown');
+                throw new StorageRejected($reasonPrefix . 'operator_unknown');
             }
             $value = $filter['value'] ?? null;
             if (!is_scalar($value) && $value !== null) {
-                throw new StorageRejected('storage_record_list_filter_invalid');
+                throw new StorageRejected($reasonPrefix . 'invalid');
             }
             if ($schema !== null) {
                 if (!isset($fields[$field])) {
-                    throw new StorageRejected('storage_record_list_filter_field_unknown');
+                    throw new StorageRejected($reasonPrefix . 'field_unknown');
                 }
-                if (($fields[$field]['visibility'] ?? null) !== 'public') {
+                $visibility = $fields[$field]['visibility'] ?? null;
+                if ($surface === 'caller' && $visibility !== 'public') {
                     throw new StorageRejected('storage_record_list_filter_field_not_public');
+                }
+                if ($surface === 'provider' && !in_array($visibility, ['public', 'protected'], true)) {
+                    throw new StorageRejected('storage_record_list_scope_filter_field_forbidden');
                 }
                 $result = $this->propertyTypes->normalizeAndValidate(
                     (string) $fields[$field]['type'],
@@ -769,7 +782,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     is_array($fields[$field]['constraints'] ?? null) ? $fields[$field]['constraints'] : [],
                 );
                 if (!$result->canBePersistedByOwner()) {
-                    throw new StorageRejected('storage_record_list_filter_value_invalid');
+                    throw new StorageRejected($reasonPrefix . 'value_invalid');
                 }
                 $value = $result->normalizedValue;
             }

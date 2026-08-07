@@ -1,8 +1,8 @@
 # Smoke and restart evidence
 
-The focused integration test uses only disposable file-backed SQLite databases. It creates data, disconnects the writer connection, launches a new PHP process against the same database file and verifies a scoped bounded list. It then copies the closed database bytes to another disposable path, launches another process and requires byte-for-byte-equal JSON result and continuation identity.
+The corrected focused integration test uses disposable file-backed SQLite only. It creates two unrelated schemas and alpha/beta records whose tenant key is `protected`, disconnects the writer, launches a new PHP process against the same bytes, then repeats against a byte-identical copy in another disposable path. Payload and continuation identity remain equal; protected scope values remain absent.
 
-Dependency wiring for executor verification is explicit and read-only:
+Exact read-only dependency revisions:
 
 | Package | Revision |
 | --- | --- |
@@ -14,8 +14,4 @@ Dependency wiring for executor verification is explicit and read-only:
 | larena/property | `7773692a9e1cf60f641a050e4ebf99e1fe37c159` |
 | larena/ui | `4ff429cb47b8ebbe232d683ee1333d3a27ad417e` |
 
-No dependency source was changed.
-
-Independent reproduction used `/tmp/larena-storage-s01-clean.rIAJii/packages/storage`, created with `git clone --no-local` at Storage revision `410ec36d1e983a5486fef5033ab5d7bb0729b641`; every dependency was separately cloned with `--no-local` and detached at the revision above. A fresh Composer install completed with 74 installs. The focused 21-scenario restart/metamorphic test, `composer validate --strict` and the full `composer run quality:gate` all exited `0`.
-
-The first orchestration wrapper correctly created and verified all clones but then invoked Composer from `/tmp`, where no `composer.json` exists. That wrapper failed before tests. It was corrected by setting the exact clean Storage clone as working directory; the unchanged commands then passed as recorded above.
+No dependency source is changed. A fresh executor-owned `--no-local` assembly and exact final containing-commit verification will be recorded after commits exist. This is executor reproduction, not an independent auditor review.

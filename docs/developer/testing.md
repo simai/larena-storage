@@ -29,6 +29,7 @@ tests/Integration/StorageSchemaEvolutionConcurrencyTest.php
 tests/Integration/StorageSchemaEvolutionMySqlTest.php
 tests/Integration/VersionedStorageDatabaseTest.php
 tests/Integration/VersionedStorageRecordListTest.php
+tests/Integration/VersionedStorageRecordListProviderBindingTest.php
 ```
 
 The real-MySQL schema-evolution harness is opt-in and uses only the ignored
@@ -65,6 +66,13 @@ location map.
 - schema registration and record mutation are deterministic;
 - a database-native list resolves Access scope before Storage data, returns
   only exact current heads and public values, and works for unrelated schemas;
+- the concrete portfolio `PersistentGlobalRoleQueryScopeProvider` supports
+  `storage.record` / `storage.record.list` with target `storage.record:all`,
+  while the schema-suffixed resource remains intentionally unsupported;
+- Storage provider injects an explicitly selected `QueryScopeProvider`, but an
+  absent interface binding remains absent and list fails closed;
+- callers cannot filter protected scope fields; provider-added typed protected
+  filters isolate scopes in SQL and never enter public projection;
 - limits, unknown fields/operators, hidden filters, invalid scopes and
   tampered/cross-query/cross-scope continuations fail closed without mutation;
 - filter-key permutation preserves the logical result and continuation, while

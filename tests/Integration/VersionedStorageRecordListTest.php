@@ -40,23 +40,46 @@ final class RecordListScopeProvider implements QueryScopeProvider
         private readonly string $tenant,
         private readonly bool $allowed = true,
         private readonly bool $supported = true,
-        private readonly bool $invalidResponse = false,
+        private readonly string $responseMode = 'valid',
     ) {
     }
 
     public function supports(string $resourceType, string $operation): bool
     {
         return $this->supported
-            && str_starts_with($resourceType, 'storage.record:')
+            && $resourceType === 'storage.record'
             && $operation === 'storage.record.list';
     }
 
     public function scope(array $query, string $actor, string $operation, array $context = []): array
     {
-        if ($this->invalidResponse) {
+        if ($this->responseMode === 'missing_schema') {
             return ['filters' => $query['filters'] ?? []];
         }
         $filters = is_array($query['filters'] ?? null) ? $query['filters'] : [];
+        if ($this->responseMode === 'wrong_schema') {
+            return ['filters' => $filters, 'schema_id' => 'tampered.schema'];
+        }
+        if ($this->responseMode === 'remove_caller') {
+            unset($filters['rank']);
+        }
+        if ($this->responseMode === 'change_caller') {
+            $filters['rank'] = ['operator' => 'eq', 'value' => 99];
+        }
+        if ($this->responseMode === 'unknown_field') {
+            $filters['provider_unknown'] = ['operator' => 'eq', 'value' => 'PROTECTED_SCOPE_SENTINEL'];
+        }
+        if ($this->responseMode === 'admin_field') {
+            $filters['private_note'] = ['operator' => 'eq', 'value' => 'PROTECTED_SCOPE_SENTINEL'];
+        }
+        if ($this->responseMode === 'unknown_operator') {
+            $filters['tenant'] = ['operator' => 'contains', 'value' => $this->tenant];
+
+            return ['filters' => $filters, 'schema_id' => $query['schema_id'] ?? null];
+        }
+        if ($this->responseMode === 'public_field') {
+            $filters['kind'] = ['operator' => 'eq', 'value' => 'standard'];
+        }
         $filters['tenant'] = ['value' => $this->tenant, 'operator' => 'eq'];
 
         return ['filters' => $filters, 'schema_id' => $query['schema_id'] ?? null];
@@ -148,6 +171,14 @@ function recordListSchema(string $schemaId, string $labelField): array
                 'type' => 'string',
                 'type_version' => 1,
                 'required' => true,
+                'visibility' => 'protected',
+                'constraints' => ['min_length' => 1, 'max_length' => 40],
+            ],
+            [
+                'key' => 'kind',
+                'type' => 'string',
+                'type_version' => 1,
+                'required' => true,
                 'visibility' => 'public',
                 'constraints' => ['min_length' => 1, 'max_length' => 40],
             ],
@@ -185,6 +216,12 @@ function recordListRejects(callable $action, string $reason): void
         $action();
     } catch (StorageRejected $exception) {
         recordListExpect($exception->reasonCode === $reason, "expected {$reason}, got {$exception->reasonCode}");
+        foreach (['PROTECTED_SCOPE_ALPHA', 'PROTECTED_SCOPE_BETA', 'PROTECTED_SCOPE_SENTINEL'] as $protectedValue) {
+            recordListExpect(
+                !str_contains($exception->getMessage(), $protectedValue),
+                'protected provider value leaked into exception diagnostics',
+            );
+        }
         return;
     }
     throw new RuntimeException("expected rejection {$reason}");
@@ -207,7 +244,7 @@ function recordListPagePayload(StorageRecordListPage $page): array
 function recordListRestartRead(string $path): array
 {
     $opened = recordListOpen($path);
-    $storage = recordListStorage($opened['connection'], new RecordListScopeProvider('alpha'));
+    $storage = recordListStorage($opened['connection'], new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA'));
     $page = $storage->listCurrentRecords(new StorageRecordListQuery(
         'inventory.widget',
         ['rank' => ['operator' => 'eq', 'value' => 7]],
@@ -240,33 +277,33 @@ try {
         PropertyTypeRegistry::builtIns(),
         $authorizer,
         new AuditEventPipeline(new DefaultAuditRedactor(), [$sink]),
-        new RecordListScopeProvider('alpha'),
+        new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA'),
         's-storage-01-test-cursor-key-32-bytes-minimum',
     );
 
     $widget = $storage->registerSchemaVersion(recordListSchema('inventory.widget', 'title'), null, 'actor:admin');
     $note = $storage->registerSchemaVersion(recordListSchema('catalog.note', 'caption'), null, 'actor:admin');
     $widgetAlphaOne = $storage->create('inventory:widget:alpha-1', $widget->ref, [
-        'title' => 'Alpha one', 'tenant' => 'alpha', 'rank' => '7', 'private_note' => 'SECRET_ALPHA_ONE',
+        'title' => 'Alpha one', 'tenant' => 'PROTECTED_SCOPE_ALPHA', 'kind' => 'standard', 'rank' => '7', 'private_note' => 'SECRET_ALPHA_ONE',
     ], 'actor:admin')->version;
     $storage->create('inventory:widget:alpha-2', $widget->ref, [
-        'title' => 'Alpha two', 'tenant' => 'alpha', 'rank' => 7, 'private_note' => 'SECRET_ALPHA_TWO',
+        'title' => 'Alpha two', 'tenant' => 'PROTECTED_SCOPE_ALPHA', 'kind' => 'standard', 'rank' => 7, 'private_note' => 'SECRET_ALPHA_TWO',
     ], 'actor:admin');
     $storage->create('inventory:widget:beta-1', $widget->ref, [
-        'title' => 'Beta one', 'tenant' => 'beta', 'rank' => 7, 'private_note' => 'SECRET_BETA',
+        'title' => 'Beta one', 'tenant' => 'PROTECTED_SCOPE_BETA', 'kind' => 'standard', 'rank' => 7, 'private_note' => 'SECRET_BETA',
     ], 'actor:admin');
     $storage->create('catalog:note:alpha-1', $note->ref, [
-        'caption' => 'Alpha note', 'tenant' => 'alpha', 'rank' => 4, 'private_note' => 'SECRET_NOTE_ALPHA',
+        'caption' => 'Alpha note', 'tenant' => 'PROTECTED_SCOPE_ALPHA', 'kind' => 'standard', 'rank' => 4, 'private_note' => 'SECRET_NOTE_ALPHA',
     ], 'actor:admin');
     $storage->create('catalog:note:beta-1', $note->ref, [
-        'caption' => 'Beta note', 'tenant' => 'beta', 'rank' => 4, 'private_note' => 'SECRET_NOTE_BETA',
+        'caption' => 'Beta note', 'tenant' => 'PROTECTED_SCOPE_BETA', 'kind' => 'standard', 'rank' => 4, 'private_note' => 'SECRET_NOTE_BETA',
     ], 'actor:admin');
 
     $updated = $storage->compareAndSwap(
         'inventory:widget:alpha-1',
         $widgetAlphaOne->ref,
         $widget->ref,
-        ['title' => 'Alpha one updated', 'tenant' => 'alpha', 'rank' => 7, 'private_note' => 'SECRET_UPDATED'],
+        ['title' => 'Alpha one updated', 'tenant' => 'PROTECTED_SCOPE_ALPHA', 'kind' => 'standard', 'rank' => 7, 'private_note' => 'SECRET_UPDATED'],
         'actor:admin',
     )->version;
     recordListExpect(
@@ -281,6 +318,7 @@ try {
     ), 'actor:reader:alpha');
     recordListExpect(count($first->items) === 1 && $first->continuation !== null, 'bounded first page missing continuation');
     recordListExpect(!array_key_exists('private_note', $first->items[0]->values), 'admin value leaked from schema-owned projection');
+    recordListExpect(!array_key_exists('tenant', $first->items[0]->values), 'protected provider scope leaked from schema-owned projection');
     $second = $storage->listCurrentRecords(new StorageRecordListQuery(
         'inventory.widget',
         ['rank' => ['value' => 7, 'operator' => 'eq']],
@@ -299,14 +337,22 @@ try {
         count($notes->items) === 1 && $notes->items[0]->values['caption'] === 'Alpha note',
         'same generic contract did not list the unrelated second schema',
     );
+    $publicAndProtectedScope = recordListStorage(
+        $connection,
+        new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'public_field'),
+    )->listCurrentRecords(new StorageRecordListQuery('inventory.widget', [], 100), 'actor:reader:alpha');
+    recordListExpect(
+        count($publicAndProtectedScope->items) === 2,
+        'provider could not combine schema-known public and protected scope filters',
+    );
 
     $permutedA = $storage->listCurrentRecords(new StorageRecordListQuery('inventory.widget', [
-        'tenant' => ['operator' => 'eq', 'value' => 'alpha'],
+        'kind' => ['operator' => 'eq', 'value' => 'standard'],
         'rank' => ['operator' => 'eq', 'value' => 7],
     ], 1), 'actor:reader:alpha');
     $permutedB = $storage->listCurrentRecords(new StorageRecordListQuery('inventory.widget', [
         'rank' => ['value' => '7', 'operator' => 'eq'],
-        'tenant' => ['value' => 'alpha', 'operator' => 'eq'],
+        'kind' => ['value' => 'standard', 'operator' => 'eq'],
     ], 1), 'actor:reader:alpha');
     recordListExpect(
         recordListPagePayload($permutedA) === recordListPagePayload($permutedB),
@@ -332,7 +378,7 @@ try {
         PropertyTypeRegistry::builtIns(),
         new RecordListAuthorizer(),
         new AuditEventPipeline(new DefaultAuditRedactor(), [new RecordListAuditSink()]),
-        new RecordListScopeProvider('alpha'),
+        new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA'),
         null,
     );
     recordListRejects(
@@ -340,12 +386,19 @@ try {
         'storage_record_list_cursor_key_missing',
     );
     foreach ([
-        [recordListStorage($connection, new RecordListScopeProvider('alpha', false)), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_denied'],
-        [recordListStorage($connection, new RecordListScopeProvider('alpha', true, true, true)), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_invalid'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', false)), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_denied'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'missing_schema')), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_invalid'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'wrong_schema')), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_invalid'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'remove_caller')), new StorageRecordListQuery('inventory.widget', ['rank' => ['operator' => 'eq', 'value' => 7]]), 'storage_record_list_scope_invalid'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'change_caller')), new StorageRecordListQuery('inventory.widget', ['rank' => ['operator' => 'eq', 'value' => 7]]), 'storage_record_list_scope_invalid'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'unknown_field')), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_filter_field_unknown'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'admin_field')), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_filter_field_forbidden'],
+        [recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_ALPHA', true, true, 'unknown_operator')), new StorageRecordListQuery('inventory.widget'), 'storage_record_list_scope_filter_operator_unknown'],
         [$storage, new StorageRecordListQuery('missing.schema'), 'storage_record_list_schema_unknown'],
         [$storage, new StorageRecordListQuery('inventory.widget', ['unknown' => ['operator' => 'eq', 'value' => 'x']]), 'storage_record_list_filter_field_unknown'],
         [$storage, new StorageRecordListQuery('inventory.widget', ['rank' => ['operator' => 'contains', 'value' => 7]]), 'storage_record_list_filter_operator_unknown'],
         [$storage, new StorageRecordListQuery('inventory.widget', ['private_note' => ['operator' => 'eq', 'value' => 'SECRET_UPDATED']]), 'storage_record_list_filter_field_not_public'],
+        [$storage, new StorageRecordListQuery('inventory.widget', ['tenant' => ['operator' => 'eq', 'value' => 'PROTECTED_SCOPE_ALPHA']]), 'storage_record_list_filter_field_not_public'],
         [$storage, new StorageRecordListQuery('inventory.widget', [], 0), 'storage_record_list_limit_invalid'],
         [$storage, new StorageRecordListQuery('inventory.widget', [], 101), 'storage_record_list_limit_invalid'],
     ] as [$candidate, $query, $reason]) {
@@ -365,7 +418,7 @@ try {
         ), 'actor:reader:alpha'),
         'storage_record_list_continuation_invalid',
     );
-    $betaStorage = recordListStorage($connection, new RecordListScopeProvider('beta'));
+    $betaStorage = recordListStorage($connection, new RecordListScopeProvider('PROTECTED_SCOPE_BETA'));
     recordListRejects(
         static fn () => $betaStorage->listCurrentRecords(new StorageRecordListQuery(
             'inventory.widget', ['rank' => ['operator' => 'eq', 'value' => 7]], 1, $first->continuation,
@@ -380,8 +433,16 @@ try {
     recordListExpect(in_array('storage.record.list', $authorizer->operations, true), 'list did not request its exact Access operation');
 
     $auditJson = json_encode($sink->events, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-    foreach (['SECRET_ALPHA_ONE', 'SECRET_ALPHA_TWO', 'SECRET_BETA', 'SECRET_UPDATED'] as $privateValue) {
+    foreach (['SECRET_ALPHA_ONE', 'SECRET_ALPHA_TWO', 'SECRET_BETA', 'SECRET_UPDATED', 'PROTECTED_SCOPE_ALPHA', 'PROTECTED_SCOPE_BETA', 'PROTECTED_SCOPE_SENTINEL'] as $privateValue) {
         recordListExpect(!str_contains($auditJson, $privateValue), 'private value leaked into Audit diagnostics');
+    }
+    $outputJson = json_encode([
+        recordListPagePayload($first),
+        recordListPagePayload($second),
+        recordListPagePayload($notes),
+    ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    foreach (['PROTECTED_SCOPE_ALPHA', 'PROTECTED_SCOPE_BETA', 'PROTECTED_SCOPE_SENTINEL'] as $protectedValue) {
+        recordListExpect(!str_contains($outputJson, $protectedValue), 'protected provider scope leaked into list output');
     }
 
     $opened['capsule']->getDatabaseManager()->disconnect();
@@ -413,7 +474,7 @@ try {
     recordListExpect($restartOriginal === $restartCopy, 'identical persisted bytes changed across clean database paths');
     recordListExpect(count($restartOriginal['items'] ?? []) === 1, 'new PHP process did not read durable list state');
 
-    echo "VersionedStorage durable scoped record-list tests passed: 21 scenarios.\n";
+    echo "VersionedStorage durable scoped record-list tests passed: 30 scenarios.\n";
 } finally {
     @unlink($databasePath);
     @unlink($copyPath);

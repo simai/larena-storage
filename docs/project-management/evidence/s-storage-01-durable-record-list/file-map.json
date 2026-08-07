@@ -26,6 +26,7 @@
     "src/Contracts/VersionedStorage.php",
     "src/Providers/StorageServiceProvider.php",
     "src/Runtime/VersionedStorage.php",
-    "tests/Integration/VersionedStorageRecordListTest.php"
+    "tests/Integration/VersionedStorageRecordListTest.php",
+    "tests/Integration/VersionedStorageRecordListProviderBindingTest.php"
   ]
 }

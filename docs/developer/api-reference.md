@@ -55,10 +55,20 @@ $page = $storage->listCurrentRecords($query, 'actor:reader:42');
 ```
 
 The runtime first requires `QueryScopeProvider` support and an allowed decision
-for `storage.record:<schema-id>` / `storage.record.list`. The provider receives
-only the schema identity and structured filters, and must return exactly those
-keys with all caller filters preserved; it may add tighter schema-field
-filters. Invalid or missing scope never falls back to an unscoped query.
+for canonical resource type `storage.record` / operation
+`storage.record.list`. This matches the operation target `storage.record:all`
+used by `PersistentGlobalRoleQueryScopeProvider`. The exact schema id is not
+placed in the resource type: it remains an exact typed query input and is bound
+into query/scope continuation identities.
+
+The provider receives the schema identity and structured caller filters and
+must return exactly those top-level keys with every normalized caller filter
+preserved. Caller filters are limited to schema-known `public` fields. A
+trusted provider may add exact typed `public` or `protected` filters; it may not
+change schema, delete/change a caller filter, add unknown/`admin` fields or use
+an unsupported operator. Provider-added protected filters are applied in SQL
+but never enter `StorageRecordListItem`. Invalid or missing scope never falls
+back to an unscoped query.
 
 After scope resolution, Storage loads the current schema, normalizes filter
 values through the exact Property type/version, and rejects unknown,
@@ -70,10 +80,13 @@ scoped filters. Returned items expose the exact version ref and fields whose
 current schema visibility is exactly `public`; they omit owner, audit and raw
 private metadata.
 
-Laravel provider wiring obtains `QueryScopeProvider` from the container and
-uses `app.key` for HMAC integrity. If either is unavailable, list calls fail
-closed. Direct package tests/consumers must inject a provider and a key of at
-least 32 bytes. Reads emit no caller-controlled diagnostic payload.
+Laravel provider wiring obtains an explicitly consumer-selected
+`QueryScopeProvider` from the container and uses `app.key` for HMAC integrity.
+Neither Storage nor Access creates a default interface binding. If provider or
+key is unavailable, list calls fail closed. Direct package tests/consumers must
+inject a provider and a key of at least 32 bytes. Package-local container proof
+covers explicit injection and missing-binding rejection only; Root integration
+is unclaimed. Reads emit no caller-controlled diagnostic payload.
 
 ## Schema Evolution DTOs
 

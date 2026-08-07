@@ -65,6 +65,16 @@ All notable changes to `larena/storage` are documented in this file.
 
 ### Changed
 
+- Correct `storage.record.list` scope resolution to use canonical resource type
+  `storage.record`, matching its `storage.record:all` operation descriptor and
+  the portfolio `PersistentGlobalRoleQueryScopeProvider`.
+- Separate caller filters from provider-owned scope filters: callers remain
+  public-only, while an explicitly selected provider may add typed public or
+  protected fields without changing the caller query; admin/unknown/operator
+  drift remains fail closed and protected scope values never enter projection.
+- Add package-local real-provider and container-binding coverage without adding
+  a default `QueryScopeProvider` binding or claiming Root integration.
+
 - Keep Docara historical revision restoration outside the versioned Storage
   mutation API: the consumer reuses an exact immutable version reference
   instead of asking Storage to create a new restore version.

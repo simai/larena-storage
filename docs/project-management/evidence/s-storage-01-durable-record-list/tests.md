@@ -1,33 +1,32 @@
 # Tests
 
-Toolchain: `/opt/homebrew/opt/php@8.3/bin/php` 8.3.31 and `/Applications/ServBay/bin/composer`. Every wrapper was run with `/opt/homebrew/opt/php@8.3/bin` first in `PATH`; ambient PHP 8.2 is unusable because it references missing ICU 73 and was not repaired.
+Toolchain: `/opt/homebrew/opt/php@8.3/bin/php` 8.3.31 and `/Applications/ServBay/bin/composer`. Wrappers run with PHP 8.3 first in `PATH`; the unrelated ambient PHP 8.2 ICU failure is not repaired or used.
 
-## Before gap
+## Auditor counterexamples before correction
 
-- Base: `7c606e092591dbcb40fbe7c45ef30bb917f1df68`, original checkout clean.
-- Reflection check for `VersionedStorage::listCurrentRecords`: expected diagnostic `persistent VersionedStorage has exact/current reads but no durable scoped current-record list contract`, exit `23`.
+- Exact real-provider compatibility on `70710de...`: `{"storage.record":true,"storage.record:inventory.widget":false}`.
+- Disposable single mutation `tenant.visibility: public -> protected`: fatal `storage_record_list_filter_field_not_public`, exit `255`.
+- Evidence named clean-clone revision `410ec36...` while the audited handoff was `70710de...`.
 
-## Focused result
+## Corrected focused results
 
-`php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageRecordListTest.php` passed with 21 grouped scenarios:
+- `VersionedStorageRecordListTest.php`: 30 grouped scenarios PASS.
+- `VersionedStorageRecordListProviderBindingTest.php`: 7 grouped scenarios PASS.
+- Canonical runtime resource is `storage.record`; exact schema remains query and cursor identity input.
+- Real `PersistentGlobalRoleQueryScopeProvider` supports canonical resource/operation against Storage descriptor target `storage.record:all`; schema-suffixed resource is not used by runtime.
+- Explicit consumer interface binding injects the real provider; no interface binding remains absent and list fails `storage_record_list_scope_missing`.
+- Provider-added protected tenant scope isolates alpha/beta in SQL and is absent from public output/Audit/exception diagnostics.
+- Caller attempt to filter protected tenant is rejected.
+- Provider schema mutation, caller-filter deletion/change, unknown/admin field and unknown operator all fail closed.
+- Current-head/CAS, exact historical read, tampered/changed-filter/cross-scope cursor, filter-key metamorphism, zero mutation, fresh PHP process restart and byte-identical alternate-path proof remain PASS.
 
-- two unrelated neutral schemas use one generic contract;
-- three records across two scopes plus a second schema are isolated correctly;
-- CAS exposes one revision-2 current head while revision 1 remains exactly readable;
-- missing, unsupported, denied and malformed scope fail closed;
-- wrong schema, unknown field/operator, hidden-field filter, limits 0/101 and missing cursor key fail closed;
-- byte-tampered, changed-filter and changed-scope continuations fail closed;
-- rejected queries leave head/version counts unchanged;
-- filter/object-key permutations and Property-equivalent typed inputs yield identical items and continuation;
-- a child PHP process reads the same file-backed SQLite state after the writer process disconnects;
-- a byte-identical database copy at another disposable path yields the exact same payload and continuation;
-- private sentinels never appear in returned projections or Audit payloads.
-
-## Package checks
+## Local package checks
 
 - `composer validate --strict`: PASS.
-- `composer test`: PASS; 21 documented PHP test commands, with the pre-existing real-MySQL harness explicitly skipped by its opt-in contract.
-- `composer run quality:gate`: PASS, including 87-file lint, PHPStan with zero errors, metadata, evidence and 25-file scope checks.
+- `composer test`: PASS; 22 documented PHP commands, with the pre-existing opt-in MySQL harness skipped by its contract.
+- `composer run quality:gate`: PASS.
+- Lint: 88 PHP files; PHPStan: zero errors.
+- Metadata/evidence/scope checks: PASS; correction diff remains inside the declared 26-file total candidate surface.
 - `git diff --check`: PASS.
 
-Independent no-local clean-clone reproduction at implementation revision `410ec36d1e983a5486fef5033ab5d7bb0729b641` is PASS and recorded in `smoke.md` and `verification.json`.
+Exact no-local successor clone is pending the correction implementation commit.

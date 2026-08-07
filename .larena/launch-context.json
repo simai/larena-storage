@@ -31,6 +31,7 @@
     "src/Providers/StorageServiceProvider.php",
     "src/Runtime/VersionedStorage.php",
     "tests/Integration/VersionedStorageRecordListTest.php",
+    "tests/Integration/VersionedStorageRecordListProviderBindingTest.php",
     "docs/developer/api-reference.md",
     "docs/developer/testing.md",
     "docs/project-management/launch-records/s-storage-01-durable-record-list.json",
@@ -85,10 +86,18 @@
   "coding_started": true,
   "review_completed": false,
   "independent_review_verdict": "pending_independent_audit",
+  "correction": {
+    "verdict": "CORRECTION_REQUIRED",
+    "audit_ref": "/Users/rim/Documents/GitHub/larena-workspace/source/qa/2026-08-07-larena-revision-bound-reverse-outcome-audit/audits/S-STORAGE-01-2026-08-07.md",
+    "predecessor_revision": "70710de246cc3c974a2fc3f6466befe4663c5b7f",
+    "allowed_scope": "canonical storage.record resource type, explicit provider binding proof, protected provider-only filters, exact-final evidence",
+    "status": "local_verification_passed_pending_clean_clone"
+  },
   "action_gate": {
     "status": "success",
     "phase": "preflight",
-    "evidence_ref": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage/source/output/action-gates/action-gate-report-20260807191833.json"
+    "evidence_ref": "/Users/rim/.codex/worktrees/s-storage-01-durable-record-list/source/output/action-gates/action-gate-report-20260807200833.json",
+    "initial_false_positive_ref": "/Users/rim/.codex/worktrees/s-storage-01-durable-record-list/source/output/action-gates/action-gate-report-20260807200818.json"
   },
   "runtime_toolchain": {
     "php_path": "/opt/homebrew/opt/php@8.3/bin/php",

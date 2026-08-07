@@ -13,6 +13,10 @@
     {
       "kind": "audit",
       "detail": "List reads emit no package Audit event because there is no caller-controlled correlation input and no raw query/value diagnostic; Access remains responsible for its decision/denial audit contract."
+    },
+    {
+      "kind": "federation_route",
+      "detail": "The first correction action-gate task text contained negated live/deploy words and triggered a lexical production false positive; the equivalent reversible local-source wording passed all applicable gates. No unsafe action was taken."
     }
   ]
 }

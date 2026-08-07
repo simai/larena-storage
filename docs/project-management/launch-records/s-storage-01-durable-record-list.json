@@ -15,6 +15,19 @@
     "exit_code": 23,
     "diagnostic": "persistent VersionedStorage has exact/current reads but no durable scoped current-record list contract"
   },
+  "correction": {
+    "verdict": "CORRECTION_REQUIRED",
+    "predecessor_revision": "70710de246cc3c974a2fc3f6466befe4663c5b7f",
+    "audit_ref": "/Users/rim/Documents/GitHub/larena-workspace/source/qa/2026-08-07-larena-revision-bound-reverse-outcome-audit/audits/S-STORAGE-01-2026-08-07.md",
+    "counterexamples": [
+      "PersistentGlobalRoleQueryScopeProvider supports storage.record but rejects storage.record:inventory.widget",
+      "provider-added tenant filter fails when tenant visibility changes from public to protected",
+      "executor evidence names implementation 410ec36 instead of final handoff 70710de"
+    ],
+    "allowed_files_ref": ".larena/launch-context.json#allowed_files",
+    "stop_conditions_ref": "#/stop_conditions",
+    "status": "local_verification_passed_pending_clean_clone"
+  },
   "allowed_files_ref": ".larena/launch-context.json#allowed_files",
   "forbidden_files_ref": ".larena/launch-context.json#forbidden_files",
   "evidence_path": "docs/project-management/evidence/s-storage-01-durable-record-list/",
@@ -23,6 +36,9 @@
     "CAS update plus separate exact historical read",
     "cross-process disposable SQLite restart",
     "access, schema, filter, limit, cursor and projection negative controls",
+    "real PersistentGlobalRoleQueryScopeProvider canonical resource compatibility",
+    "StorageServiceProvider explicit QueryScopeProvider binding and missing-binding fail-closed behavior",
+    "provider-only protected scope filtering and caller/provider trust separation",
     "filter-order and clean-path metamorphic controls",
     "zero storage mutation on rejected queries",
     "composer validate --strict and composer run quality:gate",
@@ -39,8 +55,9 @@
   "action_gate": {
     "result": "success",
     "classification": "bounded reversible local source change",
-    "evidence": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage/source/output/action-gates/action-gate-report-20260807191833.json"
+    "evidence": "/Users/rim/.codex/worktrees/s-storage-01-durable-record-list/source/output/action-gates/action-gate-report-20260807200833.json",
+    "initial_false_positive": "/Users/rim/.codex/worktrees/s-storage-01-durable-record-list/source/output/action-gates/action-gate-report-20260807200818.json"
   },
   "readiness_ceiling": "TESTED",
-  "status": "launched"
+  "status": "correction_in_progress"
 }
