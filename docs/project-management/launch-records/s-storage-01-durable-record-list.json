@@ -26,7 +26,9 @@
     ],
     "allowed_files_ref": ".larena/launch-context.json#allowed_files",
     "stop_conditions_ref": "#/stop_conditions",
-    "status": "local_verification_passed_pending_clean_clone"
+    "implementation_commit": "5de3c1709663dde50395012384a6745ba199f9f9",
+    "implementation_tree": "7c5a28d5f35bb717ebe93b1f121f2e28dfe19816",
+    "status": "clean_clone_passed_pending_independent_reaudit"
   },
   "allowed_files_ref": ".larena/launch-context.json#allowed_files",
   "forbidden_files_ref": ".larena/launch-context.json#forbidden_files",
@@ -59,5 +61,5 @@
     "initial_false_positive": "/Users/rim/.codex/worktrees/s-storage-01-durable-record-list/source/output/action-gates/action-gate-report-20260807200818.json"
   },
   "readiness_ceiling": "TESTED",
-  "status": "correction_in_progress"
+  "status": "correction_applied_pending_independent_reaudit"
 }

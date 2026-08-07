@@ -91,7 +91,9 @@
     "audit_ref": "/Users/rim/Documents/GitHub/larena-workspace/source/qa/2026-08-07-larena-revision-bound-reverse-outcome-audit/audits/S-STORAGE-01-2026-08-07.md",
     "predecessor_revision": "70710de246cc3c974a2fc3f6466befe4663c5b7f",
     "allowed_scope": "canonical storage.record resource type, explicit provider binding proof, protected provider-only filters, exact-final evidence",
-    "status": "local_verification_passed_pending_clean_clone"
+    "implementation_commit": "5de3c1709663dde50395012384a6745ba199f9f9",
+    "implementation_tree": "7c5a28d5f35bb717ebe93b1f121f2e28dfe19816",
+    "status": "clean_clone_passed_pending_independent_reaudit"
   },
   "action_gate": {
     "status": "success",

@@ -1,13 +1,21 @@
 {
   "schema": "larena.package_batch_verification.v1",
   "batch": "S-STORAGE-01",
-  "status": "correction_local_checks_passed_clean_clone_pending",
-  "recorded_at": "2026-08-07T20:20:00Z",
+  "status": "correction_applied_pending_independent_reaudit",
+  "recorded_at": "2026-08-07T20:18:36Z",
   "binding": {
     "mode": "containing_git_commit",
     "predecessor_revision": "70710de246cc3c974a2fc3f6466befe4663c5b7f",
+    "implementation_commit": "5de3c1709663dde50395012384a6745ba199f9f9",
+    "implementation_tree": "7c5a28d5f35bb717ebe93b1f121f2e28dfe19816",
+    "final_after": "the Git commit containing this verification.json",
+    "final_tree": "the tree of the Git commit containing this verification.json",
     "branch": "codex/s-storage-01-durable-record-list",
-    "note": "Implementation and exact containing evidence commit bindings are populated after the correction commits exist."
+    "resolution_commands": [
+      "git log -1 --format=%H -- docs/project-management/evidence/s-storage-01-durable-record-list/verification.json",
+      "git rev-parse $(git log -1 --format=%H -- docs/project-management/evidence/s-storage-01-durable-record-list/verification.json)^{tree}"
+    ],
+    "note": "A tracked file cannot embed its own containing commit hash without circular identity. Final after/tree resolve machine-readably from the containing commit and are repeated literally in the handoff."
   },
   "claim": "TESTED",
   "auditor_counterexamples_before": {
@@ -15,17 +23,61 @@
     "protected_provider_scope": "storage_record_list_filter_field_not_public",
     "evidence_revision_drift": "410ec36 clean clone versus 70710de handoff"
   },
-  "local_checks": [
-    {"name": "focused_record_list", "exit_code": 0, "result": "30_scenarios_passed"},
-    {"name": "real_provider_container_binding", "exit_code": 0, "result": "7_scenarios_passed"},
-    {"name": "composer_validate_strict", "exit_code": 0, "result": "passed"},
-    {"name": "composer_test", "exit_code": 0, "result": "22_commands_passed_mysql_opt_in_skipped"},
-    {"name": "composer_quality_gate", "exit_code": 0, "result": "passed"},
-    {"name": "phpstan", "exit_code": 0, "result": "zero_errors"},
-    {"name": "lint", "exit_code": 0, "result": "88_php_files"},
-    {"name": "git_diff_check", "exit_code": 0, "result": "passed"}
+  "counterexamples_after": {
+    "runtime_resource_type": "storage.record",
+    "real_provider_supports_canonical": true,
+    "schema_suffixed_runtime_path": false,
+    "protected_provider_scope": "pass",
+    "caller_protected_filter": "rejected",
+    "evidence_binding": "containing_git_commit"
+  },
+  "checks": [
+    {"name": "focused_record_list", "command": "/opt/homebrew/opt/php@8.3/bin/php tests/Integration/VersionedStorageRecordListTest.php", "exit_code": 0, "result": "30_scenarios_passed"},
+    {"name": "real_provider_container_binding", "command": "/opt/homebrew/opt/php@8.3/bin/php tests/Integration/VersionedStorageRecordListProviderBindingTest.php", "exit_code": 0, "result": "7_scenarios_passed"},
+    {"name": "composer_validate_strict", "command": "/opt/homebrew/opt/php@8.3/bin/php /Applications/ServBay/bin/composer validate --strict", "exit_code": 0, "result": "passed"},
+    {"name": "composer_test", "command": "PATH=/opt/homebrew/opt/php@8.3/bin:$PATH /opt/homebrew/opt/php@8.3/bin/php /Applications/ServBay/bin/composer test", "exit_code": 0, "result": "22_commands_passed_mysql_opt_in_skipped"},
+    {"name": "composer_quality_gate", "command": "PATH=/opt/homebrew/opt/php@8.3/bin:$PATH /opt/homebrew/opt/php@8.3/bin/php /Applications/ServBay/bin/composer run quality:gate", "exit_code": 0, "result": "passed"},
+    {"name": "phpstan", "command": "/opt/homebrew/opt/php@8.3/bin/php vendor/bin/phpstan analyse --no-progress", "exit_code": 0, "result": "zero_errors"},
+    {"name": "lint", "command": "find src tests -name '*.php' -print0 | xargs -0 -n1 /opt/homebrew/opt/php@8.3/bin/php -l", "exit_code": 0, "result": "88_php_files"},
+    {"name": "metadata_evidence_scope", "command": "PATH=/opt/homebrew/opt/php@8.3/bin:$PATH /opt/homebrew/opt/php@8.3/bin/php /Applications/ServBay/bin/composer run verify:all", "exit_code": 0, "result": "passed_26_file_total_candidate_scope"},
+    {"name": "git_diff_check", "command": "git diff --check", "exit_code": 0, "result": "passed"},
+    {"name": "clean_clone_composer_install", "command": "/opt/homebrew/opt/php@8.3/bin/php /Applications/ServBay/bin/composer install --no-interaction --prefer-dist", "exit_code": 0, "result": "74_installs"},
+    {"name": "clean_clone_focused_record_list", "command": "/opt/homebrew/opt/php@8.3/bin/php tests/Integration/VersionedStorageRecordListTest.php", "exit_code": 0, "result": "30_scenarios_passed"},
+    {"name": "clean_clone_real_provider_container", "command": "/opt/homebrew/opt/php@8.3/bin/php tests/Integration/VersionedStorageRecordListProviderBindingTest.php", "exit_code": 0, "result": "7_scenarios_passed"},
+    {"name": "clean_clone_composer_validate_strict", "command": "/opt/homebrew/opt/php@8.3/bin/php /Applications/ServBay/bin/composer validate --strict", "exit_code": 0, "result": "passed"},
+    {"name": "clean_clone_composer_quality_gate", "command": "PATH=/opt/homebrew/opt/php@8.3/bin:$PATH /opt/homebrew/opt/php@8.3/bin/php /Applications/ServBay/bin/composer run quality:gate", "exit_code": 0, "result": "passed"},
+    {"name": "clean_clone_git_status", "command": "git status --porcelain", "exit_code": 0, "result": "clean"}
   ],
-  "clean_clone": {"status": "pending_correction_commit"},
+  "clean_clone": {
+    "owner": "executor",
+    "independent_auditor_review": false,
+    "path": "/tmp/larena-storage-s01-correction.ou1b3O/packages/storage",
+    "revision": "5de3c1709663dde50395012384a6745ba199f9f9",
+    "tree": "7c5a28d5f35bb717ebe93b1f121f2e28dfe19816",
+    "dependency_revisions": {
+      "larena/access": "71fb85a5ce407720e1c5afee4294d2cd098bd596",
+      "larena/audit": "cc6ba3ccf279eefdef3fa3973249629a3a100feb",
+      "larena/core": "8c983ee3ff6e91b4320627a9a6c5ece427cfb111",
+      "larena/dataview": "b84e964b4ed78e1ca08a46c88e7651b02744ee47",
+      "larena/licensing": "52d1215a25369cca17d5170bbfcae82d1f6c86d2",
+      "larena/property": "7773692a9e1cf60f641a050e4ebf99e1fe37c159",
+      "larena/ui": "4ff429cb47b8ebbe232d683ee1333d3a27ad417e"
+    }
+  },
+  "negative_and_metamorphic": {
+    "missing_or_denied_scope": "pass",
+    "provider_wrong_schema": "pass",
+    "provider_removes_or_changes_caller_filter": "pass",
+    "provider_unknown_or_admin_field": "pass",
+    "provider_unknown_operator": "pass",
+    "caller_protected_filter": "pass",
+    "tampered_changed_filter_cross_scope_cursor": "pass",
+    "filter_key_order": "pass",
+    "zero_mutation": "pass",
+    "protected_sentinel_absence": "pass",
+    "fresh_process_restart": "pass",
+    "byte_identical_alternate_path": "pass"
+  },
   "independent_audit": "pending_reaudit",
   "nonclaims": {
     "root_integration": false,
