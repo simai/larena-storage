@@ -5,4 +5,3 @@
     {"id": "continuation_main_first", "reason": "User workflow explicitly requires continuation of accepted physical main; the generic pre-codegen legacy reset and Specs-write steps are inapplicable and forbidden."}
   ]
 }
-

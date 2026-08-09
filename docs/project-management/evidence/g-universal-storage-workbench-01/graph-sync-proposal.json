@@ -5,4 +5,3 @@
   "status": "proposal_only_pending_independent_acceptance",
   "proposed_capabilities": ["storage.workbench_structure_catalog", "storage.workbench_scoped_record_lifecycle", "storage.workbench_typed_query_cursor"]
 }
-
