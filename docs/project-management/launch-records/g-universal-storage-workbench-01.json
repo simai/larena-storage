@@ -1,0 +1,15 @@
+{
+  "schema": "larena.package_goal_launch_record.v1",
+  "goal_id": "G-UNIVERSAL-STORAGE-WORKBENCH-01",
+  "owner": "larena/storage",
+  "objective": "Provide the generic Access-scoped structure and record owner contract used by the Universal Storage Workbench.",
+  "before": {"head": "17c4fc6d0f88a148e5c14ab2af904236e483bf50", "tree": "b784190cf3fb74c301bf5bf350b7c325e756acf1", "branch": "main", "clean": true},
+  "architecture_matrix": "/Users/rim/.codex/automations/larena-correction-batches/goal2-universal-storage-workbench-2026-08-09/executor-evidence/m0/OWNER-CONTRACT-GAP-MATRIX.md",
+  "access_matrix": "/Users/rim/.codex/automations/larena-correction-batches/goal2-universal-storage-workbench-2026-08-09/executor-evidence/m0/ACCESS-MATRIX.md",
+  "rollback_bundle_sha256": "52cdf8e3841bc92e12d07962d0e530a2396f1216a620822723c958b869db8f4a",
+  "preflight": {"created_at": "2026-08-09T00:41:14.940716+00:00", "status": "success", "blockers": 0},
+  "branch_policy": "physical_local_main_only",
+  "remote_mutation": false,
+  "readiness_cap": "TESTED",
+  "self_acceptance": false
+}

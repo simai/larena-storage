@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: s-storage-01-durable-record-list
+batch: g-universal-storage-workbench-01
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -22,8 +22,14 @@ features:
   - storage.schema_constraint_preflight
   - storage.mysql_repeatable_read_current_consistency
   - storage.persistence_failure_cause_preservation
+  - storage.workbench_structure_catalog
+  - storage.workbench_structure_evolution
+  - storage.workbench_scoped_record_lifecycle
+  - storage.workbench_typed_query_cursor
+  - storage.workbench_revision_history
+  - storage.workbench_bounded_bulk_archive
 runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/s-storage-01-durable-record-list/
+  path: docs/project-management/evidence/g-universal-storage-workbench-01/

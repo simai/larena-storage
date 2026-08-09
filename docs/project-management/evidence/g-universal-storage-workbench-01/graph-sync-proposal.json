@@ -1,0 +1,8 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "goal_id": "G-UNIVERSAL-STORAGE-WORKBENCH-01",
+  "canonical_update_allowed": false,
+  "status": "proposal_only_pending_independent_acceptance",
+  "proposed_capabilities": ["storage.workbench_structure_catalog", "storage.workbench_scoped_record_lifecycle", "storage.workbench_typed_query_cursor"]
+}
+

@@ -1,0 +1,8 @@
+{
+  "schema": "larena.goal_deviations.v1",
+  "goal_id": "G-UNIVERSAL-STORAGE-WORKBENCH-01",
+  "deviations": [
+    {"id": "continuation_main_first", "reason": "User workflow explicitly requires continuation of accepted physical main; the generic pre-codegen legacy reset and Specs-write steps are inapplicable and forbidden."}
+  ]
+}
+

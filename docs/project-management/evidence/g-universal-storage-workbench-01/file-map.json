@@ -1,0 +1,7 @@
+{
+  "schema": "larena.goal_evidence_file_map.v1",
+  "goal_id": "G-UNIVERSAL-STORAGE-WORKBENCH-01",
+  "state": "launch_checkpoint",
+  "files": [".larena/launch-context.json", "module.yaml", "docs/project-management/launch-records/g-universal-storage-workbench-01.json", "docs/project-management/evidence/g-universal-storage-workbench-01/*"]
+}
+
