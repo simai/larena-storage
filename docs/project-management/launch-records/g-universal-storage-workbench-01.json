@@ -8,6 +8,14 @@
   "access_matrix": "/Users/rim/.codex/automations/larena-correction-batches/goal2-universal-storage-workbench-2026-08-09/executor-evidence/m0/ACCESS-MATRIX.md",
   "rollback_bundle_sha256": "52cdf8e3841bc92e12d07962d0e530a2396f1216a620822723c958b869db8f4a",
   "preflight": {"created_at": "2026-08-09T00:41:14.940716+00:00", "status": "success", "blockers": 0},
+  "correction_successor": {
+    "before": {"head": "3c27cb181851721c0e2527103762fb299270889c", "tree": "dcff7a4381973fb2f73716c59c379de7fe8f4dee", "branch": "main", "clean": true},
+    "audit_sha256": "719b0c38180a0e63cdce39123d7aeee7a78cd51ede8daad7097c4e5123f9d840",
+    "finding": "same_public_structure_id_collided_globally_across_access_scopes",
+    "classification": "real_bug_accepted_fix_now",
+    "rollback_bundle_sha256": "a5d0d482833917540bfbbb64725e36eccb92c1c79085b994f618498408b03715",
+    "preflight": {"created_at": "2026-08-09T14:33:53.848837+00:00", "status": "warn_no_blockers", "blockers": 0}
+  },
   "branch_policy": "physical_local_main_only",
   "remote_mutation": false,
   "readiness_cap": "TESTED",

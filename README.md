@@ -109,6 +109,16 @@ reapplied; rollback refuses before dropping anything when typed-content rows
 exist. The plan/result tables additionally have isolated real-MySQL evidence
 for exact type/index contracts, restart, concurrent apply and cleanup.
 
+The Storage-owned workbench treats a public structure as the pair
+`(scope_ref, structure_id)`. It derives an opaque, deterministic Versioned
+Storage schema identifier from that pair, so independently authorized scopes
+may use the same ordinary public model name without sharing schema versions,
+records, history, queries, cursors or compare-and-swap state. The derived
+identifier contains no raw scope, path, disk, blob key or secret. The additive
+workbench identity migration preserves an existing single-scope model and
+refuses rollback once scoped workbench data exists, because flattening multiple
+scopes back to one global schema identity could lose or merge data.
+
 See `docs/developer/schema-evolution.md` for the bounded evolution contract and
 `docs/developer/owned-table-shape-guard.md` for the exact install, upgrade,
 diagnostic and rollback contracts.

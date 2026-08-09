@@ -13,6 +13,7 @@
   "selected_features": [
     "storage.workbench_structure_catalog",
     "storage.workbench_structure_evolution",
+    "storage.workbench_scope_bound_schema_identity",
     "storage.workbench_scoped_record_lifecycle",
     "storage.workbench_typed_query_cursor",
     "storage.workbench_revision_history",
@@ -30,7 +31,9 @@
     "src/Contracts/StorageWorkbenchStructure.php",
     "src/Providers/StorageServiceProvider.php",
     "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/ScopedStorageWorkbenchSchemaIdentity.php",
     "database/migrations/2026_08_09_000001_create_larena_storage_workbench_tables.php",
+    "database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php",
     "resources/lang/en/operations.php",
     "resources/lang/ru/operations.php",
     "tests/Integration/StorageWorkbenchTest.php",
@@ -68,15 +71,22 @@
   "review_completed": false,
   "independent_review_verdict": "pending_independent_audit",
   "action_gate": {
-    "status": "success",
-    "phase": "preflight_no_write",
-    "created_at": "2026-08-09T00:41:14.940716+00:00",
+    "status": "warn_no_blockers",
+    "phase": "correction_preflight",
+    "created_at": "2026-08-09T14:33:53.848837+00:00",
     "blockers": 0
   },
   "rollback_bundle": {
-    "path": "/Users/rim/.codex/backups/larena-universal-storage-workbench-2026-08-09/storage-before-17c4fc6d.bundle",
-    "sha256": "52cdf8e3841bc92e12d07962d0e530a2396f1216a620822723c958b869db8f4a",
+    "path": "/Users/rim/.codex/backups/larena-universal-storage-workbench-2026-08-09/storage-before-cross-scope-identity-3c27cb18.bundle",
+    "sha256": "a5d0d482833917540bfbbb64725e36eccb92c1c79085b994f618498408b03715",
     "verified": true
+  },
+  "correction": {
+    "finding": "same_public_structure_id_collided_globally_across_access_scopes",
+    "classification": "real_bug_accepted_fix_now",
+    "audit_sha256": "719b0c38180a0e63cdce39123d7aeee7a78cd51ede8daad7097c4e5123f9d840",
+    "public_identity": ["scope_ref", "structure_id"],
+    "internal_identity": "opaque_deterministic_scope_bound_schema_id_v1"
   },
   "test_database_policy": {
     "environment": "local_test_only",

@@ -24,6 +24,7 @@ features:
   - storage.persistence_failure_cause_preservation
   - storage.workbench_structure_catalog
   - storage.workbench_structure_evolution
+  - storage.workbench_scope_bound_schema_identity
   - storage.workbench_scoped_record_lifecycle
   - storage.workbench_typed_query_cursor
   - storage.workbench_revision_history

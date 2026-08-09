@@ -70,11 +70,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $normalized = $this->normalizeDescriptor($descriptor);
         $this->assertStructureId($normalized['structure_id']);
         $correlationId = $this->correlationId($correlationId);
+        $storageSchemaId = ScopedStorageWorkbenchSchemaIdentity::derive($scopeRef, $normalized['structure_id']);
 
         try {
-            return $this->database->transaction(function () use ($scopeRef, $normalized, $actor, $correlationId): StorageWorkbenchStructure {
+            return $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $actor, $correlationId): StorageWorkbenchStructure {
                 $schema = $this->storage->registerSchemaVersion(
-                    $this->schemaDefinition($normalized['structure_id'], $normalized['fields']),
+                    $this->schemaDefinition($storageSchemaId, $normalized['fields']),
                     null,
                     $actor,
                     $correlationId,
@@ -91,6 +92,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $this->database->table('larena_storage_workbench_structures')->insert([
                     'structure_id' => $normalized['structure_id'],
                     'scope_ref' => $scopeRef,
+                    'storage_schema_id' => $storageSchemaId,
                     'current_version' => 1,
                     'current_schema_version' => $schema->ref->version,
                     'current_hash' => $hash,
@@ -101,6 +103,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $normalized['structure_id'],
                     1,
                     $scopeRef,
+                    $storageSchemaId,
                     $normalized['label'],
                     $normalized['fields'],
                     $schema->ref->version,
@@ -161,10 +164,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             ): StorageWorkbenchStructure {
-                $head = $this->structureHead($structureId, true);
-                if ((string) $head->scope_ref !== $scopeRef) {
-                    throw new StorageRejected('storage_workbench_structure_scope_mismatch');
-                }
+                $head = $this->structureHead($scopeRef, $structureId, true);
                 if ((int) $head->current_version !== $expectedVersion) {
                     throw new StorageConflict('storage_workbench_structure_version_conflict');
                 }
@@ -227,6 +227,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $structureId,
                     $nextVersion,
                     $scopeRef,
+                    (string) $head->storage_schema_id,
                     $normalized['label'],
                     $normalized['fields'],
                     $schemaVersion,
@@ -240,7 +241,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $structureId,
                     $scopeRef,
                     $nextVersion,
-                    new StorageSchemaVersionRef($structureId, $schemaVersion),
+                    new StorageSchemaVersionRef((string) $head->storage_schema_id, $schemaVersion),
                     $normalized['label'],
                     $normalized['fields'],
                     $hash,
@@ -346,8 +347,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ACTIVE;
             $version = $this->storage->compareAndSwap(
-                $this->ownerRef($current->recordId),
-                new StorageRecordVersionRef($structureId, $recordId, $expectedRevision),
+                $this->ownerRef($structure->schema->schemaId, $current->recordId),
+                new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
                 $structure->schema,
                 $values,
                 $actor,
@@ -393,8 +394,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ARCHIVED;
             $version = $this->storage->compareAndSwap(
-                $this->ownerRef($recordId),
-                new StorageRecordVersionRef($structureId, $recordId, $expectedRevision),
+                $this->ownerRef($structure->schema->schemaId, $recordId),
+                new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
                 $structure->schema,
                 $values,
                 $actor,
@@ -451,8 +452,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $values[self::SCOPE_FIELD] = $scopeRef;
                 $values[self::STATE_FIELD] = self::STATE_ARCHIVED;
                 $version = $this->storage->compareAndSwap(
-                    $this->ownerRef($recordId),
-                    new StorageRecordVersionRef($structureId, $recordId, $record->revision),
+                    $this->ownerRef($structure->schema->schemaId, $recordId),
+                    new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $record->revision),
                     $structure->schema,
                     $values,
                     $actor,
@@ -503,7 +504,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                         ->on('versions.record_id', '=', 'heads.record_id')
                         ->on('versions.revision', '=', 'heads.current_revision');
                 })
-                ->where('heads.schema_id', $query->structureId)
+                ->where('heads.schema_id', $structure->schema->schemaId)
                 ->orderBy('heads.record_id')
                 ->limit(self::MAX_SCAN + 1)
                 ->select([
@@ -582,7 +583,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         try {
             /** @var list<stdClass> $rows */
             $rows = $this->database->table('larena_storage_record_versions')
-                ->where('schema_id', $structureId)
+                ->where('schema_id', $structure->schema->schemaId)
                 ->where('record_id', $recordId)
                 ->orderByDesc('revision')
                 ->limit($limit)
@@ -824,10 +825,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private function readStructureInternal(string $scopeRef, string $structureId, bool $forUpdate = false): StorageWorkbenchStructure
     {
         try {
-            $head = $this->structureHead($structureId, $forUpdate);
-            if ((string) $head->scope_ref !== $scopeRef) {
-                throw new StorageRejected('storage_workbench_structure_scope_mismatch');
-            }
+            $head = $this->structureHead($scopeRef, $structureId, $forUpdate);
 
             return $this->hydrateStructureVersion($head, $forUpdate);
         } catch (StorageRejected $exception) {
@@ -837,9 +835,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
     }
 
-    private function structureHead(string $structureId, bool $forUpdate): stdClass
+    private function structureHead(string $scopeRef, string $structureId, bool $forUpdate): stdClass
     {
-        $query = $this->database->table('larena_storage_workbench_structures')->where('structure_id', $structureId);
+        $query = $this->database->table('larena_storage_workbench_structures')
+            ->where('scope_ref', $scopeRef)
+            ->where('structure_id', $structureId);
         if ($forUpdate) {
             $query->lockForUpdate();
         }
@@ -854,6 +854,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private function hydrateStructureVersion(stdClass $head, bool $forUpdate = false): StorageWorkbenchStructure
     {
         $query = $this->database->table('larena_storage_workbench_structure_versions')
+            ->where('scope_ref', (string) $head->scope_ref)
             ->where('structure_id', (string) $head->structure_id)
             ->where('version', (int) $head->current_version);
         if ($forUpdate) {
@@ -882,11 +883,16 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         if (!hash_equals((string) $row->descriptor_hash, $hash)
             || !hash_equals((string) $head->current_hash, $hash)
             || (string) $head->scope_ref !== (string) $row->scope_ref
+            || (string) $head->storage_schema_id !== (string) $row->storage_schema_id
+            || !hash_equals(
+                ScopedStorageWorkbenchSchemaIdentity::derive((string) $row->scope_ref, (string) $row->structure_id),
+                (string) $row->storage_schema_id,
+            )
             || (int) $head->current_schema_version !== (int) $row->schema_version) {
             throw new StorageRejected('storage_workbench_structure_corrupt');
         }
         $schema = $this->storage->schemaVersion(new StorageSchemaVersionRef(
-            (string) $row->structure_id,
+            (string) $row->storage_schema_id,
             (int) $row->schema_version,
         ), $forUpdate);
         if ($schema->ownerPackage !== 'larena/storage') {
@@ -913,7 +919,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         bool $forUpdate = false,
     ): StorageWorkbenchRecord {
         $headQuery = $this->database->table('larena_storage_records')
-            ->where('schema_id', $structure->structureId)
+            ->where('schema_id', $structure->schema->schemaId)
             ->where('record_id', $recordId);
         if ($forUpdate) {
             $headQuery->lockForUpdate();
@@ -923,7 +929,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw new StorageRejected('storage_workbench_record_unknown');
         }
         $version = $this->storage->readAdminVersion(
-            new StorageRecordVersionRef($structure->structureId, $recordId, (int) $head->current_revision),
+            new StorageRecordVersionRef($structure->schema->schemaId, $recordId, (int) $head->current_revision),
             $actor,
             $forUpdate,
         );
@@ -941,7 +947,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $scope = $version->values[self::SCOPE_FIELD] ?? null;
         $state = $version->values[self::STATE_FIELD] ?? null;
         if (!is_string($scope) || !in_array($state, [self::STATE_ACTIVE, self::STATE_ARCHIVED], true)
-            || $version->ref->schemaId !== $structure->structureId
+            || $version->ref->schemaId !== $structure->schema->schemaId
             || !str_starts_with($version->ownerRef, 'workbench.record:')) {
             throw new StorageRejected('storage_workbench_record_corrupt');
         }
@@ -1233,9 +1239,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
     }
 
-    private function ownerRef(string $recordId): string
+    private function ownerRef(string $storageSchemaId, string $recordId): string
     {
         $ownerRef = $this->database->table('larena_storage_records')
+            ->where('schema_id', $storageSchemaId)
             ->where('record_id', $recordId)
             ->value('owner_ref');
         if (!is_string($ownerRef) || !str_starts_with($ownerRef, 'workbench.record:')) {
@@ -1250,6 +1257,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         string $structureId,
         int $version,
         string $scopeRef,
+        string $storageSchemaId,
         string $label,
         array $fields,
         int $schemaVersion,
@@ -1262,6 +1270,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'structure_id' => $structureId,
             'version' => $version,
             'scope_ref' => $scopeRef,
+            'storage_schema_id' => $storageSchemaId,
             'label' => $label,
             'fields_json' => $this->canonicalJson($fields),
             'schema_version' => $schemaVersion,
