@@ -16,6 +16,15 @@
     "rollback_bundle_sha256": "a5d0d482833917540bfbbb64725e36eccb92c1c79085b994f618498408b03715",
     "preflight": {"created_at": "2026-08-09T14:33:53.848837+00:00", "status": "warn_no_blockers", "blockers": 0}
   },
+  "migration_atomicity_correction": {
+    "before": {"head": "96668f3b51d3efa1953a1286b4d5253151534fe2", "tree": "c64863e822a2500e4304e84897317566a53484aa", "branch": "main", "clean": true},
+    "audit_sha256": "aa141548b73bdf979987387c6b2a14250181f7e21299ebc3dfeef763ccbf1f5d",
+    "reproducer_sha256": "16864085af9871d796a49e5969aa2c0c37872703c500aa8b79d4b5ffae572112",
+    "finding": "mariadb_nontransactional_scoped_identity_migration_left_partial_target_state",
+    "classification": "real_bug_accepted_fix_now",
+    "rollback_bundle_sha256": "808f80c44ce7e3becc06df8435efdced68f20c7dd3f42aa028df31c2bcc7df81",
+    "preflight": {"created_at": "2026-08-09T18:21:09.450357+00:00", "status": "success", "blockers": 0}
+  },
   "branch_policy": "physical_local_main_only",
   "remote_mutation": false,
   "readiness_cap": "TESTED",

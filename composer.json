@@ -116,12 +116,14 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageDatabaseTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageRecordListTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageRecordListProviderBindingTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchProviderBindingTest.php",
             "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
+        "test:mysql-workbench-identity-migration": "LARENA_STORAGE_WORKBENCH_MIGRATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
         "test:unit": [
             "@test"
         ],

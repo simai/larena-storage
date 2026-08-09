@@ -17,8 +17,15 @@ M1 package-head verification:
   byte-identical safe projection.
 - Legacy identity migration: PASS, including exact persisted readback after
   upgrade, idempotent re-run and state-equal refusal of a lossy down migration.
+- `StorageWorkbenchIdentityMigrationAtomicityTest.php`: PASS on SQLite and a
+  genuine disposable MariaDB database. Two populated legacy identities include
+  a corrupt later schema version; rejected preflight, failure after the second
+  target version, and failure after the MySQL table swap all preserve an exact
+  before/after snapshot with no orphan target or replay blocker.
+- Independent auditor reproducer: PASS (`partial_state_reproduced=false`, zero
+  target schema head/version rows after both attempts, legacy table unscoped).
 - `StorageWorkbenchProviderBindingTest.php`: PASS.
 - complete `composer quality:gate`: PASS; all predecessor Storage suites remain
   green and the optional MySQL-only predecessor test remains explicitly skipped.
-- metadata, evidence and scope gates: PASS (26 goal-owned changed files at the
-  correction checkpoint).
+- metadata, evidence and scope gates: PASS (the migration atomicity regression
+  is explicitly bound in launch scope).

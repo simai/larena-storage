@@ -19,6 +19,7 @@
     "src/Runtime/DatabaseStorageWorkbench.php",
     "src/Runtime/ScopedStorageWorkbenchSchemaIdentity.php",
     "tests/Integration/StorageWorkbenchProviderBindingTest.php",
+    "tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
     "tests/Integration/StorageWorkbenchTest.php",
     "docs/project-management/launch-records/g-universal-storage-workbench-01.json",
     "docs/project-management/evidence/g-universal-storage-workbench-01/*"

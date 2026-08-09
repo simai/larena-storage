@@ -38,6 +38,7 @@
     "resources/lang/ru/operations.php",
     "tests/Integration/StorageWorkbenchTest.php",
     "tests/Integration/StorageWorkbenchProviderBindingTest.php",
+    "tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
     "docs/project-management/launch-records/g-universal-storage-workbench-01.json",
     "docs/project-management/evidence/g-universal-storage-workbench-01/*"
   ],
@@ -71,22 +72,23 @@
   "review_completed": false,
   "independent_review_verdict": "pending_independent_audit",
   "action_gate": {
-    "status": "warn_no_blockers",
-    "phase": "correction_preflight",
-    "created_at": "2026-08-09T14:33:53.848837+00:00",
+    "status": "success",
+    "phase": "mariadb_migration_atomicity_correction_preflight",
+    "created_at": "2026-08-09T18:21:09.450357+00:00",
     "blockers": 0
   },
   "rollback_bundle": {
-    "path": "/Users/rim/.codex/backups/larena-universal-storage-workbench-2026-08-09/storage-before-cross-scope-identity-3c27cb18.bundle",
-    "sha256": "a5d0d482833917540bfbbb64725e36eccb92c1c79085b994f618498408b03715",
+    "path": "/Users/rim/.codex/backups/larena-universal-storage-workbench-2026-08-09/mariadb-migration-atomicity-20260809T181947Z/storage-96668f3b-complete.bundle",
+    "sha256": "808f80c44ce7e3becc06df8435efdced68f20c7dd3f42aa028df31c2bcc7df81",
     "verified": true
   },
   "correction": {
-    "finding": "same_public_structure_id_collided_globally_across_access_scopes",
+    "finding": "mariadb_nontransactional_scoped_identity_migration_left_partial_target_state",
     "classification": "real_bug_accepted_fix_now",
-    "audit_sha256": "719b0c38180a0e63cdce39123d7aeee7a78cd51ede8daad7097c4e5123f9d840",
-    "public_identity": ["scope_ref", "structure_id"],
-    "internal_identity": "opaque_deterministic_scope_bound_schema_id_v1"
+    "audit_sha256": "aa141548b73bdf979987387c6b2a14250181f7e21299ebc3dfeef763ccbf1f5d",
+    "reproducer_sha256": "16864085af9871d796a49e5969aa2c0c37872703c500aa8b79d4b5ffae572112",
+    "preflight": "all_legacy_definitions_heads_history_scope_targets_before_first_write",
+    "mysql_failure_policy": "exact_state_compensation_without_replay_blocker"
   },
   "test_database_policy": {
     "environment": "local_test_only",

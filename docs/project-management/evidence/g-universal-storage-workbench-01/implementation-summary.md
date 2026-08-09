@@ -22,5 +22,12 @@ beta with different compatible typed descriptors and records, then proves
 independent list/read/update/query/history/cursor behavior and state-equal
 direct-ID cross-scope rejection before and after four fresh PHP processes.
 
+The MariaDB/MySQL migration correction now validates every legacy definition,
+head, history, scope and target before its first durable write. Because MySQL
+DDL is non-transactional, the apply path also retains a complete in-memory
+recovery plan and restores rows, table topology and auto-increment state after
+an injected failure, including a failure after the atomic table swap. SQLite
+continues to use transactional DDL.
+
 No Access policy, project-specific schema/table, HTTP surface, public renderer or
 sibling package source was added by this package commit.
