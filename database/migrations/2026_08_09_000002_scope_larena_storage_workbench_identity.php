@@ -54,7 +54,7 @@ return new class extends Migration
             }
         }
 
-        $database->transaction(function () use ($database, $heads, $versions, $mapped): void {
+        $upgrade = function () use ($database, $heads, $versions, $mapped): void {
             foreach ($mapped as $storageSchemaId => $identity) {
                 $this->cloneLegacySchema(
                     (string) $identity['structure_id'],
@@ -98,7 +98,19 @@ return new class extends Migration
             $this->finalizeScopedIndexNames();
             Schema::rename(self::NEXT_HEADS, self::HEADS);
             Schema::rename(self::NEXT_VERSIONS, self::VERSIONS);
-        });
+        };
+
+        // MySQL and MariaDB implicitly commit DDL statements. Wrapping this
+        // sequence in a PDO transaction therefore makes Laravel attempt to
+        // commit a transaction the server has already closed. SQLite supports
+        // transactional DDL and keeps the stronger atomic boundary.
+        if ($database->getDriverName() === 'mysql') {
+            $upgrade();
+
+            return;
+        }
+
+        $database->transaction($upgrade);
     }
 
     public function down(): void
