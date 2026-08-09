@@ -14,7 +14,10 @@ use Larena\Access\ValueObjects\AccessOperationDescriptor;
 use Larena\Audit\Runtime\AuditEventPipeline;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaEvolution as StorageSchemaEvolutionContract;
+use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
+use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
+use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
@@ -25,7 +28,22 @@ final class StorageServiceProvider extends ServiceProvider
     {
         $this->app->singleton(
             StorageSchemaEvolutionOwnerPolicyRegistry::class,
-            static fn (): StorageSchemaEvolutionOwnerPolicyRegistry => new StorageSchemaEvolutionOwnerPolicyRegistry(),
+            static function (): StorageSchemaEvolutionOwnerPolicyRegistry {
+                $registry = new StorageSchemaEvolutionOwnerPolicyRegistry();
+                $registry->protect(
+                    'larena/storage',
+                    static function (StorageSchemaEvolutionOwnerContext $context, ?object $capability): void {
+                        if (!$capability instanceof DatabaseStorageWorkbench
+                            || !str_starts_with($context->source->schemaId, 'workbench.')
+                            || !in_array($context->operation, ['plan', 'apply'], true)) {
+                            throw new \InvalidArgumentException('storage_workbench_schema_evolution_capability_invalid');
+                        }
+                    },
+                    'workbench.',
+                );
+
+                return $registry;
+            },
         );
         $this->app->singleton(VersionedStorage::class, static function (Application $app): VersionedStorage {
             /** @var DatabaseManager $database */
@@ -58,6 +76,25 @@ final class StorageServiceProvider extends ServiceProvider
         });
         $this->app->alias(DatabaseStorageSchemaEvolution::class, StorageSchemaEvolutionContract::class);
 
+        $this->app->singleton(DatabaseStorageWorkbench::class, static function (Application $app): DatabaseStorageWorkbench {
+            /** @var DatabaseManager $database */
+            $database = $app->make(DatabaseManager::class);
+
+            return new DatabaseStorageWorkbench(
+                $database->connection(),
+                $app->make(PropertyTypeRegistry::class),
+                $app->make(ActorOperationAuthorizer::class),
+                $app->make(QueryScopeProvider::class),
+                $app->make(VersionedStorageContract::class),
+                $app->make(StorageSchemaEvolutionContract::class),
+                $app->make(StorageSchemaEvolutionOwnerPolicyRegistry::class),
+                is_string($app->make('config')->get('app.key'))
+                    ? $app->make('config')->get('app.key')
+                    : '',
+            );
+        });
+        $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
+
         $this->app->afterResolving(
             AccessOperationRegistry::class,
             static fn (AccessOperationRegistry $registry): bool => self::registerAccessOperations($registry),
@@ -88,6 +125,17 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.record.read', 'record_read', 'read', 'high'],
             ['storage.record.list', 'record_list', 'read', 'high'],
             ['storage.record.update', 'record_update', 'update', 'high'],
+            ['storage.workbench.structure.create', 'workbench_structure_create', 'create', 'critical'],
+            ['storage.workbench.structure.read', 'workbench_structure_read', 'read', 'high'],
+            ['storage.workbench.structure.list', 'workbench_structure_list', 'read', 'high'],
+            ['storage.workbench.structure.update', 'workbench_structure_update', 'update', 'critical'],
+            ['storage.workbench.record.create', 'workbench_record_create', 'create', 'high'],
+            ['storage.workbench.record.read', 'workbench_record_read', 'read', 'high'],
+            ['storage.workbench.record.list', 'workbench_record_list', 'read', 'high'],
+            ['storage.workbench.record.update', 'workbench_record_update', 'update', 'high'],
+            ['storage.workbench.record.archive', 'workbench_record_archive', 'delete', 'critical'],
+            ['storage.workbench.record.bulk_archive', 'workbench_record_bulk_archive', 'delete', 'critical'],
+            ['storage.workbench.record.history', 'workbench_record_history', 'read', 'high'],
         ] as [$code, $label, $grant, $risk]) {
             $registered = $registry->register(new AccessOperationDescriptor(
                 code: $code,
@@ -95,7 +143,11 @@ final class StorageServiceProvider extends ServiceProvider
                 labelKey: 'larena-storage::operations.' . $label,
                 target: str_starts_with($code, 'storage.schema.') || str_starts_with($code, 'storage.schema_migration.')
                     ? 'storage.schema:all'
-                    : 'storage.record:all',
+                    : (str_starts_with($code, 'storage.workbench.structure.')
+                        ? 'storage.workbench.structure:all'
+                        : (str_starts_with($code, 'storage.workbench.record.')
+                            ? 'storage.workbench.record:all'
+                            : 'storage.record:all')),
                 requiredGrant: $grant,
                 risk: $risk,
                 auditDenials: true,
