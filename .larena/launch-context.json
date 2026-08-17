@@ -1,99 +1,55 @@
 {
   "schema": "larena.package_launch_context.v1",
   "package": "larena/storage",
-  "goal_id": "G-UNIVERSAL-STORAGE-WORKBENCH-01",
   "repository_class": "continuation_repository",
   "repository_contains_prior_implementation": true,
-  "launch_record_ref": "docs/project-management/launch-records/g-universal-storage-workbench-01.json",
+  "launch_record_ref": "docs/project-management/launch-records/larena-minimal-cms-v1-b2.json",
   "specs_repo": "simai/larena-specs",
-  "specs_commit": "97b91cecafa36343f11166afb9db7c7036dac803",
-  "base_commit": "17c4fc6d0f88a148e5c14ab2af904236e483bf50",
-  "base_tree": "b784190cf3fb74c301bf5bf350b7c325e756acf1",
-  "branch": "main",
+  "specs_commit": "42c099aaf73fd420a4b93634ed91bd49876d176d",
+  "target_id": "larena.target.minimal_cms_v1",
+  "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
+  "base_commit": "314084a7b85e03b15296a15ae2e35cb23590373a",
   "selected_features": [
-    "storage.workbench_structure_catalog",
-    "storage.workbench_structure_evolution",
-    "storage.workbench_scope_bound_schema_identity",
-    "storage.workbench_scoped_record_lifecycle",
-    "storage.workbench_typed_query_cursor",
-    "storage.workbench_revision_history",
-    "storage.workbench_bounded_bulk_archive"
+    "minimal_cms_dependency_boundary"
   ],
   "allowed_files": [
     ".larena/launch-context.json",
+    "CHANGELOG.md",
     "composer.json",
+    "composer.lock",
+    "docs/developer/concept-alignment.md",
+    "docs/project-management/launch-records/larena-minimal-cms-v1-b2.json",
     "module.yaml",
-    "README.md",
-    "src/Contracts/StorageWorkbench.php",
-    "src/Contracts/StorageWorkbenchRecord.php",
-    "src/Contracts/StorageWorkbenchRecordPage.php",
-    "src/Contracts/StorageWorkbenchRecordQuery.php",
-    "src/Contracts/StorageWorkbenchStructure.php",
-    "src/Providers/StorageServiceProvider.php",
-    "src/Runtime/DatabaseStorageWorkbench.php",
-    "src/Runtime/ScopedStorageWorkbenchSchemaIdentity.php",
-    "database/migrations/2026_08_09_000001_create_larena_storage_workbench_tables.php",
-    "database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php",
-    "resources/lang/en/operations.php",
-    "resources/lang/ru/operations.php",
-    "tests/Integration/StorageWorkbenchTest.php",
-    "tests/Integration/StorageWorkbenchProviderBindingTest.php",
-    "tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
-    "docs/project-management/launch-records/g-universal-storage-workbench-01.json",
-    "docs/project-management/evidence/g-universal-storage-workbench-01/*"
+    "tests/Unit/MinimalCmsDependencyContractTest.php"
   ],
   "forbidden_files": [
+    "src/*",
+    "config/*",
+    "database/*",
     "routes/*",
-    "resources/views/*",
-    "src/Http/*",
-    "../access/*",
-    "../admin/*",
-    "../content/*",
-    "../layout/*",
-    "../ui/*"
+    "resources/*"
   ],
   "forbidden_behavior": [
-    "project_specific_schema_or_table",
-    "access_scope_default_allow",
-    "direct_id_issuance_before_scope",
-    "unbounded_query_or_bulk",
-    "unsigned_cursor",
-    "physical_path_disk_or_storage_key_projection",
-    "history_rewrite_remote_or_live_mutation",
-    "canonical_specs_or_graph_write"
+    "mandatory_upper_package_dependency",
+    "accepted_target_change",
+    "production_readiness_claim"
   ],
-  "evidence_path": "docs/project-management/evidence/g-universal-storage-workbench-01/",
-  "graph_sync_proposal_path": "docs/project-management/evidence/g-universal-storage-workbench-01/graph-sync-proposal.json",
-  "external_evidence_path": "/Users/rim/.codex/automations/larena-correction-batches/goal2-universal-storage-workbench-2026-08-09/executor-evidence/",
+  "required_evidence_files": [
+    "README.md",
+    "implementation-summary.md",
+    "tests.md",
+    "smoke.md",
+    "file-map.json",
+    "deviations.json",
+    "graph-sync-proposal.json"
+  ],
+  "evidence_path": "docs/project-management/evidence/larena-minimal-cms-v1-b2",
+  "graph_sync_proposal_path": "docs/project-management/evidence/larena-minimal-cms-v1-b2/graph-sync-proposal.json",
   "status": "coding_started",
   "coding_allowed": true,
   "coding_started": true,
-  "coding_branch": "main",
+  "repository_enforcement_installed": true,
   "review_completed": false,
-  "independent_review_verdict": "pending_independent_audit",
-  "action_gate": {
-    "status": "success",
-    "phase": "mariadb_migration_atomicity_correction_preflight",
-    "created_at": "2026-08-09T18:21:09.450357+00:00",
-    "blockers": 0
-  },
-  "rollback_bundle": {
-    "path": "/Users/rim/.codex/backups/larena-universal-storage-workbench-2026-08-09/mariadb-migration-atomicity-20260809T181947Z/storage-96668f3b-complete.bundle",
-    "sha256": "808f80c44ce7e3becc06df8435efdced68f20c7dd3f42aa028df31c2bcc7df81",
-    "verified": true
-  },
-  "correction": {
-    "finding": "mariadb_nontransactional_scoped_identity_migration_left_partial_target_state",
-    "classification": "real_bug_accepted_fix_now",
-    "audit_sha256": "aa141548b73bdf979987387c6b2a14250181f7e21299ebc3dfeef763ccbf1f5d",
-    "reproducer_sha256": "16864085af9871d796a49e5969aa2c0c37872703c500aa8b79d4b5ffae572112",
-    "preflight": "all_legacy_definitions_heads_history_scope_targets_before_first_write",
-    "mysql_failure_policy": "exact_state_compensation_without_replay_blocker"
-  },
-  "test_database_policy": {
-    "environment": "local_test_only",
-    "sqlite": "disposable_file_only",
-    "mariadb_mysql": "existing_disposable_local_contour_only",
-    "existing_application_database": "forbidden"
-  }
+  "next_transition": "tests_recorded",
+  "coding_branch": "main"
 }

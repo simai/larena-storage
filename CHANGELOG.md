@@ -4,6 +4,10 @@ All notable changes to `larena/storage` are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Set Access, Core and Property as Storage's exact mandatory Larena Composer dependencies; Audit remains a development-only compatibility fixture.
+
 ### Added
 
 - Add a database-native `VersionedStorage::listCurrentRecords()` contract for

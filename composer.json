@@ -13,7 +13,7 @@
         "illuminate/database": "^13.0",
         "illuminate/support": "^13.0",
         "larena/access": "dev-main",
-        "larena/audit": "dev-main",
+        "larena/core": "dev-main",
         "larena/property": "dev-main",
         "php": "^8.3"
     },
@@ -28,6 +28,7 @@
         }
     },
     "require-dev": {
+        "larena/audit": "dev-main",
         "phpstan/phpstan": "^2.0"
     },
     "repositories": [
@@ -119,7 +120,8 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchProviderBindingTest.php",
-            "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php"
+            "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
+            "@php tests/Unit/MinimalCmsDependencyContractTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",

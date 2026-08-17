@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: g-universal-storage-workbench-01
+batch: larena-minimal-cms-v1-b2
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -33,4 +33,4 @@ runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/g-universal-storage-workbench-01/
+  path: docs/project-management/evidence/larena-minimal-cms-v1-b2
