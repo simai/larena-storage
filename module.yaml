@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: reviewed
 cluster: data-content
-batch: larena-minimal-cms-v1-b7
+batch: larena-minimal-cms-v1-b8
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -33,8 +33,11 @@ features:
   - storage.restore_lifecycle
   - storage.mutation_receipt
   - storage.optional_audit_adapter
+  - minimal_cms_named_site_hierarchy
+  - minimal_cms_named_organization_hierarchy
+  - storage.no_parallel_content_owner
 runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/larena-minimal-cms-v1-b7
+  path: docs/project-management/evidence/larena-minimal-cms-v1-b8

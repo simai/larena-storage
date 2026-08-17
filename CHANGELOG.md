@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Minimal CMS v1 B8
+
+### Added
+
+- Add named site/page and organization hierarchy fixtures using the same generic Storage structure, record and relation contracts.
+- Add round-trip evidence and a negative database-table assertion proving that the fixtures do not introduce a parallel Content owner.
+
+### Migration notes
+
+- No database migration or product runtime change is added. Rollback removes only B8 fixtures, tests and metadata.
+
 ## Unreleased — Minimal CMS v1 B7
 
 ### Added

@@ -1,0 +1,14 @@
+{
+  "schema": "larena.package_launch_record.v1",
+  "id": "larena-minimal-cms-v1-b8-storage",
+  "goal": "larena-minimal-cms-v1",
+  "package": "larena/storage",
+  "branch": "main",
+  "base_commit": "0904c74f7128c9455c950d17d72ee18e578d59a9",
+  "scope": "Add and verify named site/page and organization hierarchy fixtures over the accepted Storage contracts without runtime or persistence-model changes.",
+  "runtime_boundary": "local test fixtures and disposable SQLite evidence only",
+  "target_id": "larena.target.minimal_cms_v1",
+  "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
+  "production_ready": false,
+  "status": "reviewed"
+}

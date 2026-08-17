@@ -21,6 +21,10 @@ Existing typed schema, record, query and persistence contracts are continued. B2
 
 Access, Core and Property remain the exact mandatory Larena Composer dependencies. The mandatory provider now uses a Storage-owned security-event sink; Audit is available only through an optional compatibility adapter. Typed structures and records provide create/read/update/list/delete/restore, immutable revisions, exact-version validation, typed relation values, optimistic concurrency and sanitized mutation receipts. Explicit hierarchy fixtures and Filesystem-owned logical identity remain B8 and B9 work.
 
+## B8 alignment status
+
+Named site/page and organization trees now pass through the same Storage workbench structure, typed relation and record APIs. They introduce no domain-specific persistence class and no Content-owned table. Filesystem-owned logical identity remains B9 work.
+
 ## Install and rollback baseline
 
 Install through the Root Composer lock and run Storage-owned migrations through Laravel. B0 is documentation-only. Later migrations require clean install plus down/reapply proof on disposable databases; rollback must not discard structures, records or revisions on real data.
