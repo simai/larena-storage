@@ -11,16 +11,13 @@ use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
 use Larena\Access\Runtime\AccessOperationRegistry;
 use Larena\Access\ValueObjects\AccessDecision;
-use Larena\Audit\Contracts\AuditEvent;
-use Larena\Audit\Contracts\AuditEventDescriptor;
-use Larena\Audit\Contracts\AuditSink;
-use Larena\Audit\Runtime\AuditEventPipeline;
-use Larena\Audit\Runtime\DefaultAuditRedactor;
 use Larena\Property\Contracts\PropertyTypeRegistry as PropertyTypeRegistryContract;
 use Larena\Property\Runtime\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageWorkbench;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Providers\StorageServiceProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
+use Larena\Storage\Runtime\NullStorageSecurityEventSink;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -85,18 +82,6 @@ final readonly class WorkbenchProviderScope implements QueryScopeProvider
     }
 }
 
-final readonly class WorkbenchProviderAuditSink implements AuditSink
-{
-    public function accepts(AuditEventDescriptor $descriptor): bool
-    {
-        return true;
-    }
-
-    public function write(AuditEvent $event): void
-    {
-    }
-}
-
 function workbenchProviderExpect(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -115,7 +100,6 @@ $app->instance(PropertyTypeRegistryContract::class, PropertyTypeRegistry::builtI
 $app->instance(ActorOperationAuthorizer::class, new WorkbenchProviderAuthorizer());
 $scope = new WorkbenchProviderScope();
 $app->instance(QueryScopeProvider::class, $scope);
-$app->instance(AuditEventPipeline::class, new AuditEventPipeline(new DefaultAuditRedactor(), [new WorkbenchProviderAuditSink()]));
 $app->instance('config', new readonly class {
     public function get(string $key): ?string
     {
@@ -125,6 +109,8 @@ $app->instance('config', new readonly class {
 
 $provider = new StorageServiceProvider($app);
 $provider->register();
+$securityEvents = $app->make(StorageSecurityEventSink::class);
+workbenchProviderExpect($securityEvents instanceof NullStorageSecurityEventSink, 'mandatory provider did not select the Storage-owned null security sink');
 $workbench = $app->make(StorageWorkbench::class);
 workbenchProviderExpect($workbench instanceof DatabaseStorageWorkbench, 'StorageWorkbench contract binding mismatch');
 $scopeProperty = new ReflectionProperty(DatabaseStorageWorkbench::class, 'scopeProvider');
@@ -136,6 +122,7 @@ foreach ([
     'storage.workbench.record.create' => 'storage.workbench.record:all',
     'storage.workbench.record.list' => 'storage.workbench.record:all',
     'storage.workbench.record.bulk_archive' => 'storage.workbench.record:all',
+    'storage.workbench.record.restore' => 'storage.workbench.record:all',
 ] as $operation => $target) {
     $descriptor = $registry->get($operation);
     workbenchProviderExpect($descriptor?->ownerPackage === 'larena/storage', $operation . ' owner mismatch');

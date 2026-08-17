@@ -58,6 +58,15 @@ interface StorageWorkbench
         ?string $correlationId = null,
     ): StorageWorkbenchRecord;
 
+    public function restoreRecord(
+        string $scopeRef,
+        string $structureId,
+        string $recordId,
+        int $expectedRevision,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchRecord;
+
     /**
      * @param array<array-key, mixed> $expectedRevisions record id => expected revision
      * @return list<StorageWorkbenchRecord>

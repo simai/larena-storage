@@ -42,6 +42,19 @@ interface VersionedStorage
     ): StorageWriteResult;
 
     /**
+     * @param array<string, mixed> $values
+     */
+    public function transition(
+        string $ownerRef,
+        StorageRecordVersionRef $expected,
+        StorageSchemaVersionRef $schema,
+        array $values,
+        string $operation,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWriteResult;
+
+    /**
      * A locking read is effective only inside an ambient database transaction.
      */
     public function schemaVersion(

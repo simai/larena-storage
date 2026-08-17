@@ -14,4 +14,17 @@ final readonly class StorageWriteResult
     {
         return $this->version->ref;
     }
+
+    public function receipt(): StorageMutationReceipt
+    {
+        return new StorageMutationReceipt(
+            $this->version->createdBy,
+            $this->version->createdAt,
+            $this->version->operation,
+            'storage.record:' . $this->version->ref->recordId,
+            $this->version->ref->revision,
+            'succeeded',
+            $this->version->correlationId,
+        );
+    }
 }

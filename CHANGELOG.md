@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — Minimal CMS v1 B7
+
+### Added
+
+- Add canonical record delete/restore transitions with immutable revisions and optimistic-concurrency checks.
+- Add complete sanitized mutation receipts for structure and record writes.
+- Add a Storage-owned security-event sink plus an optional Audit compatibility adapter.
+- Prove two unrelated typed structures, relation values, atomic bulk mutation and fresh-process SQLite replay through the workbench integration suite.
+
+### Changed
+
+- Remove the mandatory Audit service requirement from the discovered Storage provider while preserving existing Audit-backed integrations as an optional development compatibility path.
+
+### Migration notes
+
+- No database migration is added. Rollback is the package commit revert; existing immutable structures, records and revisions remain untouched.
+
 All notable changes to `larena/storage` are documented in this file.
 
 ## Unreleased

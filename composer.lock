@@ -1834,7 +1834,7 @@
             "dist": {
                 "type": "path",
                 "url": "../access",
-                "reference": "48f9197b75b9d0bc662cedb01bd0b42b5836cf09"
+                "reference": "85e3e8ee7866e5e17e59c6a1d61d2ff0e7c7f224"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -1889,7 +1889,9 @@
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderTest.php",
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderPersistentTest.php",
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderBindingIsolationTest.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+                    "@php tests/Unit/MinimalCmsOperationMatrixTest.php",
+                    "@php tests/Unit/MinimalCmsAccessBoundaryTest.php"
                 ],
                 "test:unit": [
                     "@php tests/Unit/AccessDecisionContractTest.php",
@@ -1910,7 +1912,9 @@
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderTest.php",
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderPersistentTest.php",
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderBindingIsolationTest.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+                    "@php tests/Unit/MinimalCmsOperationMatrixTest.php",
+                    "@php tests/Unit/MinimalCmsAccessBoundaryTest.php"
                 ],
                 "test:global-role-query-scope": [
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderTest.php",
@@ -1961,107 +1965,12 @@
             }
         },
         {
-            "name": "larena/audit",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../audit",
-                "reference": "cc6ba3ccf279eefdef3fa3973249629a3a100feb"
-            },
-            "require": {
-                "illuminate/database": "^13.0",
-                "illuminate/routing": "^13.0",
-                "illuminate/support": "^13.0",
-                "illuminate/view": "^13.0",
-                "larena/ui": "dev-main",
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "laravel/framework": "^13.0",
-                "orchestra/testbench": "^11.0",
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "providers": [
-                        "Larena\\Audit\\Providers\\AuditServiceProvider"
-                    ]
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Larena\\Audit\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Larena\\Audit\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "php tests/Unit/AuditEventContractTest.php && php tests/Unit/AuditFailsClosedTest.php && php tests/Unit/AuditRedactorRuntimeTest.php && php tests/Unit/AuditEventPipelineTest.php && php tests/Unit/AuditEventPipelineFailsClosedTest.php && php tests/Unit/InstallAuditTrailTest.php && php tests/Unit/DatabaseAuditSinkTest.php && php tests/Unit/DatabaseAuditEventPipelineTest.php && php vendor/bin/phpunit tests/Feature/AuditHistoryAdminTest.php tests/Feature/DatabaseAuditEventPipelineBindingTest.php && php tests/Integration/DatabaseAuditEventPipelineMySqlTest.php"
-                ],
-                "test:unit": [
-                    "php tests/Unit/AuditEventContractTest.php && php tests/Unit/AuditFailsClosedTest.php && php tests/Unit/AuditRedactorRuntimeTest.php && php tests/Unit/AuditEventPipelineTest.php && php tests/Unit/AuditEventPipelineFailsClosedTest.php && php tests/Unit/InstallAuditTrailTest.php && php tests/Unit/DatabaseAuditSinkTest.php && php tests/Unit/DatabaseAuditEventPipelineTest.php"
-                ],
-                "test:connection-bound": [
-                    "php tests/Unit/DatabaseAuditEventPipelineTest.php && php vendor/bin/phpunit tests/Feature/DatabaseAuditEventPipelineBindingTest.php --colors=never"
-                ],
-                "test:mysql-connection-bound": [
-                    "LARENA_AUDIT_CONNECTION_BOUND_MYSQL_TEST=1 php tests/Integration/DatabaseAuditEventPipelineMySqlTest.php"
-                ],
-                "lint": [
-                    "php scripts/lint.php"
-                ],
-                "analyse": [
-                    "php vendor/bin/phpstan analyse --configuration=phpstan.neon.dist --no-progress --memory-limit=512M"
-                ],
-                "validate:larena": [
-                    "php scripts/validate-larena-package.php"
-                ],
-                "evidence:check": [
-                    "php scripts/check-evidence.php"
-                ],
-                "scope:check": [
-                    "php tools/larena-scope-check.php"
-                ],
-                "quality:gate": [
-                    "@validate:larena",
-                    "@lint",
-                    "@analyse",
-                    "@test",
-                    "@larena:metadata:check",
-                    "@evidence:check",
-                    "@scope:check"
-                ],
-                "larena:metadata:check": [
-                    "php scripts/check-metadata-sync.php"
-                ]
-            },
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
-                }
-            ],
-            "description": "Larena Audit: Unified structured audit layer that receives package AuditEvent objects, validates taxonomy, redacts sensitive payloads, correlates runtime activity, routes events to sinks and provides operator search/export/diagnostics.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
             "name": "larena/auth",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "../auth",
-                "reference": "aeec1e89c89832eea8d4fb2366ae220afd12eafc"
+                "reference": "8e8a2b33a24ef6d0c6c21d2c34d3c3a2f455cdf1"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2086,7 +1995,7 @@
             "extra": {
                 "laravel": {
                     "providers": [
-                        "Larena\\Auth\\Providers\\AuthServiceProvider"
+                        "Larena\\Auth\\Providers\\MinimalAuthServiceProvider"
                     ]
                 }
             },
@@ -2103,11 +2012,13 @@
             "scripts": {
                 "test": [
                     "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+                    "@php tests/Unit/MinimalCmsAuthBoundaryTest.php"
                 ],
                 "test:unit": [
                     "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+                    "@php tests/Unit/MinimalCmsAuthBoundaryTest.php"
                 ],
                 "test:integration": [
                     "@php -d zend.assertions=1 -d assert.exception=1 scripts/test-persistent-admin-sessions.php",
@@ -2162,7 +2073,7 @@
             "dist": {
                 "type": "path",
                 "url": "../core",
-                "reference": "4c46725962d730f7ba8fa871f9bd1d57d9151391"
+                "reference": "4a7a9af7400f816443e8a1285ec9da52977e45da"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2221,7 +2132,8 @@
                     "@php tests/Unit/FirstRunPreflightServiceTest.php",
                     "@php tests/Unit/WebInstallStateStoreTest.php",
                     "@php tests/Unit/WebInstallCoordinatorRecoveryTest.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+                    "@php tests/Unit/MinimalCmsCoreBoundaryTest.php"
                 ],
                 "test:unit": [
                     "@php tests/Unit/OperationRuntimeContractTest.php",
@@ -2249,7 +2161,8 @@
                     "@php tests/Unit/FirstRunPreflightServiceTest.php",
                     "@php tests/Unit/WebInstallStateStoreTest.php",
                     "@php tests/Unit/WebInstallCoordinatorRecoveryTest.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+                    "@php tests/Unit/MinimalCmsCoreBoundaryTest.php"
                 ],
                 "lint": [
                     "@php scripts/lint.php"
@@ -2295,235 +2208,12 @@
             }
         },
         {
-            "name": "larena/dataview",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../dataview",
-                "reference": "b84e964b4ed78e1ca08a46c88e7651b02744ee47"
-            },
-            "require": {
-                "larena/core": "dev-main",
-                "larena/property": "dev-main",
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Larena\\Dataview\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Larena\\Dataview\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewContractTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewFailsClosedTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadOnlyDataviewTableAdapterTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewTableRuntimeTest.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
-                ],
-                "test:unit": [
-                    "@test"
-                ],
-                "lint": [
-                    "php scripts/lint.php"
-                ],
-                "analyse": [
-                    "php scripts/analyse.php"
-                ],
-                "validate:larena": [
-                    "php scripts/validate-larena-package.php"
-                ],
-                "evidence:check": [
-                    "php scripts/check-evidence.php"
-                ],
-                "scope:check": [
-                    "php tools/larena-scope-check.php"
-                ],
-                "quality:gate": [
-                    "@validate:larena",
-                    "@lint",
-                    "@analyse",
-                    "@test",
-                    "@evidence:check",
-                    "@scope:check"
-                ]
-            },
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
-                }
-            ],
-            "description": "Larena Dataview: Universal data presentation layer that can render the same structured dataset as table, kanban, calendar, gantt, cards, tree or other reusable views without reimplementing the same UI for every package.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "larena/layout",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../layout",
-                "reference": "ae2b2bb8e5c58c78bc07d5fa4b31c744b988af2d"
-            },
-            "require": {
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Larena\\Layout\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Larena\\Layout\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php"
-                ],
-                "test:unit": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php"
-                ],
-                "lint": [
-                    "@php scripts/lint.php"
-                ],
-                "analyse": [
-                    "@php scripts/analyse.php"
-                ],
-                "validate:larena": [
-                    "@php scripts/validate-larena-package.php"
-                ],
-                "evidence:check": [
-                    "@php scripts/check-evidence.php"
-                ],
-                "scope:check": [
-                    "@php tools/larena-scope-check.php"
-                ],
-                "quality:gate": [
-                    "@validate:larena",
-                    "@lint",
-                    "@analyse",
-                    "@test",
-                    "@evidence:check",
-                    "@scope:check"
-                ]
-            },
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
-                }
-            ],
-            "description": "Larena Layout: Universal layout and page composition engine for public pages, admin pages, dashboards, forms, lists, detail pages, documentation pages and widgets in Larena.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "larena/licensing",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../licensing",
-                "reference": "52d1215a25369cca17d5170bbfcae82d1f6c86d2"
-            },
-            "require": {
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Larena\\Licensing\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Larena\\Licensing\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "php tests/Unit/CapabilityContractTest.php && php tests/Unit/LicensingFailsClosedTest.php && php tests/Unit/LicensingCapabilityDecisionRuntimeTest.php && php tests/Unit/LicensingCapabilityDecisionFailsClosedTest.php"
-                ],
-                "test:unit": [
-                    "php tests/Unit/CapabilityContractTest.php && php tests/Unit/LicensingFailsClosedTest.php && php tests/Unit/LicensingCapabilityDecisionRuntimeTest.php && php tests/Unit/LicensingCapabilityDecisionFailsClosedTest.php"
-                ],
-                "lint": [
-                    "php scripts/lint.php"
-                ],
-                "analyse": [
-                    "php scripts/analyse.php"
-                ],
-                "validate:larena": [
-                    "php scripts/validate-larena-package.php"
-                ],
-                "evidence:check": [
-                    "php scripts/check-evidence.php"
-                ],
-                "scope:check": [
-                    "php tools/larena-scope-check.php"
-                ],
-                "quality:gate": [
-                    "@validate:larena",
-                    "@lint",
-                    "@analyse",
-                    "@test",
-                    "@larena:metadata:check",
-                    "@evidence:check",
-                    "@scope:check"
-                ],
-                "larena:metadata:check": [
-                    "php scripts/check-metadata-sync.php"
-                ]
-            },
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
-                }
-            ],
-            "description": "Larena Licensing: Runtime licensing layer that decides which package, bundle and capability features are available to a site, with signed entitlement snapshots, trial restrictions, subscription/expiration policies, environment-aware licenses, limits and explainable locks.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
             "name": "larena/property",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "../property",
-                "reference": "7773692a9e1cf60f641a050e4ebf99e1fe37c159"
+                "reference": "b0253f5f2546ea8bcb8e52b47f31f9f71ae627c7"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2563,6 +2253,7 @@
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyFailsClosedTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyTypeRegistryTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyNormalizationValidationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsPropertyStorageContractTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryPropertyRuntimeTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryPropertyRuntimeFailsClosedTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PropertyCommandProviderMigrationTest.php",
@@ -2612,94 +2303,6 @@
                 }
             ],
             "description": "Larena Property: Universal property layer for field type registry, field definitions, structured render models, validation, templates and typed value interaction across settings, admin, storage and future content models.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "larena/ui",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../ui",
-                "reference": "4ff429cb47b8ebbe232d683ee1333d3a27ad417e"
-            },
-            "require": {
-                "larena/dataview": "dev-main",
-                "larena/layout": "dev-main",
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Larena\\Ui\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Larena\\Ui\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminDataviewRendererTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminUiLabReferenceBehaviorTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedComponentRegistryTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkContractRegistryTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeLockTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedAssetProvenanceLockTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartManagerTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartFacadeTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentReferenceTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartCatalogProjectionTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartAiCatalogProjectionTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentLibraryTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SfActionLinkTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeAssetResolverTest.php"
-                ],
-                "test:unit": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php"
-                ],
-                "lint": [
-                    "@php scripts/lint.php"
-                ],
-                "analyse": [
-                    "@php scripts/analyse.php"
-                ],
-                "validate:larena": [
-                    "@php scripts/validate-larena-package.php"
-                ],
-                "evidence:check": [
-                    "@php scripts/check-evidence.php"
-                ],
-                "scope:check": [
-                    "@php tools/larena-scope-check.php"
-                ],
-                "quality:gate": [
-                    "@validate:larena",
-                    "@lint",
-                    "@analyse",
-                    "@test",
-                    "@evidence:check",
-                    "@scope:check"
-                ]
-            },
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
-                }
-            ],
-            "description": "Larena UI: Universal UI/frontend package for Larena smart components, backend-first rendering, hydration, design packs, UI asset graph, component registry, playground and frontend behavior contracts.",
             "transport-options": {
                 "symlink": true,
                 "relative": true
@@ -5704,6 +5307,271 @@
         }
     ],
     "packages-dev": [
+        {
+            "name": "larena/audit",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../audit",
+                "reference": "cc6ba3ccf279eefdef3fa3973249629a3a100feb"
+            },
+            "require": {
+                "illuminate/database": "^13.0",
+                "illuminate/routing": "^13.0",
+                "illuminate/support": "^13.0",
+                "illuminate/view": "^13.0",
+                "larena/ui": "dev-main",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "laravel/framework": "^13.0",
+                "orchestra/testbench": "^11.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Audit\\Providers\\AuditServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Audit\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Audit\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "php tests/Unit/AuditEventContractTest.php && php tests/Unit/AuditFailsClosedTest.php && php tests/Unit/AuditRedactorRuntimeTest.php && php tests/Unit/AuditEventPipelineTest.php && php tests/Unit/AuditEventPipelineFailsClosedTest.php && php tests/Unit/InstallAuditTrailTest.php && php tests/Unit/DatabaseAuditSinkTest.php && php tests/Unit/DatabaseAuditEventPipelineTest.php && php vendor/bin/phpunit tests/Feature/AuditHistoryAdminTest.php tests/Feature/DatabaseAuditEventPipelineBindingTest.php && php tests/Integration/DatabaseAuditEventPipelineMySqlTest.php"
+                ],
+                "test:unit": [
+                    "php tests/Unit/AuditEventContractTest.php && php tests/Unit/AuditFailsClosedTest.php && php tests/Unit/AuditRedactorRuntimeTest.php && php tests/Unit/AuditEventPipelineTest.php && php tests/Unit/AuditEventPipelineFailsClosedTest.php && php tests/Unit/InstallAuditTrailTest.php && php tests/Unit/DatabaseAuditSinkTest.php && php tests/Unit/DatabaseAuditEventPipelineTest.php"
+                ],
+                "test:connection-bound": [
+                    "php tests/Unit/DatabaseAuditEventPipelineTest.php && php vendor/bin/phpunit tests/Feature/DatabaseAuditEventPipelineBindingTest.php --colors=never"
+                ],
+                "test:mysql-connection-bound": [
+                    "LARENA_AUDIT_CONNECTION_BOUND_MYSQL_TEST=1 php tests/Integration/DatabaseAuditEventPipelineMySqlTest.php"
+                ],
+                "lint": [
+                    "php scripts/lint.php"
+                ],
+                "analyse": [
+                    "php vendor/bin/phpstan analyse --configuration=phpstan.neon.dist --no-progress --memory-limit=512M"
+                ],
+                "validate:larena": [
+                    "php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@larena:metadata:check",
+                    "@evidence:check",
+                    "@scope:check"
+                ],
+                "larena:metadata:check": [
+                    "php scripts/check-metadata-sync.php"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov"
+                }
+            ],
+            "description": "Larena Audit: Unified structured audit layer that receives package AuditEvent objects, validates taxonomy, redacts sensitive payloads, correlates runtime activity, routes events to sinks and provides operator search/export/diagnostics.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/dataview",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../dataview",
+                "reference": "b9c5f9456c5b773d730484f6e9d201e87c378bfd"
+            },
+            "require": {
+                "larena/core": "dev-main",
+                "larena/property": "dev-main",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Dataview\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Dataview\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadOnlyDataviewTableAdapterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewTableRuntimeTest.php",
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "test:unit": [
+                    "@test"
+                ],
+                "lint": [
+                    "php scripts/lint.php"
+                ],
+                "analyse": [
+                    "php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@evidence:check",
+                    "@scope:check"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov"
+                }
+            ],
+            "description": "Larena Dataview: Universal data presentation layer that can render the same structured dataset as table, kanban, calendar, gantt, cards, tree or other reusable views without reimplementing the same UI for every package.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/ui",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../ui",
+                "reference": "6343e306d3b7a3af40aca3f75d3b198e9e61cb26"
+            },
+            "require": {
+                "larena/core": "dev-main",
+                "larena/dataview": "dev-main",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "larena/layout": "dev-main",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Ui\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Ui\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminDataviewRendererTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminUiLabReferenceBehaviorTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedComponentRegistryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkContractRegistryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeLockTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedAssetProvenanceLockTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartManagerTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartFacadeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentReferenceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartCatalogProjectionTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartAiCatalogProjectionTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentLibraryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SfActionLinkTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeAssetResolverTest.php"
+                ],
+                "test:unit": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php"
+                ],
+                "test:dependency": [
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "lint": [
+                    "@php scripts/lint.php"
+                ],
+                "analyse": [
+                    "@php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "@php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "@php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "@php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@test:dependency",
+                    "@evidence:check",
+                    "@scope:check"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov"
+                }
+            ],
+            "description": "Larena UI: Universal UI/frontend package for Larena smart components, backend-first rendering, hydration, design packs, UI asset graph, component registry, playground and frontend behavior contracts.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
         {
             "name": "phpstan/phpstan",
             "version": "2.2.5",

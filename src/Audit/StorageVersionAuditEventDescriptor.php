@@ -19,6 +19,8 @@ final readonly class StorageVersionAuditEventDescriptor implements AuditEventDes
             'storage.schema.version_rejected',
             'storage.record.created',
             'storage.record.updated',
+            'storage.record.deleted',
+            'storage.record.restored',
         ], true)) {
             throw new InvalidArgumentException('storage_audit_event_type_invalid');
         }

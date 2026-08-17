@@ -9,12 +9,8 @@ use Illuminate\Database\QueryException;
 use InvalidArgumentException;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
-use Larena\Audit\Contracts\AuditEvent;
-use Larena\Audit\Enums\AuditRetentionClass;
-use Larena\Audit\Enums\AuditSeverity;
-use Larena\Audit\Runtime\AuditEventPipeline;
 use Larena\Property\Contracts\PropertyTypeRegistry;
-use Larena\Storage\Audit\StorageVersionAuditEventDescriptor;
+use Larena\Storage\Compatibility\Audit\AuditStorageSecurityEventSink;
 use Larena\Storage\Contracts\StoragePublicProjection;
 use Larena\Storage\Contracts\StorageRecordListItem;
 use Larena\Storage\Contracts\StorageRecordListPage;
@@ -23,6 +19,8 @@ use Larena\Storage\Contracts\StorageRecordVersion;
 use Larena\Storage\Contracts\StorageRecordVersionRef;
 use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\Contracts\StorageSchemaVersionRef;
+use Larena\Storage\Contracts\StorageSecurityEvent;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWriteResult;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Exceptions\StorageConflict;
@@ -37,16 +35,20 @@ final readonly class VersionedStorage implements VersionedStorageContract
     private const RECORD_LIST_RESOURCE_TYPE = 'storage.record';
 
     private SchemaDefinitionNormalizer $normalizer;
+    private StorageSecurityEventSink $securityEvents;
 
     public function __construct(
         private ConnectionInterface $database,
         private PropertyTypeRegistry $propertyTypes,
         private ActorOperationAuthorizer $authorizer,
-        private AuditEventPipeline $audit,
+        object $securityEvents,
         private ?QueryScopeProvider $queryScopeProvider = null,
         private ?string $recordListCursorKey = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
+        $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
+            ? $securityEvents
+            : AuditStorageSecurityEventSink::fromObject($securityEvents);
     }
 
     public function connection(): ConnectionInterface
@@ -256,6 +258,34 @@ final readonly class VersionedStorage implements VersionedStorageContract
             values: $values,
             actor: $actor,
             correlationId: $this->correlationId($correlationId, 'storage-record'),
+            operation: 'update',
+        );
+    }
+
+    public function transition(
+        string $ownerRef,
+        StorageRecordVersionRef $expected,
+        StorageSchemaVersionRef $schema,
+        array $values,
+        string $operation,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWriteResult {
+        if (!in_array($operation, ['delete', 'restore'], true)) {
+            throw new InvalidArgumentException('storage_record_transition_invalid');
+        }
+        $this->assertOwnerRef($ownerRef);
+        $this->assertActor($actor);
+        $this->authorizer->assertAllowed($actor, 'storage.record.' . $operation);
+
+        return $this->writeNextVersion(
+            ownerRef: $ownerRef,
+            expected: $expected,
+            schema: $schema,
+            values: $values,
+            actor: $actor,
+            correlationId: $this->correlationId($correlationId, 'storage-record'),
+            operation: $operation,
         );
     }
 
@@ -548,6 +578,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         array $values,
         string $actor,
         string $correlationId,
+        string $operation,
     ): StorageWriteResult {
         try {
             return $this->database->transaction(function () use (
@@ -557,6 +588,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 $values,
                 $actor,
                 $correlationId,
+                $operation,
             ): StorageWriteResult {
                 $schemaHead = $this->database->table('larena_storage_schemas')
                     ->where('schema_id', $schema->schemaId)
@@ -620,7 +652,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     $ownerRef,
                     $valuesJson,
                     $contentHash,
-                    'update',
+                    $operation,
                     $actor,
                     $correlationId,
                     $now,
@@ -631,12 +663,16 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     $schema,
                     $normalizedValues,
                     $contentHash,
-                    'update',
+                    $operation,
                     $actor,
                     $correlationId,
                     $now,
                 );
-                $this->emitRecord('storage.record.updated', $record, $actor, $correlationId);
+                $this->emitRecord('storage.record.' . match ($operation) {
+                    'delete' => 'deleted',
+                    'restore' => 'restored',
+                    default => 'updated',
+                }, $record, $actor, $correlationId);
 
                 return new StorageWriteResult($record);
             });
@@ -882,17 +918,13 @@ final readonly class VersionedStorage implements VersionedStorageContract
     /** @param array<string, mixed> $payload */
     private function emit(string $eventType, string $actor, string $subject, string $correlationId, array $payload): void
     {
-        $descriptor = new StorageVersionAuditEventDescriptor($eventType);
-        $this->audit->route($descriptor, AuditEvent::create(
-            sourcePackage: $descriptor->sourcePackage(),
-            category: $descriptor->category(),
-            type: $descriptor->type(),
-            actor: $actor,
-            subject: $subject,
-            severity: AuditSeverity::Security,
-            retentionClass: AuditRetentionClass::Security,
-            correlationId: $correlationId,
-            payload: $payload,
+        $this->securityEvents->emit(new StorageSecurityEvent(
+            'version',
+            $eventType,
+            $actor,
+            $subject,
+            $correlationId,
+            $payload,
         ));
     }
 

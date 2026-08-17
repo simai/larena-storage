@@ -178,6 +178,7 @@ function inventoryDescriptor(bool $versionTwo = false, bool $reordered = false):
         ['key' => 'name', 'label' => 'Asset name', 'position' => $reordered ? 20 : 10, 'type' => 'string', 'type_version' => 1, 'required' => true, 'visibility' => 'public', 'constraints' => ['min_length' => 1, 'max_length' => 100]],
         ['key' => 'quantity', 'label' => 'Quantity', 'position' => $reordered ? 10 : 20, 'type' => 'integer', 'type_version' => 1, 'required' => true, 'visibility' => 'admin', 'constraints' => ['min' => 0, 'max' => 10000]],
         ['key' => 'document', 'label' => 'Document', 'position' => 30, 'type' => 'file', 'type_version' => 1, 'required' => false, 'visibility' => 'admin', 'constraints' => []],
+        ['key' => 'related_to', 'label' => 'Related record', 'position' => 35, 'type' => 'relation', 'type_version' => 1, 'required' => false, 'visibility' => 'admin', 'constraints' => []],
     ];
     if ($versionTwo) {
         $fields[] = ['key' => 'note', 'label' => 'Note', 'position' => 40, 'type' => 'text', 'type_version' => 1, 'required' => false, 'visibility' => 'admin', 'constraints' => []];
@@ -428,14 +429,29 @@ try {
     workbenchExpect(count($workbench->listStructures('scope:tenant-beta', 'actor:admin:beta')) === 1, 'beta structure catalog mismatch');
 
     $fileUuid = '018f4f4c-706e-7b1f-9a3e-c93b5656a6f0';
-    $alpha = $workbench->createRecord('scope:tenant-alpha', $inventory->structureId, ['name' => 'Alpha asset', 'quantity' => 7, 'document' => $fileUuid], 'actor:admin:alpha');
+    $relationUuid = '018f4f4c-706e-7b1f-9a3e-c93b5656a6f1';
+    $alpha = $workbench->createRecord('scope:tenant-alpha', $inventory->structureId, ['name' => 'Alpha asset', 'quantity' => 7, 'document' => $fileUuid, 'related_to' => $relationUuid], 'actor:admin:alpha', 'alpha-create');
     $beta = $workbench->createRecord('scope:tenant-alpha', $inventory->structureId, ['name' => 'Beta asset', 'quantity' => 2], 'actor:admin:alpha');
     $gamma = $workbench->createRecord('scope:tenant-alpha', $inventory->structureId, ['name' => 'Gamma asset', 'quantity' => 11], 'actor:admin:alpha');
     $session = $workbench->createRecord('scope:tenant-alpha', $training->structureId, ['topic' => 'Safety', 'session_date' => '2026-08-12', 'remote' => true], 'actor:admin:alpha');
     $betaFirst = $workbench->createRecord('scope:tenant-beta', $betaInventory->structureId, ['sku' => 'B-002', 'available' => true], 'actor:admin:beta');
     $betaSecond = $workbench->createRecord('scope:tenant-beta', $betaInventory->structureId, ['sku' => 'B-001', 'available' => false], 'actor:admin:beta');
     workbenchExpect($session->values['remote'] === true, 'second generic model value mismatch');
+    workbenchExpect($alpha->values['related_to'] === $relationUuid, 'typed relation round-trip mismatch');
     workbenchExpect(!array_key_exists('larena_scope_ref', $alpha->values), 'reserved scope leaked into values');
+    workbenchExpect($inventory->receipt()->operation === 'create', 'structure mutation receipt missing');
+    $alphaReceipt = $alpha->receipt()->toArray();
+    workbenchExpect(
+        $alphaReceipt['actor'] === 'actor:admin:alpha'
+            && $alphaReceipt['operation'] === 'create'
+            && $alphaReceipt['target'] === 'storage.record:' . $alpha->recordId
+            && $alphaReceipt['revision'] === 1
+            && $alphaReceipt['result'] === 'succeeded'
+            && is_string($alphaReceipt['correlation_id'])
+            && preg_match('/^storage-record-[a-f0-9]{64}$/', $alphaReceipt['correlation_id']) === 1
+            && !str_contains(json_encode($alphaReceipt, JSON_THROW_ON_ERROR), $fileUuid),
+        'record mutation receipt incomplete or unsafe',
+    );
 
     $beforeForeign = workbenchState($opened['connection']);
     workbenchRejects(
@@ -522,7 +538,7 @@ try {
         'storage_workbench_record_continuation_invalid',
     );
 
-    $updated = $workbench->updateRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, $alpha->revision, ['quantity' => 8, 'name' => 'Alpha asset', 'document' => $fileUuid], 'actor:admin:alpha');
+    $updated = $workbench->updateRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, $alpha->revision, ['quantity' => 8, 'name' => 'Alpha asset', 'document' => $fileUuid, 'related_to' => $relationUuid], 'actor:admin:alpha');
     workbenchExpect($updated->revision === 2 && $updated->values['quantity'] === 8, 'record CAS update mismatch');
     try {
         $workbench->updateRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 1, ['quantity' => 9, 'name' => 'Alpha asset'], 'actor:admin:alpha');
@@ -548,6 +564,15 @@ try {
 
     $history = $workbench->recordHistory('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 'actor:admin:alpha');
     workbenchExpect(array_map(static fn ($record): int => $record->revision, $history) === [3, 2, 1], 'immutable record history mismatch');
+    $deleted = $workbench->archiveRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 3, 'actor:admin:alpha', 'alpha-delete');
+    workbenchExpect($deleted->state === 'archived' && $deleted->operation === 'delete' && $deleted->receipt()->operation === 'delete', 'record delete lifecycle mismatch');
+    $restored = $workbench->restoreRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 4, 'actor:admin:alpha', 'alpha-restore');
+    workbenchExpect($restored->state === 'active' && $restored->revision === 5 && $restored->operation === 'restore', 'record restore lifecycle mismatch');
+    workbenchExpect($restored->values['related_to'] === $relationUuid, 'restore lost typed relation');
+    workbenchRejects(
+        static fn () => $workbench->restoreRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 5, 'actor:admin:alpha'),
+        'storage_workbench_record_not_archived',
+    );
     $currentBeta = $workbench->readRecord('scope:tenant-alpha', $inventory->structureId, $beta->recordId, 'actor:admin:alpha');
     $currentGamma = $workbench->readRecord('scope:tenant-alpha', $inventory->structureId, $gamma->recordId, 'actor:admin:alpha');
     $beforeAtomic = workbenchState($opened['connection']);
@@ -587,7 +612,7 @@ try {
     }
     workbenchExpect(count(array_unique($outputs)) === 1 && $outputs[0] === $encoded, 'fresh process projection was not byte-identical');
 
-    foreach (['storage.workbench.structure.create', 'storage.workbench.record.create', 'storage.workbench.record.read', 'storage.workbench.record.list', 'storage.workbench.record.update', 'storage.workbench.record.bulk_archive', 'storage.workbench.record.history'] as $operation) {
+    foreach (['storage.workbench.structure.create', 'storage.workbench.record.create', 'storage.workbench.record.read', 'storage.workbench.record.list', 'storage.workbench.record.update', 'storage.workbench.record.restore', 'storage.workbench.record.bulk_archive', 'storage.workbench.record.history'] as $operation) {
         workbenchExpect(in_array($operation, $runtime['authorizer']->operations, true), 'missing Access operation ' . $operation);
     }
 } finally {

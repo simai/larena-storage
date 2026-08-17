@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "changed": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "composer.lock",
+    "docs/developer/concept-alignment.md",
+    "docs/project-management/launch-records/larena-minimal-cms-v1-b7.json",
+    "docs/project-management/evidence/larena-minimal-cms-v1-b7/**",
+    "module.yaml",
+    "scripts/check-evidence.php",
+    "src/Audit/StorageVersionAuditEventDescriptor.php",
+    "src/Compatibility/Audit/AuditStorageSecurityEventSink.php",
+    "src/Contracts/StorageMutationReceipt.php",
+    "src/Contracts/StorageSecurityEvent.php",
+    "src/Contracts/StorageSecurityEventSink.php",
+    "src/Contracts/StorageWorkbench.php",
+    "src/Contracts/StorageWorkbenchRecord.php",
+    "src/Contracts/StorageWorkbenchStructure.php",
+    "src/Contracts/StorageWriteResult.php",
+    "src/Contracts/VersionedStorage.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/NullStorageSecurityEventSink.php",
+    "src/Runtime/VersionedStorage.php",
+    "src/SchemaEvolution/DatabaseStorageSchemaEvolution.php",
+    "tests/Integration/StorageWorkbenchProviderBindingTest.php",
+    "tests/Integration/StorageWorkbenchTest.php",
+    "tests/Unit/MinimalCmsDependencyContractTest.php"
+  ],
+  "migration_changed": false,
+  "accepted_target_changed": false
+}

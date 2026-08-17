@@ -40,18 +40,21 @@ if (!is_file($proposalPath)) {
     }
 }
 
-$forbiddenRestoreSurface = [
+$forbiddenHistoricalRestoreSurface = [
     'src/Contracts/VersionedStorage.php' => 'restoreAsNewVersion',
     'src/Runtime/VersionedStorage.php' => 'restoreAsNewVersion',
-    'src/Providers/StorageServiceProvider.php' => 'storage.record.restore',
-    'src/Audit/StorageVersionAuditEventDescriptor.php' => 'storage.record.restored',
-    'access.yaml' => 'storage.record.restore',
-    'audit.yaml' => 'storage.record.restored',
 ];
-foreach ($forbiddenRestoreSurface as $file => $needle) {
+foreach ($forbiddenHistoricalRestoreSurface as $file => $needle) {
     $contents = is_file($file) ? (string) file_get_contents($file) : '';
     if (str_contains($contents, $needle)) {
         $errors[] = "Historical restore leaked into the Storage mutation surface: {$file}";
+    }
+}
+
+foreach (['src/Contracts/VersionedStorage.php', 'src/Runtime/VersionedStorage.php'] as $file) {
+    $contents = is_file($file) ? (string) file_get_contents($file) : '';
+    if (!str_contains($contents, 'transition')) {
+        $errors[] = "Missing canonical lifecycle transition contract: {$file}";
     }
 }
 

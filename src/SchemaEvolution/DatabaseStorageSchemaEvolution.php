@@ -8,12 +8,8 @@ use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
-use Larena\Audit\Contracts\AuditEvent;
-use Larena\Audit\Enums\AuditRetentionClass;
-use Larena\Audit\Enums\AuditSeverity;
-use Larena\Audit\Runtime\AuditEventPipeline;
 use Larena\Property\Contracts\PropertyTypeRegistry;
-use Larena\Storage\Audit\StorageSchemaMigrationAuditEventDescriptor;
+use Larena\Storage\Compatibility\Audit\AuditStorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageRecordVersionRef;
 use Larena\Storage\Contracts\StorageSchemaCompatibilityReport;
 use Larena\Storage\Contracts\StorageSchemaEvolution;
@@ -25,6 +21,8 @@ use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\StorageSchemaEvolutionTransactionScope;
 use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\Contracts\StorageSchemaVersionRef;
+use Larena\Storage\Contracts\StorageSecurityEvent;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
@@ -35,16 +33,20 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
 {
     private SchemaDefinitionNormalizer $normalizer;
     private OptionalFieldCompatibilityAnalyzer $compatibility;
+    private StorageSecurityEventSink $securityEvents;
 
     public function __construct(
         private ConnectionInterface $database,
         PropertyTypeRegistry $propertyTypes,
         private ActorOperationAuthorizer $authorizer,
-        private AuditEventPipeline $audit,
+        object $securityEvents,
         private StorageSchemaEvolutionOwnerPolicyRegistry $ownerPolicies,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->compatibility = new OptionalFieldCompatibilityAnalyzer($this->normalizer);
+        $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
+            ? $securityEvents
+            : AuditStorageSecurityEventSink::fromObject($securityEvents);
     }
 
     public function connection(): ConnectionInterface
@@ -731,17 +733,13 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
     /** @param array<string, mixed> $payload */
     private function emit(string $type, string $actor, string $schemaId, string $correlationId, array $payload): void
     {
-        $descriptor = new StorageSchemaMigrationAuditEventDescriptor($type);
-        $this->audit->route($descriptor, AuditEvent::create(
-            sourcePackage: $descriptor->sourcePackage(),
-            category: $descriptor->category(),
-            type: $descriptor->type(),
-            actor: $actor,
-            subject: 'storage-schema:' . $schemaId,
-            severity: AuditSeverity::Security,
-            retentionClass: AuditRetentionClass::Security,
-            correlationId: $correlationId,
-            payload: $payload,
+        $this->securityEvents->emit(new StorageSecurityEvent(
+            'schema_migration',
+            $type,
+            $actor,
+            'storage-schema:' . $schemaId,
+            $correlationId,
+            $payload,
         ));
     }
 

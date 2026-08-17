@@ -11,13 +11,14 @@ use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
 use Larena\Access\Runtime\AccessOperationRegistry;
 use Larena\Access\ValueObjects\AccessOperationDescriptor;
-use Larena\Audit\Runtime\AuditEventPipeline;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaEvolution as StorageSchemaEvolutionContract;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
+use Larena\Storage\Runtime\NullStorageSecurityEventSink;
 use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
@@ -26,6 +27,9 @@ final class StorageServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        if (!$this->app->bound(StorageSecurityEventSink::class)) {
+            $this->app->singleton(StorageSecurityEventSink::class, NullStorageSecurityEventSink::class);
+        }
         $this->app->singleton(
             StorageSchemaEvolutionOwnerPolicyRegistry::class,
             static function (): StorageSchemaEvolutionOwnerPolicyRegistry {
@@ -53,7 +57,7 @@ final class StorageServiceProvider extends ServiceProvider
                 $database->connection(),
                 $app->make(PropertyTypeRegistry::class),
                 $app->make(ActorOperationAuthorizer::class),
-                $app->make(AuditEventPipeline::class),
+                $app->make(StorageSecurityEventSink::class),
                 $app->bound(QueryScopeProvider::class) ? $app->make(QueryScopeProvider::class) : null,
                 is_string($app->make('config')->get('app.key'))
                     ? $app->make('config')->get('app.key')
@@ -70,7 +74,7 @@ final class StorageServiceProvider extends ServiceProvider
                 $database->connection(),
                 $app->make(PropertyTypeRegistry::class),
                 $app->make(ActorOperationAuthorizer::class),
-                $app->make(AuditEventPipeline::class),
+                $app->make(StorageSecurityEventSink::class),
                 $app->make(StorageSchemaEvolutionOwnerPolicyRegistry::class),
             );
         });
@@ -125,6 +129,8 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.record.read', 'record_read', 'read', 'high'],
             ['storage.record.list', 'record_list', 'read', 'high'],
             ['storage.record.update', 'record_update', 'update', 'high'],
+            ['storage.record.delete', 'record_delete', 'delete', 'critical'],
+            ['storage.record.restore', 'record_restore', 'restore', 'critical'],
             ['storage.workbench.structure.create', 'workbench_structure_create', 'create', 'critical'],
             ['storage.workbench.structure.read', 'workbench_structure_read', 'read', 'high'],
             ['storage.workbench.structure.list', 'workbench_structure_list', 'read', 'high'],
@@ -134,6 +140,7 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.workbench.record.list', 'workbench_record_list', 'read', 'high'],
             ['storage.workbench.record.update', 'workbench_record_update', 'update', 'high'],
             ['storage.workbench.record.archive', 'workbench_record_archive', 'delete', 'critical'],
+            ['storage.workbench.record.restore', 'workbench_record_restore', 'restore', 'critical'],
             ['storage.workbench.record.bulk_archive', 'workbench_record_bulk_archive', 'delete', 'critical'],
             ['storage.workbench.record.history', 'workbench_record_history', 'read', 'high'],
         ] as [$code, $label, $grant, $risk]) {

@@ -1,8 +1,8 @@
 package: larena/storage
 title: Larena Storage
-status: coding_started
+status: reviewed
 cluster: data-content
-batch: larena-minimal-cms-v1-b2
+batch: larena-minimal-cms-v1-b7
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -29,8 +29,12 @@ features:
   - storage.workbench_typed_query_cursor
   - storage.workbench_revision_history
   - storage.workbench_bounded_bulk_archive
+  - minimal_cms_universal_storage
+  - storage.restore_lifecycle
+  - storage.mutation_receipt
+  - storage.optional_audit_adapter
 runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/larena-minimal-cms-v1-b2
+  path: docs/project-management/evidence/larena-minimal-cms-v1-b7

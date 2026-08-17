@@ -22,4 +22,15 @@ if ($actualRequireDev !== $expectedRequireDev) {
     throw new RuntimeException('Unexpected storage compatibility dependencies: '.json_encode($actualRequireDev, JSON_THROW_ON_ERROR));
 }
 
+foreach ([
+    'src/Providers/StorageServiceProvider.php',
+    'src/Runtime/VersionedStorage.php',
+    'src/SchemaEvolution/DatabaseStorageSchemaEvolution.php',
+] as $mandatoryRuntimeFile) {
+    $source = (string) file_get_contents(dirname(__DIR__, 2).'/'.$mandatoryRuntimeFile);
+    if (str_contains($source, 'Larena\\Audit\\')) {
+        throw new RuntimeException($mandatoryRuntimeFile.' retains a mandatory Audit runtime import');
+    }
+}
+
 echo "MinimalCmsDependencyContractTest passed.\n";

@@ -17,9 +17,9 @@ Accepted Target State: `larena.target.minimal_cms_v1` at semantic digest `sha256
 
 Existing typed schema, record, query and persistence contracts are continued. B2 removes Audit from the closure and adds Core; B7-B9 fill missing lifecycle, concurrency, receipt, hierarchy and logical-file behavior through the same data model.
 
-## B2 alignment status
+## B7 alignment status
 
-Access, Core and Property are now the exact mandatory Larena Composer dependencies. Audit remains a development-only compatibility fixture. No claim is made yet about full CRUD/revision/relation completeness.
+Access, Core and Property remain the exact mandatory Larena Composer dependencies. The mandatory provider now uses a Storage-owned security-event sink; Audit is available only through an optional compatibility adapter. Typed structures and records provide create/read/update/list/delete/restore, immutable revisions, exact-version validation, typed relation values, optimistic concurrency and sanitized mutation receipts. Explicit hierarchy fixtures and Filesystem-owned logical identity remain B8 and B9 work.
 
 ## Install and rollback baseline
 

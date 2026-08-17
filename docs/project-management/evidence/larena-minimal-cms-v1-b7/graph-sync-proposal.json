@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0.0",
+  "proposal": "Record B7 implementation evidence after independent acceptance; do not alter the accepted package graph or semantic target.",
+  "canonical_update_allowed": false,
+  "semantic_change": false
+}

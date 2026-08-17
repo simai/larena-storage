@@ -1,0 +1,14 @@
+{
+  "schema": "larena.package_launch_record.v1",
+  "id": "larena-minimal-cms-v1-b7-storage",
+  "goal": "larena-minimal-cms-v1",
+  "package": "larena/storage",
+  "branch": "main",
+  "base_commit": "aa6214afc770923b3e9f38a7d896cf1ef64aec5a",
+  "scope": "Complete the accepted universal Storage lifecycle, receipts, typed relation proof and mandatory Audit decoupling without changing persistence schema or package ownership.",
+  "runtime_boundary": "local package source, metadata and disposable SQLite tests only",
+  "target_id": "larena.target.minimal_cms_v1",
+  "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
+  "production_ready": false,
+  "status": "coding_started"
+}

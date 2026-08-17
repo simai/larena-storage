@@ -122,6 +122,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $normalized['fields'],
                     $hash,
                     $now,
+                    'create',
+                    $actor,
+                    $correlationId,
                 );
             });
         } catch (StorageRejected $exception) {
@@ -246,6 +249,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $normalized['fields'],
                     $hash,
                     $now,
+                    'update',
+                    $actor,
+                    $correlationId,
                 );
             });
         } catch (StorageRejected $exception) {
@@ -393,11 +399,60 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $values = $current->values;
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ARCHIVED;
-            $version = $this->storage->compareAndSwap(
+            $version = $this->storage->transition(
                 $this->ownerRef($structure->schema->schemaId, $recordId),
                 new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
                 $structure->schema,
                 $values,
+                'delete',
+                $actor,
+                $correlationId,
+            )->version;
+
+            return $this->workbenchRecord($structure, $version);
+        });
+    }
+
+    public function restoreRecord(
+        string $scopeRef,
+        string $structureId,
+        string $recordId,
+        int $expectedRevision,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchRecord {
+        $this->assertRecordId($recordId);
+        if ($expectedRevision < 1) {
+            throw new InvalidArgumentException('storage_workbench_record_revision_invalid');
+        }
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.record.restore', $scopeRef, self::RECORD_RESOURCE);
+
+        return $this->database->transaction(function () use (
+            $scopeRef,
+            $structureId,
+            $recordId,
+            $expectedRevision,
+            $actor,
+            $correlationId,
+        ): StorageWorkbenchRecord {
+            $structure = $this->readStructureInternal($scopeRef, $structureId, true);
+            $current = $this->readRecordInternal($structure, $scopeRef, $recordId, $actor, true);
+            if ($current->revision !== $expectedRevision) {
+                throw new StorageConflict('storage_workbench_record_revision_conflict');
+            }
+            if ($current->state !== self::STATE_ARCHIVED) {
+                throw new StorageRejected('storage_workbench_record_not_archived');
+            }
+            $values = $current->values;
+            $values[self::SCOPE_FIELD] = $scopeRef;
+            $values[self::STATE_FIELD] = self::STATE_ACTIVE;
+            $version = $this->storage->transition(
+                $this->ownerRef($structure->schema->schemaId, $recordId),
+                new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
+                $structure->schema,
+                $values,
+                'restore',
                 $actor,
                 $correlationId,
             )->version;
@@ -451,11 +506,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $values = $record->values;
                 $values[self::SCOPE_FIELD] = $scopeRef;
                 $values[self::STATE_FIELD] = self::STATE_ARCHIVED;
-                $version = $this->storage->compareAndSwap(
+                $version = $this->storage->transition(
                     $this->ownerRef($structure->schema->schemaId, $recordId),
                     new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $record->revision),
                     $structure->schema,
                     $values,
+                    'delete',
                     $actor,
                     $correlationId,
                 )->version;
@@ -908,6 +964,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $fields,
             $hash,
             (string) $row->created_at,
+            (int) $row->version === 1 ? 'create' : 'update',
+            (string) $row->created_by,
+            $row->correlation_id === null ? null : (string) $row->correlation_id,
         );
     }
 
@@ -965,6 +1024,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $version->contentHash,
             $version->operation,
             $version->createdAt,
+            $version->createdBy,
+            $version->correlationId,
         );
     }
 

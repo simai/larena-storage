@@ -18,6 +18,21 @@ final readonly class StorageWorkbenchRecord
         public string $contentHash,
         public string $operation,
         public string $updatedAt,
+        public string $actor = '',
+        public ?string $correlationId = null,
     ) {
+    }
+
+    public function receipt(): StorageMutationReceipt
+    {
+        return new StorageMutationReceipt(
+            $this->actor,
+            $this->updatedAt,
+            $this->operation,
+            'storage.record:' . $this->recordId,
+            $this->revision,
+            'succeeded',
+            $this->correlationId,
+        );
     }
 }

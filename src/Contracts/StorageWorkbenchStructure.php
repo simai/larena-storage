@@ -16,6 +16,22 @@ final readonly class StorageWorkbenchStructure
         public array $fields,
         public string $descriptorHash,
         public string $updatedAt,
+        public string $operation = 'create',
+        public string $actor = '',
+        public ?string $correlationId = null,
     ) {
+    }
+
+    public function receipt(): StorageMutationReceipt
+    {
+        return new StorageMutationReceipt(
+            $this->actor,
+            $this->updatedAt,
+            $this->operation,
+            'storage.structure:' . $this->structureId,
+            $this->version,
+            'succeeded',
+            $this->correlationId,
+        );
     }
 }
