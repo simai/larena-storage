@@ -82,7 +82,7 @@ Current reason codes:
 - `storage_owned_table_topology_incompatible`;
 - `storage_owned_table_partial_topology_contains_data`;
 - `storage_owned_table_introspection_failed`;
-- `storage_owned_table_driver_unsupported`;
+- `storage_owned_table_driver_unsupported` (drivers other than SQLite, MySQL and MariaDB);
 - `storage_typed_content_rollback_would_lose_data`.
 
 These diagnostics are evidence for an operator recovery plan, not permission

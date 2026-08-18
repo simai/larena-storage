@@ -475,7 +475,7 @@ final readonly class StorageOwnedTableShapeGuard
      */
     private function columnContractMatches(array $column, array $contract): bool
     {
-        $driver = strtolower($this->connection->getDriverName());
+        $driver = $this->normalizedDriver();
         $typeName = strtolower((string) ($column['type_name'] ?? ''));
         $fullType = strtolower((string) ($column['type'] ?? ''));
         $expectedTypeName = match ($driver) {
@@ -535,8 +535,15 @@ final readonly class StorageOwnedTableShapeGuard
 
     private function assertSupportedDriver(): void
     {
-        if (!in_array(strtolower($this->connection->getDriverName()), ['mysql', 'sqlite'], true)) {
+        if (!in_array($this->normalizedDriver(), ['mysql', 'sqlite'], true)) {
             throw new StorageOwnedTableShapeRejected('storage_owned_table_driver_unsupported');
         }
+    }
+
+    private function normalizedDriver(): string
+    {
+        $driver = strtolower($this->connection->getDriverName());
+
+        return $driver === 'mariadb' ? 'mysql' : $driver;
     }
 }
