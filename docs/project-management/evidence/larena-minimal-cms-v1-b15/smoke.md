@@ -1,3 +1,3 @@
 # Smoke
 
-The final smoke is the Root B15 scenario on an exact empty disposable loopback MariaDB schema.
+The Root B15 scenario passed on an exact empty disposable loopback MariaDB schema. A second owned schema passed migrate, rollback, reapply and fresh-process schema smoke; both schemas were removed after ownership verification.

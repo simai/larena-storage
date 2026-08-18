@@ -1,6 +1,6 @@
 package: larena/storage
 title: Larena Storage
-status: coding_started
+status: reviewed
 cluster: data-content
 batch: larena-minimal-cms-v1-b15
 features:

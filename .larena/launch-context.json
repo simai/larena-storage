@@ -16,6 +16,7 @@
   "allowed_files": [
     ".larena/launch-context.json",
     "CHANGELOG.md",
+    "database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php",
     "docs/developer/owned-table-shape-guard.md",
     "docs/project-management/launch-records/larena-minimal-cms-v1-b15.json",
     "docs/project-management/evidence/larena-minimal-cms-v1-b15/**",
@@ -45,11 +46,11 @@
   ],
   "evidence_path": "docs/project-management/evidence/larena-minimal-cms-v1-b15",
   "graph_sync_proposal_path": "docs/project-management/evidence/larena-minimal-cms-v1-b15/graph-sync-proposal.json",
-  "status": "coding_started",
+  "status": "reviewed",
   "coding_allowed": true,
   "coding_started": true,
   "repository_enforcement_installed": true,
-  "review_completed": false,
-  "next_transition": "verification",
+  "review_completed": true,
+  "next_transition": "batch_completed",
   "coding_branch": "main"
 }

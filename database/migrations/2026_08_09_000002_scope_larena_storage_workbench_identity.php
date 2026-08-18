@@ -49,7 +49,7 @@ return new class extends Migration
         // sequence in a PDO transaction therefore makes Laravel attempt to
         // commit a transaction the server has already closed. SQLite supports
         // transactional DDL and keeps the stronger atomic boundary.
-        if ($database->getDriverName() === 'mysql') {
+        if ($this->isMySqlFamily()) {
             try {
                 $upgrade();
             } catch (Throwable $failure) {
@@ -81,11 +81,17 @@ return new class extends Migration
             throw new RuntimeException('storage_workbench_scoped_identity_rollback_would_lose_data');
         }
 
-        $database->transaction(function (): void {
+        $rollback = function (): void {
             Schema::drop(self::VERSIONS);
             Schema::drop(self::HEADS);
             (require __DIR__ . '/2026_08_09_000001_create_larena_storage_workbench_tables.php')->up();
-        });
+        };
+        if ($this->isMySqlFamily()) {
+            $rollback();
+
+            return;
+        }
+        $database->transaction($rollback);
     }
 
     /** @return array<string, mixed> */
@@ -342,7 +348,7 @@ return new class extends Migration
                 ->update(['schema_id' => $identity['storage_schema_id']]);
         }
 
-        $mysql = $database->getDriverName() === 'mysql';
+        $mysql = $this->isMySqlFamily();
         $this->createScopedTables($mysql);
         foreach ($plan['scoped_heads'] as $head) {
             $database->table(self::NEXT_HEADS)->insert($head);
@@ -563,7 +569,7 @@ return new class extends Migration
     private function mysqlAutoIncrement(string $table): ?int
     {
         $database = Schema::getConnection();
-        if ($database->getDriverName() !== 'mysql') {
+        if (!$this->isMySqlFamily()) {
             return null;
         }
         try {
@@ -590,5 +596,10 @@ return new class extends Migration
             return;
         }
         Schema::getConnection()->statement(sprintf('ALTER TABLE `%s` AUTO_INCREMENT = %d', $table, $nextId));
+    }
+
+    private function isMySqlFamily(): bool
+    {
+        return in_array(strtolower(Schema::getConnection()->getDriverName()), ['mysql', 'mariadb'], true);
     }
 };
