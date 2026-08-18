@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Treat Laravel's `mariadb` connection driver as the MySQL-compatible family in the owned-table shape guard, enabling the accepted Minimal CMS database-parity gate without weakening shape validation.
+- Treat Laravel's `mariadb` connection driver as the MySQL-compatible family in both owned-table shape guards, enabling the accepted Minimal CMS database-parity gate without weakening shape validation.
 
 ## Unreleased — Minimal CMS v1 B8
 

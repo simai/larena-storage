@@ -20,7 +20,8 @@
     "docs/project-management/launch-records/larena-minimal-cms-v1-b15.json",
     "docs/project-management/evidence/larena-minimal-cms-v1-b15/**",
     "module.yaml",
-    "src/Database/StorageOwnedTableShapeGuard.php"
+    "src/Database/StorageOwnedTableShapeGuard.php",
+    "src/Database/StorageSchemaMigrationTableShapeGuard.php"
   ],
   "forbidden_files": [
     "config/*",

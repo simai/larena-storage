@@ -223,7 +223,7 @@ final readonly class StorageSchemaMigrationTableShapeGuard
     /** @param array<string, mixed> $column @param array<string, mixed> $contract */
     private function columnMatches(array $column, array $contract): bool
     {
-        $driver = strtolower($this->connection->getDriverName());
+        $driver = $this->normalizedDriver();
         $typeName = strtolower((string) ($column['type_name'] ?? ''));
         $fullType = strtolower((string) ($column['type'] ?? ''));
         $expected = match ($driver) {
@@ -272,8 +272,15 @@ final readonly class StorageSchemaMigrationTableShapeGuard
 
     private function assertSupportedDriver(): void
     {
-        if (!in_array(strtolower($this->connection->getDriverName()), ['sqlite', 'mysql'], true)) {
+        if (!in_array($this->normalizedDriver(), ['sqlite', 'mysql'], true)) {
             throw new StorageOwnedTableShapeRejected('storage_schema_migration_driver_unsupported');
         }
+    }
+
+    private function normalizedDriver(): string
+    {
+        $driver = strtolower($this->connection->getDriverName());
+
+        return $driver === 'mariadb' ? 'mysql' : $driver;
     }
 }
