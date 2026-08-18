@@ -387,7 +387,12 @@ final readonly class StorageOwnedTableShapeGuard
             $metadataByName[strtolower((string) $column['name'])] = $column;
         }
         foreach ($shape['column_contracts'] as $columnName => $contract) {
-            if (!$this->columnContractMatches($metadataByName[$columnName], $contract)) {
+            if (!$this->columnContractMatches(
+                $shape['table'],
+                $columnName,
+                $metadataByName[$columnName],
+                $contract,
+            )) {
                 throw new StorageOwnedTableShapeRejected(
                     'storage_owned_table_column_contract_incompatible',
                     $key,
@@ -473,13 +478,18 @@ final readonly class StorageOwnedTableShapeGuard
      *     fixed?: bool
      * } $contract
      */
-    private function columnContractMatches(array $column, array $contract): bool
+    private function columnContractMatches(
+        string $table,
+        string $columnName,
+        array $column,
+        array $contract,
+    ): bool
     {
         $driver = $this->normalizedDriver();
         $typeName = strtolower((string) ($column['type_name'] ?? ''));
         $fullType = strtolower((string) ($column['type'] ?? ''));
         $expectedTypeName = match ($driver) {
-            'mysql' => match ($contract['family']) {
+            'mysql', 'mariadb' => match ($contract['family']) {
                 'string' => ($contract['fixed'] ?? false) ? 'char' : 'varchar',
                 'integer' => 'bigint',
                 'json' => 'json',
@@ -493,8 +503,11 @@ final readonly class StorageOwnedTableShapeGuard
             },
             default => null,
         };
+        $mariaDbJsonAlias = $driver === 'mariadb'
+            && $contract['family'] === 'json'
+            && $this->mariaDbJsonAliasMatches($table, $columnName, $typeName);
         if ($expectedTypeName === null
-            || $typeName !== $expectedTypeName
+            || (!$mariaDbJsonAlias && $typeName !== $expectedTypeName)
             || (bool) ($column['nullable'] ?? false) !== $contract['nullable']) {
             return false;
         }
@@ -504,7 +517,7 @@ final readonly class StorageOwnedTableShapeGuard
             return false;
         }
 
-        if ($driver === 'mysql') {
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
             if (isset($contract['length'])) {
                 if (preg_match('/\((\d+)\)/', $fullType, $matches) !== 1
                     || (int) $matches[1] !== $contract['length']) {
@@ -521,6 +534,45 @@ final readonly class StorageOwnedTableShapeGuard
         return true;
     }
 
+    private function mariaDbJsonAliasMatches(string $table, string $column, string $typeName): bool
+    {
+        if (!in_array($typeName, ['longtext', 'text'], true)) {
+            return false;
+        }
+
+        try {
+            $constraints = $this->connection->select(
+                <<<'SQL'
+                    SELECT cc.CHECK_CLAUSE AS check_clause
+                    FROM information_schema.TABLE_CONSTRAINTS tc
+                    INNER JOIN information_schema.CHECK_CONSTRAINTS cc
+                        ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+                        AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+                    WHERE tc.CONSTRAINT_SCHEMA = DATABASE()
+                        AND tc.TABLE_NAME = ?
+                        AND tc.CONSTRAINT_TYPE = 'CHECK'
+                    SQL,
+                [$table],
+            );
+        } catch (Throwable) {
+            return false;
+        }
+
+        $quotedColumn = preg_quote($column, '/');
+        $jsonAliasPattern = '/^\s*(?:\(\s*)*json_valid\s*\(\s*(?:`'
+            . $quotedColumn . '`|"' . $quotedColumn . '"|' . $quotedColumn
+            . ')\s*\)\s*(?:\)\s*)*$/i';
+
+        foreach ($constraints as $constraint) {
+            $metadata = array_change_key_case((array) $constraint, CASE_LOWER);
+            if (preg_match($jsonAliasPattern, (string) ($metadata['check_clause'] ?? '')) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function tableHasData(string $table, string $key): bool
     {
         try {
@@ -535,15 +587,13 @@ final readonly class StorageOwnedTableShapeGuard
 
     private function assertSupportedDriver(): void
     {
-        if (!in_array($this->normalizedDriver(), ['mysql', 'sqlite'], true)) {
+        if (!in_array($this->normalizedDriver(), ['mysql', 'mariadb', 'sqlite'], true)) {
             throw new StorageOwnedTableShapeRejected('storage_owned_table_driver_unsupported');
         }
     }
 
     private function normalizedDriver(): string
     {
-        $driver = strtolower($this->connection->getDriverName());
-
-        return $driver === 'mariadb' ? 'mysql' : $driver;
+        return strtolower($this->connection->getDriverName());
     }
 }

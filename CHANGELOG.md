@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Treat Laravel's `mariadb` connection driver as the MySQL-compatible family in both owned-table shape guards, enabling the accepted Minimal CMS database-parity gate without weakening shape validation.
+- Accept MariaDB's JSON alias in both owned-table shape guards only when the exact `LONGTEXT`/`TEXT` column has an exact `JSON_VALID(column)` CHECK constraint; keep native JSON mandatory for MySQL and fail closed when constraint metadata is missing or ambiguous.
 - Use the existing MySQL DDL compensation and rollback path for Laravel's `mariadb` driver so implicit DDL commits cannot leave Laravel attempting to commit a closed transaction.
 
 ## Unreleased — Minimal CMS v1 B8

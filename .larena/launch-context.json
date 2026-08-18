@@ -8,7 +8,7 @@
   "specs_commit": "42c099aaf73fd420a4b93634ed91bd49876d176d",
   "target_id": "larena.target.minimal_cms_v1",
   "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
-  "base_commit": "7cdd9e214f8c17ed2c2691846c625eb75f0ba90d",
+  "base_commit": "18814907cd5812bf1de94becd8b6e6fa6b9bd357",
   "selected_features": [
     "minimal_cms_mariadb_parity",
     "storage.owned_table_shape_guard"
@@ -16,13 +16,15 @@
   "allowed_files": [
     ".larena/launch-context.json",
     "CHANGELOG.md",
+    "composer.json",
     "database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php",
     "docs/developer/owned-table-shape-guard.md",
     "docs/project-management/launch-records/larena-minimal-cms-v1-b15.json",
     "docs/project-management/evidence/larena-minimal-cms-v1-b15/**",
     "module.yaml",
     "src/Database/StorageOwnedTableShapeGuard.php",
-    "src/Database/StorageSchemaMigrationTableShapeGuard.php"
+    "src/Database/StorageSchemaMigrationTableShapeGuard.php",
+    "tests/Unit/MariaDbJsonAliasShapeGuardTest.php"
   ],
   "forbidden_files": [
     "config/*",
