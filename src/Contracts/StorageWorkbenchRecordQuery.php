@@ -22,6 +22,7 @@ final readonly class StorageWorkbenchRecordQuery
         public int $limit = 50,
         public ?string $continuation = null,
         public bool $includeArchived = false,
+        public ?int $page = null,
     ) {
     }
 }

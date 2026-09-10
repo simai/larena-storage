@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support bounded numbered record pages alongside the existing signed continuation API; reject mixed page/cursor inputs and preserve scope and scan limits.
+
 - Accept MariaDB's JSON alias in both owned-table shape guards only when the exact `LONGTEXT`/`TEXT` column has an exact `JSON_VALID(column)` CHECK constraint; keep native JSON mandatory for MySQL and fail closed when constraint metadata is missing or ambiguous.
 - Use the existing MySQL DDL compensation and rollback path for Laravel's `mariadb` driver so implicit DDL commits cannot leave Laravel attempting to commit a closed transaction.
 

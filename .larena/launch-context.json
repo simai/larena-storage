@@ -19,11 +19,13 @@
     "composer.json",
     "database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php",
     "docs/developer/owned-table-shape-guard.md",
-    "docs/project-management/launch-records/larena-minimal-cms-v1-b15.json",
     "docs/project-management/evidence/larena-minimal-cms-v1-b15/**",
+    "docs/project-management/launch-records/larena-minimal-cms-v1-b15.json",
     "module.yaml",
+    "src/Contracts/StorageWorkbenchRecordQuery.php",
     "src/Database/StorageOwnedTableShapeGuard.php",
     "src/Database/StorageSchemaMigrationTableShapeGuard.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
     "tests/Unit/MariaDbJsonAliasShapeGuardTest.php"
   ],
   "forbidden_files": [

@@ -550,7 +550,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'target' => $decision->target,
             'reason_code' => $decision->reasonCode,
         ]));
-        $offset = $this->decodeContinuation($query->continuation, $queryHash, $scopeHash);
+        if ($query->page !== null && ($query->continuation !== null || $query->page < 1
+            || $query->page > (int) ceil(self::MAX_SCAN / $query->limit))) {
+            throw new StorageRejected('storage_workbench_record_page_invalid');
+        }
+        $offset = $query->page === null
+            ? $this->decodeContinuation($query->continuation, $queryHash, $scopeHash)
+            : ($query->page - 1) * $query->limit;
 
         try {
             /** @var list<stdClass> $rows */
