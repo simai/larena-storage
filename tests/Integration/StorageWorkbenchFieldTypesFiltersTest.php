@@ -186,6 +186,18 @@ try {
         array_column($statusField['constraints']['options'], 'value') === ['draft', 'review', 'done'],
         'stored options lost declared order',
     );
+    $startsField = array_values(array_filter($again->fields, static fn (array $field): bool => $field['key'] === 'starts_at'))[0];
+    workbenchExpect($startsField['constraints'] === ['min' => '2026-01-01T00:00:00'], 'datetime bound was not stored canonically');
+    $datetimeDefinition = static fn (string $minimum): array => [
+        'schema_id' => 'probe.datetime',
+        'owner_package' => 'larena/storage',
+        'fields' => [['key' => 'starts_at', 'type' => 'datetime', 'type_version' => 1, 'required' => false, 'visibility' => 'admin', 'constraints' => ['min' => $minimum, 'max' => '2026-12-31T18:00']]],
+    ];
+    workbenchExpect(
+        $normalizer->canonicalJson($normalizer->normalize($datetimeDefinition('2026-01-01T00:00')))
+            === $normalizer->canonicalJson($normalizer->normalize($datetimeDefinition('2026-01-01T00:00:00'))),
+        'datetime bound input format changed the schema digest input',
+    );
 
     // Record values: choices are JSON arrays in declared option order.
     $create = static fn (array $values) => $workbench->createRecord('scope:tenant-alpha', $structure->structureId, $values, 'actor:admin:alpha');
@@ -264,6 +276,7 @@ try {
     $expectTitles(['status' => ['operator' => 'in', 'values' => ['done', 'draft']]], ['Alpha', 'Charlie beta'], 'choice in');
     $expectTitles(['tags' => ['operator' => 'eq', 'value' => 'green']], ['Bravo', 'Charlie beta'], 'choices eq means contains');
     $expectTitles(['tags' => ['operator' => 'in', 'values' => ['blue', 'black']]], ['Alpha', 'Charlie beta', 'Delta'], 'choices in means overlaps');
+    $expectTitles(['tags' => ['operator' => 'in', 'values' => ['black', 'blue', 'green', 'red', 'black']]], ['Alpha', 'Bravo', 'Charlie beta', 'Delta'], 'choices in de-duplicates and ignores max_items');
     $expectTitles(['owner' => ['operator' => 'eq', 'value' => 'user:admin:2']], ['Bravo'], 'user eq');
     $expectTitles(['owner' => ['operator' => 'in', 'values' => ['user:admin:1', 'user:admin:2']]], ['Alpha', 'Bravo'], 'user in');
     $expectTitles(['document' => ['operator' => 'eq', 'value' => '018F4F4C-706E-7B1F-9A3E-C93B5656A6F0']], ['Alpha'], 'file eq stays supported');
@@ -308,8 +321,8 @@ try {
         ['starts_at' => ['operator' => 'gt', 'value' => '2026-03-01 09:30']],
         ['status' => ['operator' => 'eq', 'value' => 'archived']],
         ['tags' => ['operator' => 'eq', 'value' => ['red']]],
-        ['tags' => ['operator' => 'in', 'values' => ['red', 'red']]],
         ['tags' => ['operator' => 'in', 'values' => ['pink']]],
+        ['tags' => ['operator' => 'in', 'values' => array_fill(0, 101, 'red')]],
         ['owner' => ['operator' => 'eq', 'value' => 'admin:1']],
         ['missing' => ['operator' => 'eq', 'value' => 'x']],
         ['title' => ['operator' => 'eq', 'value' => 'Alpha', 'extra' => true]],

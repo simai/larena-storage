@@ -40,6 +40,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const STATE_ARCHIVED = 'archived';
     private const MAX_STRUCTURES = 100;
     private const MAX_FIELDS = 100;
+    // Memory budget: one list call decodes and may retain up to ~5000 current records (rows are streamed by cursor).
     private const MAX_SCAN = 5000;
     private const MAX_FILTERS = 8;
     private const MAX_SORTS = 3;
@@ -1207,14 +1208,6 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             || count($rawValues) > self::MAX_FILTER_VALUES
             || ($operator === 'between' && count($rawValues) !== 2)) {
             throw new StorageRejected('storage_workbench_record_filter_invalid');
-        }
-        if ($type === 'choices') {
-            $values = $this->normalizeFilterWithProperty($definition, $rawValues, true);
-            if (!is_array($values) || !array_is_list($values) || $values === []) {
-                throw new StorageRejected('storage_workbench_record_filter_invalid');
-            }
-
-            return ['operator' => $operator, 'values' => $values];
         }
         $values = [];
         foreach ($rawValues as $rawValue) {

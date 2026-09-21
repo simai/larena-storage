@@ -93,6 +93,9 @@ final readonly class SchemaDefinitionNormalizer
             if ($validateConstraints) {
                 $this->assertConstraintsValid($type, $typeVersion, $constraints);
             }
+            if ($type === 'datetime') {
+                $constraints = self::canonicalDateTimeBounds($constraints);
+            }
             $seen[$key] = true;
             $normalizedFields[] = [
                 'key' => $key,
@@ -165,6 +168,25 @@ final readonly class SchemaDefinitionNormalizer
             || !$this->propertyTypes->validateConstraints($type, $version, $constraints)->canBePersistedByOwner()) {
             throw new StorageRejected('storage_schema_constraint_invalid');
         }
+    }
+
+    /**
+     * Stores datetime `min`/`max` bounds in the canonical `YYYY-MM-DDTHH:MM:SS` form so the
+     * schema definition and its digest do not depend on the accepted input format.
+     *
+     * @param array<string, mixed> $constraints
+     * @return array<string, mixed>
+     */
+    private static function canonicalDateTimeBounds(array $constraints): array
+    {
+        foreach (['min', 'max'] as $bound) {
+            $value = $constraints[$bound] ?? null;
+            if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/D', $value) === 1) {
+                $constraints[$bound] = $value . ':00';
+            }
+        }
+
+        return $constraints;
     }
 
     private static function isScalarObjectList(mixed $value): bool
