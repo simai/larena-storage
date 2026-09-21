@@ -1,8 +1,8 @@
 package: larena/storage
 title: Larena Storage
-status: reviewed
+status: coding_started
 cluster: data-content
-batch: larena-minimal-cms-v1-b15
+batch: field-types-filters
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -36,8 +36,12 @@ features:
   - minimal_cms_named_site_hierarchy
   - minimal_cms_named_organization_hierarchy
   - storage.no_parallel_content_owner
+  - storage.choice_option_constraints
+  - storage.choices_record_values
+  - storage.workbench_filter_operators
+  - storage.workbench_scan_limit_5000
 runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/larena-minimal-cms-v1-b15
+  path: docs/project-management/evidence/field-types-filters

@@ -3,30 +3,28 @@
   "package": "larena/storage",
   "repository_class": "continuation_repository",
   "repository_contains_prior_implementation": true,
-  "launch_record_ref": "docs/project-management/launch-records/larena-minimal-cms-v1-b15.json",
+  "launch_record_ref": "docs/project-management/launch-records/field-types-filters.json",
   "specs_repo": "simai/larena-specs",
   "specs_commit": "42c099aaf73fd420a4b93634ed91bd49876d176d",
   "target_id": "larena.target.minimal_cms_v1",
   "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
-  "base_commit": "18814907cd5812bf1de94becd8b6e6fa6b9bd357",
+  "base_commit": "b361f6e16ed8b5e18d78b47b9d9fa6620b588a16",
   "selected_features": [
-    "minimal_cms_mariadb_parity",
-    "storage.owned_table_shape_guard"
+    "storage.choice_option_constraints",
+    "storage.choices_record_values",
+    "storage.workbench_filter_operators",
+    "storage.workbench_scan_limit_5000"
   ],
   "allowed_files": [
     ".larena/launch-context.json",
     "CHANGELOG.md",
     "composer.json",
-    "database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php",
-    "docs/developer/owned-table-shape-guard.md",
-    "docs/project-management/evidence/larena-minimal-cms-v1-b15/**",
-    "docs/project-management/launch-records/larena-minimal-cms-v1-b15.json",
+    "docs/project-management/evidence/field-types-filters/**",
+    "docs/project-management/launch-records/field-types-filters.json",
     "module.yaml",
-    "src/Contracts/StorageWorkbenchRecordQuery.php",
-    "src/Database/StorageOwnedTableShapeGuard.php",
-    "src/Database/StorageSchemaMigrationTableShapeGuard.php",
     "src/Runtime/DatabaseStorageWorkbench.php",
-    "tests/Unit/MariaDbJsonAliasShapeGuardTest.php"
+    "src/SchemaEvolution/SchemaDefinitionNormalizer.php",
+    "tests/Integration/StorageWorkbenchFieldTypesFiltersTest.php"
   ],
   "forbidden_files": [
     "config/*",
@@ -42,19 +40,20 @@
   "required_evidence_files": [
     "README.md",
     "implementation-summary.md",
+    "independent-review.md",
     "tests.md",
     "smoke.md",
     "file-map.json",
     "deviations.json",
     "graph-sync-proposal.json"
   ],
-  "evidence_path": "docs/project-management/evidence/larena-minimal-cms-v1-b15",
-  "graph_sync_proposal_path": "docs/project-management/evidence/larena-minimal-cms-v1-b15/graph-sync-proposal.json",
-  "status": "reviewed",
+  "evidence_path": "docs/project-management/evidence/field-types-filters",
+  "graph_sync_proposal_path": "docs/project-management/evidence/field-types-filters/graph-sync-proposal.json",
+  "status": "coding_started",
   "coding_allowed": true,
   "coding_started": true,
   "repository_enforcement_installed": true,
-  "review_completed": true,
-  "next_transition": "batch_completed",
-  "coding_branch": "main"
+  "review_completed": false,
+  "next_transition": "independent_review",
+  "coding_branch": "codex/field-types-filters"
 }

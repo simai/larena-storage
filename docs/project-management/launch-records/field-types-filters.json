@@ -1,0 +1,27 @@
+{
+  "schema": "larena.package_launch_record.v1",
+  "id": "field-types-filters-storage",
+  "goal": "field-types-filters",
+  "package": "larena/storage",
+  "assignment_id": "LARENA-FIELD-TYPES-FILTERS-STORAGE",
+  "branch": "codex/field-types-filters",
+  "base_commit": "b361f6e16ed8b5e18d78b47b9d9fa6620b588a16",
+  "scope": "Accept declared option lists for choice/choices field constraints, store choices values as JSON arrays, add typed workbench record filter operators and raise the workbench scan limit to 5000 records.",
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "composer.json",
+    "docs/project-management/evidence/field-types-filters/**",
+    "docs/project-management/launch-records/field-types-filters.json",
+    "module.yaml",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/SchemaEvolution/SchemaDefinitionNormalizer.php",
+    "tests/Integration/StorageWorkbenchFieldTypesFiltersTest.php"
+  ],
+  "runtime_boundary": "local package source and tests only",
+  "target_id": "larena.target.minimal_cms_v1",
+  "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
+  "production_ready": false,
+  "status": "coding_started",
+  "rollback": "Revert the field-types-filters commit; no production or real-data mutation is included."
+}

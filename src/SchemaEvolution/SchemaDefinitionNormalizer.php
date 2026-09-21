@@ -12,6 +12,12 @@ use Throwable;
 
 final readonly class SchemaDefinitionNormalizer
 {
+    /**
+     * Property types whose `options` constraint is a declared list of option objects.
+     * Every other constraint stays scalar-only.
+     */
+    private const OPTION_LIST_TYPES = ['choice', 'choices'];
+
     public function __construct(private PropertyTypeRegistry $propertyTypes)
     {
     }
@@ -71,7 +77,16 @@ final readonly class SchemaDefinitionNormalizer
                 throw new StorageRejected('storage_schema_field_invalid');
             }
             foreach ($constraints as $constraintKey => $constraintValue) {
-                if (!is_string($constraintKey) || !is_scalar($constraintValue)) {
+                if (!is_string($constraintKey)) {
+                    throw new StorageRejected('storage_schema_constraint_invalid');
+                }
+                if ($constraintKey === 'options' && in_array($type, self::OPTION_LIST_TYPES, true)) {
+                    if (!self::isScalarObjectList($constraintValue)) {
+                        throw new StorageRejected('storage_schema_constraint_invalid');
+                    }
+                    continue;
+                }
+                if (!is_scalar($constraintValue)) {
                     throw new StorageRejected('storage_schema_constraint_invalid');
                 }
             }
@@ -134,6 +149,9 @@ final readonly class SchemaDefinitionNormalizer
             if (!$result->canBePersistedByOwner()) {
                 throw new StorageRejected('storage_record_field_invalid');
             }
+            if ($result->normalizedValue === [] && ($field['required'] ?? false) === true) {
+                throw new StorageRejected('storage_record_required_field_missing');
+            }
             $normalized[$key] = $result->normalizedValue;
         }
 
@@ -147,6 +165,25 @@ final readonly class SchemaDefinitionNormalizer
             || !$this->propertyTypes->validateConstraints($type, $version, $constraints)->canBePersistedByOwner()) {
             throw new StorageRejected('storage_schema_constraint_invalid');
         }
+    }
+
+    private static function isScalarObjectList(mixed $value): bool
+    {
+        if (!is_array($value) || !array_is_list($value)) {
+            return false;
+        }
+        foreach ($value as $item) {
+            if (!is_array($item) || $item === [] || array_is_list($item)) {
+                return false;
+            }
+            foreach ($item as $itemKey => $itemValue) {
+                if (!is_string($itemKey) || !is_scalar($itemValue)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     public function canonicalJson(mixed $value): string

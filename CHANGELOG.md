@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Accept a declared `options` list (objects with scalar values) as the only non-scalar field constraint, for `choice` and `choices` fields; Property validates the list and schema digests stay canonical.
+- Store `choices` record values as JSON arrays in declared option order; a required `choices` field rejects an empty list with `storage_record_required_field_missing`.
+- Add workbench record filter operators `in`, `contains`, `starts_with`, `gt`, `gte`, `lt`, `lte` and `between` next to `eq`, with a per-type operator matrix and `storage_query_filter_operator_unsupported` for unsupported combinations.
+- Raise the workbench record scan limit from 500 to 5000 current records and iterate scan rows with a cursor.
+
 - Support bounded numbered record pages alongside the existing signed continuation API; reject mixed page/cursor inputs and preserve scope and scan limits.
 
 - Accept MariaDB's JSON alias in both owned-table shape guards only when the exact `LONGTEXT`/`TEXT` column has an exact `JSON_VALID(column)` CHECK constraint; keep native JSON mandatory for MySQL and fail closed when constraint metadata is missing or ambiguous.
