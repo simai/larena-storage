@@ -44,7 +44,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const MAX_SCAN = 5000;
     private const MAX_FILTERS = 8;
     private const MAX_SORTS = 3;
-    private const MAX_BULK = 100;
+    // One bulk archive runs in a single transaction; 1000 records keeps "archive all matching" bounded.
+    private const MAX_BULK = 1000;
     private const MAX_FILTER_VALUES = 100;
     private const MAX_FILTER_TEXT_BYTES = 1000;
     private const FILTER_OPERATORS_BY_TYPE = [

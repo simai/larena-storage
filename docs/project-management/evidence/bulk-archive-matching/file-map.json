@@ -1,0 +1,9 @@
+{
+  "schema": "larena.evidence_file_map.v1",
+  "base_commit": "e459770e92eca1cb0605ef4b3579b5ce745b92df",
+  "changed": [
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "tests/Integration/StorageWorkbenchBulkArchiveLimitTest.php"
+  ],
+  "product_source_changed": true
+}

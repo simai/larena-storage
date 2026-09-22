@@ -1,0 +1,26 @@
+{
+  "schema": "larena.package_launch_record.v1",
+  "id": "bulk-archive-matching-storage",
+  "goal": "bulk-archive-matching",
+  "package": "larena/storage",
+  "assignment_id": "LARENA-BULK-ARCHIVE-MATCHING-STORAGE",
+  "branch": "codex/table-bulk-all",
+  "base_commit": "e459770e92eca1cb0605ef4b3579b5ce745b92df",
+  "scope": "Raise the single-transaction workbench bulk archive limit from 100 to 1000 records so a host can archive every record matching a list filter at once.",
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "docs/project-management/evidence/bulk-archive-matching/**",
+    "docs/project-management/launch-records/bulk-archive-matching.json",
+    "module.yaml",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "tests/Integration/StorageWorkbenchBulkArchiveLimitTest.php",
+    "composer.json"
+  ],
+  "runtime_boundary": "local package source and tests only",
+  "target_id": "larena.target.minimal_cms_v1",
+  "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
+  "production_ready": false,
+  "status": "coding_started",
+  "rollback": "Revert the bulk-archive-matching commit; the limit returns to 100 records; no data or schema change is included."
+}

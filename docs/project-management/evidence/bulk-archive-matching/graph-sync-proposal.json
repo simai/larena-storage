@@ -1,0 +1,10 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "package": "larena/storage",
+  "scope": "bulk archive matching",
+  "feature_refs": [
+    "storage.record_mutation"
+  ],
+  "canonical_update_allowed": false,
+  "proposal": "Map after Root acceptance."
+}
