@@ -45,6 +45,8 @@ use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
 use Larena\Storage\Runtime\ReadContractOperationHandlers;
 use Larena\Storage\Runtime\RecordOperationHandlers;
+use Larena\Storage\Runtime\DatabaseAdminRecordTreeReader;
+use Larena\Storage\Contracts\AdminRecordTreeReader;
 use Larena\Core\Runtime\OperationHandlerCatalog;
 use Larena\Core\Contracts\OperationHandler;
 use Larena\Storage\Runtime\SlugUniquenessGuard;
@@ -160,6 +162,10 @@ final class StorageServiceProvider extends ServiceProvider
             return new SlugUniquenessGuard($app->make(DatabaseReadContracts::class));
         });
 
+        $this->app->bind(AdminRecordTreeReader::class, static fn (Application $app): AdminRecordTreeReader => new DatabaseAdminRecordTreeReader(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(ActorOperationAuthorizer::class),
+        ));
         $this->app->singleton(RecordOperationHandlers::class, static fn (Application $app): RecordOperationHandlers => new RecordOperationHandlers(
             $app->make(VersionedStorageContract::class),
         ));

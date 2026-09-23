@@ -24,8 +24,10 @@
     "operations.yaml",
     "resources/lang/en/operations.php",
     "resources/lang/ru/operations.php",
+    "src/Contracts/AdminRecordTreeReader.php",
     "src/Providers/StorageServiceProvider.php",
     "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseAdminRecordTreeReader.php",
     "src/Runtime/RecordOperationHandlers.php",
     "tests/Integration/RecordOperationExecutionTest.php",
     "tests/Unit/StorageOperationDeclarationTest.php"

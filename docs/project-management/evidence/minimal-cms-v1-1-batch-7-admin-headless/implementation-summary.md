@@ -9,3 +9,4 @@
 | `resources/lang/*/operations.php` | labels for the new codes |
 | `tests/Integration/RecordOperationExecutionTest.php` | new |
 | `tests/Unit/StorageOperationDeclarationTest.php` | 29 operations; record codes |
+| `src/Contracts/AdminRecordTreeReader.php`, `src/Runtime/DatabaseAdminRecordTreeReader.php` | new: an editor's read of a structure's current records with their tree parents, behind storage.record.read |

@@ -29,6 +29,7 @@ use Larena\Core\Runtime\SyncOperationRuntime;
 use Larena\Core\Runtime\UndeclaredCapabilityGate;
 use Larena\Property\Runtime\PropertyTypeRegistry;
 use Larena\Storage\Registry\StorageOperationProvider;
+use Larena\Storage\Runtime\DatabaseAdminRecordTreeReader;
 use Larena\Storage\Runtime\RecordOperationHandlers;
 use Larena\Storage\Runtime\VersionedStorage;
 
@@ -101,6 +102,7 @@ $container->instance('db.schema', $connection->getSchemaBuilder());
 Facade::clearResolvedInstances();
 Schema::swap($connection->getSchemaBuilder());
 (require __DIR__ . '/../../database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php')->up();
+(require __DIR__ . '/../../database/migrations/platform/2026_09_27_000001_create_larena_storage_record_relations_table.php')->up();
 
 $storage = new VersionedStorage(
     $connection,
@@ -159,6 +161,24 @@ record_operation_expect(!$bad->successful(), 'a list is not a field map');
 
 $proposal = $runtime->propose('storage.record.update', $context($update));
 record_operation_expect($proposal->successful() && $proposal->payload['receipt']['intended_change']['kind'] === 'update_record', 'an update can be proposed');
+
+// The editor's tree read: current heads, drafts included, with their parent.
+$child = $runtime->execute('storage.record.create', $context([
+    'schema_id' => 'site.pages', 'schema_version' => $schema->ref->version, 'owner_ref' => 'site.pages:team',
+    'values' => ['slug' => 'team', 'title' => 'Team'],
+]));
+$childId = $child->payload['record']['record_id'];
+$connection->table('larena_storage_record_relations')->insert([
+    'relation_id' => 'rel-test-1', 'relation_key' => 'site_tree_parent', 'schema_id' => 'site.pages',
+    'from_record_id' => $childId, 'to_record_id' => $record['record_id'], 'kind' => 'tree_parent',
+    'tree_child_key' => $childId, 'path' => $record['record_id'] . '/' . $childId, 'depth' => 1, 'order_index' => 0,
+    'delete_policy' => 'restrict', 'status' => 'active', 'created_by' => 'actor:admin',
+]);
+$tree = (new DatabaseAdminRecordTreeReader($connection, new RecordOperationAllowAll()))->tree('site.pages', 'site_tree_parent', 'actor:admin');
+$byId = array_column($tree, null, 'record_id');
+record_operation_expect(count($tree) === 2, 'two current records');
+record_operation_expect($byId[$record['record_id']]['parent_record_id'] === null && $byId[$record['record_id']]['values']['title'] === 'About us', 'the root carries its current values');
+record_operation_expect($byId[$childId]['parent_record_id'] === $record['record_id'], 'the child names its parent');
 
 @unlink($path);
 echo "Record operation execution passed.\n";
