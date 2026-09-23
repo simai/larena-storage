@@ -1,0 +1,59 @@
+{
+  "schema": "larena.batch_deviations.v1",
+  "batch": "minimal-cms-v1-1-batch-4-storage-roles-publication",
+  "wave": "A",
+  "package": "larena/storage",
+  "launch_record_ref": "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-a-storage-structure-roles.json",
+  "deviations": [
+    {
+      "id": "registry_contribution_by_extend",
+      "kind": "wiring_workaround",
+      "path": "src/Providers/StorageServiceProvider.php",
+      "detail": "larena/core composes DeclaredOperationRegistry from a hard-coded provider list, so a package cannot contribute its operations by binding a tag.",
+      "resolution": "Storage extends the resolved registry instance and registers its operations there, which needs no change to core and keeps one catalogue for REST parity and the MCP projection.",
+      "follow_up": "core should gain a tagged contributor port; every further package will hit the same wall. Recorded for review.",
+      "shape_impact": "none"
+    },
+    {
+      "id": "test_support_path_case",
+      "kind": "allowed_file_moved",
+      "path": "tests/Support/structure-role-schema.php",
+      "detail": "The launch record named tests/support; this package already uses tests/Support, and a lowercase directory would only differ on a case-sensitive filesystem.",
+      "resolution": "The helper lives in the existing tests/Support directory.",
+      "shape_impact": "none"
+    },
+    {
+      "id": "phpstan_scan_directories",
+      "kind": "allowed_file_changed",
+      "path": "phpstan.neon.dist",
+      "detail": "larena/core and symfony/yaml are declared requirements that composer cannot install into the package vendor tree in this workspace.",
+      "resolution": "scanDirectories gains ../core/src and ../../app/vendor/symfony/yaml, beside the ../access/src and ../audit/src entries already there.",
+      "shape_impact": "none"
+    },
+    {
+      "id": "audit_yaml_append_position",
+      "kind": "authoring_defect_caught",
+      "path": "audit.yaml",
+      "detail": "The first attempt appended the two role events to the end of the file, which put them after the nonclaims mapping instead of inside the events list — the same class of mistake as the Batch 2 access.yaml defect.",
+      "resolution": "The YAML parser rejected it immediately and the entries were inserted under the events key. The Batch 3 descriptor-file validator would also have caught it; this time the parser was faster.",
+      "shape_impact": "none"
+    },
+    {
+      "id": "optional_scope_resolver",
+      "kind": "implementation_choice",
+      "path": "src/Runtime/DatabaseStructureRoleRegistry.php",
+      "detail": "The registry accepts a null ScopeRefResolver so a package test can run without the core scope tables.",
+      "resolution": "Null means the caller has taken responsibility for the scope, stated in a comment rather than implied. The composed application always binds a resolver, and the smoke proves an unknown scope fails closed there.",
+      "shape_impact": "none"
+    }
+  ],
+  "no_deviation_areas": [
+    "both table shapes, their keys, index names and identity grammars follow the freeze exactly",
+    "the five starter roles and their lifecycles are the frozen set",
+    "the five operations, their access codes, audit events, risks and idempotency keys follow the freeze",
+    "no existing schema, record or version table changed",
+    "the workbench is untouched: the optional localized field key belongs to wave C",
+    "no public HTTP, REST or MCP surface added",
+    "no change to any package other than larena/storage"
+  ]
+}

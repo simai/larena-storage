@@ -1,0 +1,47 @@
+{
+  "schema": "larena.batch_file_map.v1",
+  "batch": "minimal-cms-v1-1-batch-4-storage-roles-publication",
+  "wave": "A",
+  "package": "larena/storage",
+  "changed_files": [
+    ".larena/launch-context.json",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-a-storage-structure-roles.json",
+    "module.yaml",
+    "operations.yaml",
+    "phpstan.neon.dist",
+    "src/Audit/StructureRoleAuditEventCatalog.php",
+    "src/Contracts/StructureRole.php",
+    "src/Contracts/StructureRoleBinding.php",
+    "src/Contracts/StructureRoleConformanceReport.php",
+    "src/Contracts/StructureRoleRegistry.php",
+    "src/Enums/RoleBindingStatus.php",
+    "src/Enums/RoleLifecycle.php",
+    "src/Enums/RoleStatus.php",
+    "src/Exceptions/StructureRoleRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/",
+    "src/Runtime/DatabaseStructureRoleRegistry.php",
+    "src/Runtime/StarterStructureRoles.php",
+    "src/Runtime/StructureRoleOperationHandlers.php",
+    "tests/Support/structure-role-schema.php",
+    "tests/Unit/StarterStructureRolesIdempotencyTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php",
+    "tests/Unit/StructureRoleConformanceTest.php",
+    "tests/Unit/StructureRoleFailsClosedTest.php",
+    "tests/Unit/StructureRoleRegistryTest.php"
+  ],
+  "new_tables": [
+    "larena_storage_structure_roles",
+    "larena_storage_structure_role_bindings"
+  ],
+  "untouched": [
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/VersionedStorage.php"
+  ]
+}

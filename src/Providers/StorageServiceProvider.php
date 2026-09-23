@@ -11,13 +11,20 @@ use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
 use Larena\Access\Runtime\AccessOperationRegistry;
 use Larena\Access\ValueObjects\AccessOperationDescriptor;
+use Larena\Core\Contracts\ScopeRefResolver;
+use Larena\Core\Registry\DeclaredOperationRegistry;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaEvolution as StorageSchemaEvolutionContract;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
+use Larena\Storage\Contracts\StructureRoleRegistry;
+use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
+use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
+use Larena\Storage\Runtime\StarterStructureRoles;
+use Larena\Storage\Runtime\StructureRoleOperationHandlers;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
 use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
@@ -30,6 +37,42 @@ final class StorageServiceProvider extends ServiceProvider
         if (!$this->app->bound(StorageSecurityEventSink::class)) {
             $this->app->singleton(StorageSecurityEventSink::class, NullStorageSecurityEventSink::class);
         }
+        $this->app->singleton(DatabaseStructureRoleRegistry::class, static function (Application $app): DatabaseStructureRoleRegistry {
+            return new DatabaseStructureRoleRegistry(
+                $app->make(DatabaseManager::class)->connection(),
+                $app->bound(ScopeRefResolver::class) ? $app->make(ScopeRefResolver::class) : null,
+            );
+        });
+        $this->app->alias(DatabaseStructureRoleRegistry::class, StructureRoleRegistry::class);
+
+        $this->app->singleton(StarterStructureRoles::class, static function (Application $app): StarterStructureRoles {
+            return new StarterStructureRoles($app->make(StructureRoleRegistry::class));
+        });
+
+        $this->app->singleton(StructureRoleOperationHandlers::class, static function (Application $app): StructureRoleOperationHandlers {
+            return new StructureRoleOperationHandlers($app->make(StructureRoleRegistry::class));
+        });
+
+        // The core registry is composed from a hard-coded provider list inside
+        // larena/core, so a package cannot contribute by binding a tag. Extending
+        // the resolved instance is the way in that does not require changing core,
+        // and it keeps the single-registry guarantee: these operations land in the
+        // same catalogue REST parity and the MCP projection read.
+        $this->app->extend(
+            DeclaredOperationRegistry::class,
+            static function (DeclaredOperationRegistry $registry): DeclaredOperationRegistry {
+                foreach ((new StorageOperationProvider())->operations() as $operation) {
+                    if ($registry->has($operation['declaration']->name)) {
+                        continue;
+                    }
+
+                    $registry->register($operation['declaration'], $operation['descriptor'], $operation['handler_ref']);
+                }
+
+                return $registry;
+            },
+        );
+
         $this->app->singleton(
             StorageSchemaEvolutionOwnerPolicyRegistry::class,
             static function (): StorageSchemaEvolutionOwnerPolicyRegistry {
@@ -109,6 +152,9 @@ final class StorageServiceProvider extends ServiceProvider
     {
         $this->app->make(StorageSchemaEvolutionOwnerPolicyRegistry::class)->seal();
         $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations');
+        // Platform schema that is not part of the guarded installer bootstrap
+        // lives in its own registered path, exactly as larena/core does.
+        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/platform');
 
         if ($this->app->bound(AccessOperationRegistry::class)) {
             self::registerAccessOperations($this->app->make(AccessOperationRegistry::class));

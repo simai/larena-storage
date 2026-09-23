@@ -31,6 +31,12 @@ events:
   - type: storage.record.updated
     category: storage_record
     severity: security
+  - type: storage.role.registered
+    category: storage_structure_role
+    severity: security
+  - type: storage.role.bound
+    category: storage_structure_role
+    severity: security
 forbidden_payload_fields:
   - definition
   - target_definition

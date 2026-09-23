@@ -1,0 +1,417 @@
+# Operation declarations for larena/storage.
+#
+# One operation is declared once, here, with its gates, risk, reversibility and
+# schemas. The PHP descriptor binds the same operation to a handler, and the core
+# registry refuses to register the two when they disagree on any shared field.
+schema: larena.operations.contract.v1
+package: larena/storage
+version: 1.0.0
+operations:
+  - name: 'storage.role.register'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.role.manage'
+    audit_event: 'storage.role.registered'
+    idempotency_key: 'role_ref'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_code:
+          type: 'string'
+          maxLength: 120
+        role_version:
+          type: 'integer'
+        title:
+          type: 'string'
+          maxLength: 191
+        required_fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        optional_fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        required_relations:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              relation_key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              target_role_code:
+                type: 'string'
+                minLength: 1
+                maxLength: 120
+            required:
+              - 'relation_key'
+              - 'kind'
+              - 'target_role_code'
+        lifecycle:
+          type: 'string'
+          enum:
+            - 'plain'
+            - 'publishable'
+        owner_package:
+          type: 'string'
+          maxLength: 120
+      required:
+        - 'role_code'
+        - 'role_version'
+        - 'title'
+        - 'lifecycle'
+        - 'owner_package'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            role_ref:
+              type: 'string'
+              minLength: 1
+              maxLength: 140
+            role_code:
+              type: 'string'
+              maxLength: 120
+            role_version:
+              type: 'integer'
+            title:
+              type: 'string'
+              maxLength: 191
+            lifecycle:
+              type: 'string'
+              enum:
+                - 'plain'
+                - 'publishable'
+            owner_package:
+              type: 'string'
+              maxLength: 120
+            status:
+              type: 'string'
+              enum:
+                - 'active'
+                - 'superseded'
+          required: []
+      required:
+        - 'role'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.role.validate_structure'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.role.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        declared_relation_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 64
+        schema_lifecycle:
+          type: 'string'
+          enum:
+            - 'plain'
+            - 'publishable'
+      required:
+        - 'role_ref'
+        - 'schema_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        report:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            role_ref:
+              type: 'string'
+              minLength: 1
+              maxLength: 140
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            conforms:
+              type: 'boolean'
+            missing_fields:
+              type: 'array'
+              items:
+                type: 'string'
+                maxLength: 64
+            missing_relations:
+              type: 'array'
+              items:
+                type: 'string'
+                maxLength: 64
+          required: []
+      required:
+        - 'report'
+  - name: 'storage.role.bind_structure'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.role.manage'
+    audit_event: 'storage.role.bound'
+    idempotency_key: 'binding_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        declared_relation_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 64
+        schema_lifecycle:
+          type: 'string'
+          enum:
+            - 'plain'
+            - 'publishable'
+      required:
+        - 'role_ref'
+        - 'schema_id'
+        - 'scope_ref'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        binding:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            binding_id:
+              type: 'string'
+              maxLength: 190
+            role_ref:
+              type: 'string'
+              minLength: 1
+              maxLength: 140
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            status:
+              type: 'string'
+              enum:
+                - 'active'
+                - 'revoked'
+          required: []
+      required:
+        - 'binding'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.role.list_structures'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.role.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+      required:
+        - 'scope_ref'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        bindings:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              binding_id:
+                type: 'string'
+                maxLength: 190
+              role_ref:
+                type: 'string'
+                minLength: 1
+                maxLength: 140
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              scope_ref:
+                type: 'string'
+                pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+                maxLength: 80
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'revoked'
+            required: []
+      required:
+        - 'bindings'
+  - name: 'storage.role.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.role.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+      required:
+        - 'role_ref'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        exists:
+          type: 'boolean'
+      required: []

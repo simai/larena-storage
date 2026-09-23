@@ -28,3 +28,9 @@ operations:
   - code: storage.record.update
     risk: high
     audit: always
+  - code: storage.role.manage
+    risk: critical
+    audit: always
+  - code: storage.role.read
+    risk: high
+    audit: denial

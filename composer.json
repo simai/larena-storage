@@ -15,7 +15,8 @@
         "larena/access": "dev-main",
         "larena/core": "dev-main",
         "larena/property": "dev-main",
-        "php": "^8.3"
+        "php": "^8.3",
+        "symfony/yaml": "^7.4|^8.0"
     },
     "autoload": {
         "psr-4": {
@@ -124,7 +125,12 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/MinimalCmsHierarchyFixtureTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchProviderBindingTest.php",
             "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
-            "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+            "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureRoleRegistryTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureRoleConformanceTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureRoleFailsClosedTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StarterStructureRolesIdempotencyTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageOperationDeclarationTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",

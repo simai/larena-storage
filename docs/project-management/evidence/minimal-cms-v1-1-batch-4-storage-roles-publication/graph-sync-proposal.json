@@ -1,0 +1,42 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "batch": "minimal-cms-v1-1-batch-4-storage-roles-publication",
+  "wave": "A",
+  "package": "larena/storage",
+  "canonical_update_allowed": false,
+  "canonical_update_reason": "a package coding wave never writes the canonical graph; larena-specs applies a graph cycle after the batch is accepted",
+  "target_semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "feature_observations": [
+    {
+      "feature": "storage.structure_roles",
+      "observed_state": "implemented",
+      "implemented": [
+        "a versioned role as a table-less contract",
+        "bindings per schema and scope",
+        "conformance naming every missing field, type mismatch, missing relation and lifecycle mismatch",
+        "the five starter roles installed idempotently",
+        "five operations registered in the core registry"
+      ],
+      "not_implemented": [
+        "a SitePack example per role",
+        "role registration by a solution"
+      ],
+      "acceptance_covered": [
+        "a role is a contract with required fields, relations and lifecycle and owns no tables; a structure gains a role by conformance",
+        "the starter role set covers site_node, redirect, doc_space, doc_page and org_chart, each with a validation fixture",
+        "org_chart is an overlay role that references a core plane node by identifier and never duplicates membership or hierarchy",
+        "a consumer package receives the bound structures of a scope through storage.role.list_structures",
+        "binding a non-conforming structure fails closed with a diagnostic listing the missing fields, relations or lifecycle",
+        "a role registered by a solution is versioned; a breaking change requires a new role version",
+        "Storage contains no role-specific business code"
+      ],
+      "acceptance_not_covered": [
+        "each role ships with a SitePack example: SitePack portability is its own feature and its own wave",
+        "site_node requires the publishable lifecycle and a parent relation: declared and validated here, but the tree itself is wave B"
+      ]
+    }
+  ],
+  "nonclaims": [
+    "A conforming binding is not a site tree. Relations, locales and publication are waves B, C and D."
+  ]
+}
