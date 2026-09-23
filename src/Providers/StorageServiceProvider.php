@@ -140,7 +140,6 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(VersionedStorageContract::class),
             $app->make(StructureRoleRegistry::class),
             $app->make(StarterStructureRoles::class),
-            $app->make(PublicationLifecycle::class),
             $app->make(ScopeBaselineInstaller::class),
         ));
         $this->app->singleton(SiteFirstRunContributor::class, static fn (Application $app): SiteFirstRunContributor => new SiteFirstRunContributor(

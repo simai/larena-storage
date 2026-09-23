@@ -7,7 +7,6 @@ namespace Larena\Storage\FirstRun;
 use Illuminate\Database\Connection;
 use Larena\Core\Contracts\FirstRunContributor;
 use Larena\Core\Starter\ScopeBaselineInstaller;
-use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\StructureRoleRegistry;
 use Larena\Storage\Contracts\VersionedStorage;
 use Larena\Storage\Exceptions\StorageRejected;
@@ -19,7 +18,7 @@ use Larena\Storage\Contracts\StorageSchemaVersionRef;
  *
  * It is what the first run created when larena/content owned it — one page, in the
  * installer's locale, with a welcome text naming the site — now written as a
- * site_node record through Storage's own record, role and publication APIs. A
+ * site_node record through Storage's own record and role APIs, left a draft. A
  * retirement changes who owns a behaviour, not the behaviour.
  *
  * Nothing here seeds through SitePack, because no SitePack runtime exists in the
@@ -43,7 +42,6 @@ final readonly class StarterSite
         private VersionedStorage $storage,
         private StructureRoleRegistry $roles,
         private StarterStructureRoles $starterRoles,
-        private PublicationLifecycle $publication,
         private ScopeBaselineInstaller $scopes,
     ) {
     }
@@ -61,7 +59,7 @@ final readonly class StarterSite
             'role_ref' => self::ROLE_REF,
             'record_owner_ref' => self::RECORD_OWNER_REF,
             'values' => $this->values($siteName, $locale),
-            'publish_locale' => $locale,
+            'publication' => 'none: the page starts as a draft, as it always has',
             'state' => $this->state(),
             'writes' => $this->state() === FirstRunContributor::STATE_EMPTY,
         ];
@@ -70,7 +68,7 @@ final readonly class StarterSite
     public function state(): string
     {
         $schema = $this->connection->getSchemaBuilder();
-        foreach (['larena_storage_schemas', 'larena_storage_records', 'larena_storage_publication_states'] as $table) {
+        foreach (['larena_storage_schemas', 'larena_storage_records'] as $table) {
             if (!$schema->hasTable($table)) {
                 return FirstRunContributor::STATE_PARTIAL;
             }
@@ -86,11 +84,7 @@ final readonly class StarterSite
             return FirstRunContributor::STATE_EMPTY;
         }
 
-        if ($record !== null && $this->connection->table('larena_storage_publication_states')
-            ->where('schema_id', self::SCHEMA_ID)
-            ->where('record_id', $record)
-            ->where('state', 'published')
-            ->exists()) {
+        if ($hasSchema && $record !== null) {
             return FirstRunContributor::STATE_INITIALIZED;
         }
 
@@ -98,7 +92,10 @@ final readonly class StarterSite
     }
 
     /**
-     * Writes the Home page and publishes it. Returns its record id.
+     * Writes the Home page as a draft. Returns its record id.
+     *
+     * It is not published. The Content version left it a draft too, and the
+     * welcome text says so: the administrator edits it, then publishes it.
      *
      * Refuses anything but an empty starting state, exactly as the Content version
      * did: a half-written starter site is repaired by an operator, not overwritten.
@@ -127,15 +124,6 @@ final readonly class StarterSite
             self::RECORD_OWNER_REF,
             new StorageSchemaVersionRef(self::SCHEMA_ID, $schema->ref->version),
             $this->values($siteName, $locale),
-            $actor,
-        );
-
-        $this->publication->publish(
-            self::SCHEMA_ID,
-            $written->version->ref->recordId,
-            $this->scopeRef(),
-            $locale,
-            $written->version->ref->revision,
             $actor,
         );
 
