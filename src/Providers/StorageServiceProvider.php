@@ -30,6 +30,10 @@ use Larena\Storage\BlockDocuments\BlockDocumentFileInspector;
 use Larena\Storage\BlockDocuments\BlockDocumentService;
 use Larena\Storage\BlockDocuments\StorageBackedBlockDocumentService;
 use Larena\Storage\BlockDocuments\UnavailableBlockDocumentFileInspector;
+use Larena\Core\Contracts\FirstRunContributor;
+use Larena\Core\Starter\ScopeBaselineInstaller;
+use Larena\Storage\FirstRun\SiteFirstRunContributor;
+use Larena\Storage\FirstRun\StarterSite;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\DatabaseLocalizedValues;
@@ -129,6 +133,21 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(ActorOperationAuthorizer::class),
             $app->make(QueryScopeProvider::class),
         ));
+        // The starter site is Storage's now: the third first-run step, after the
+        // administrator and the site settings.
+        $this->app->singleton(StarterSite::class, static fn (Application $app): StarterSite => new StarterSite(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(VersionedStorageContract::class),
+            $app->make(StructureRoleRegistry::class),
+            $app->make(StarterStructureRoles::class),
+            $app->make(PublicationLifecycle::class),
+            $app->make(ScopeBaselineInstaller::class),
+        ));
+        $this->app->singleton(SiteFirstRunContributor::class, static fn (Application $app): SiteFirstRunContributor => new SiteFirstRunContributor(
+            $app->make(StarterSite::class),
+        ));
+        $this->app->tag(SiteFirstRunContributor::class, FirstRunContributor::class);
+
         $this->app->bindIf(BlockDocumentService::class, static fn (Application $app): BlockDocumentService => new StorageBackedBlockDocumentService(
             $app->make(VersionedStorageContract::class),
             $app->make(BlockDocumentAuthorization::class),
