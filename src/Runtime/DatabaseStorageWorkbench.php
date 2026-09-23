@@ -740,7 +740,16 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             }
             $fieldKeys = array_keys($field);
             sort($fieldKeys, SORT_STRING);
-            if ($fieldKeys !== ['constraints', 'key', 'label', 'position', 'required', 'type', 'type_version', 'visibility']) {
+            // `localized` is optional so that every existing caller stays valid: a
+            // field that says nothing is not localized, which is what the whole
+            // installed base means today.
+            $required = ['constraints', 'key', 'label', 'position', 'required', 'type', 'type_version', 'visibility'];
+            $withLocalized = ['constraints', 'key', 'label', 'localized', 'position', 'required', 'type', 'type_version', 'visibility'];
+            if ($fieldKeys !== $required && $fieldKeys !== $withLocalized) {
+                throw new StorageRejected('storage_workbench_structure_field_invalid');
+            }
+
+            if (array_key_exists('localized', $field) && !is_bool($field['localized'])) {
                 throw new StorageRejected('storage_workbench_structure_field_invalid');
             }
             $key = is_string($field['key'] ?? null) ? trim($field['key']) : '';
@@ -765,9 +774,16 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 'required' => $field['required'] ?? null,
                 'visibility' => $field['visibility'] ?? null,
                 'constraints' => $field['constraints'] ?? null,
+                'localized' => $field['localized'] ?? false,
             ];
         }
         usort($normalized, static fn (array $left, array $right): int => [$left['position'], $left['key']] <=> [$right['position'], $right['key']]);
+        // The localized flag stays in the workbench structure descriptor and does
+        // not go into the storage schema: the schema normalizer has a closed key set
+        // of its own and rejects an unknown key, so widening it is a separate
+        // decision with its own migration of every stored definition. Nothing needs
+        // it there yet either — the localized value writer is told which fields are
+        // localized by its caller.
         $storageFields = array_map(static fn (array $field): array => [
             'key' => $field['key'],
             'type' => $field['type'],

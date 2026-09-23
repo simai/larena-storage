@@ -15,11 +15,16 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 11, 'waves A and B declare eleven operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 16, 'waves A to C declare sixteen operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
 larena_storage_role_assert($names === [
+    'storage.locale.coverage',
+    'storage.locale.explain',
+    'storage.locale.fallback_resolve',
+    'storage.locale.read',
+    'storage.locale.write',
     'storage.relation.define',
     'storage.relation.explain',
     'storage.relation.resolve',
@@ -36,7 +41,7 @@ larena_storage_role_assert($names === [
 foreach ($operations as $operation) {
     larena_storage_role_assert($operation['declaration']->package === 'larena/storage');
     larena_storage_role_assert(
-        in_array($operation['handler_ref'], ['storage.handler.structure_role', 'storage.handler.relation'], true),
+        in_array($operation['handler_ref'], ['storage.handler.structure_role', 'storage.handler.relation', 'storage.handler.locale'], true),
         $operation['declaration']->name . ' binds to a storage handler',
     );
 }
@@ -45,8 +50,8 @@ foreach ($operations as $operation) {
 // REST parity and the MCP projection read this one registry.
 $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(), $provider]);
 
-larena_storage_role_assert(count($registry->list()) === 33, 'core 22 plus storage 11');
-larena_storage_role_assert(count($registry->list('larena/storage')) === 11);
+larena_storage_role_assert(count($registry->list()) === 38, 'core 22 plus storage 16');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 16);
 larena_storage_role_assert(count($registry->list('larena/core')) === 22);
 
 // The gates and risks survive into the registry.
@@ -72,12 +77,14 @@ foreach ($registry->list('larena/storage') as $declaration) {
 ksort($scopes);
 larena_storage_role_assert(
     array_keys($scopes) === [
+        'storage.locale.read',
+        'storage.locale.write',
         'storage.relation.manage',
         'storage.relation.read',
         'storage.role.manage',
         'storage.role.read',
     ],
-    'waves A and B use exactly four access codes: ' . implode(', ', array_keys($scopes)),
+    'waves A to C use exactly six access codes: ' . implode(', ', array_keys($scopes)),
 );
 
 // A subtree move is bulk, so the confirmation policy always asks before it runs.

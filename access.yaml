@@ -40,3 +40,9 @@ operations:
   - code: storage.relation.read
     risk: high
     audit: denial
+  - code: storage.locale.read
+    risk: high
+    audit: denial
+  - code: storage.locale.write
+    risk: high
+    audit: always

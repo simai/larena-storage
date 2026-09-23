@@ -46,6 +46,9 @@ events:
   - type: storage.relation.deleted
     category: storage_relation
     severity: security
+  - type: storage.locale.written
+    category: storage_locale
+    severity: operational
 forbidden_payload_fields:
   - definition
   - target_definition

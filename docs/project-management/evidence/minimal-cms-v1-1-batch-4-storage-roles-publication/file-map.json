@@ -38,7 +38,8 @@
   "new_tables": [
     "larena_storage_structure_roles",
     "larena_storage_structure_role_bindings",
-    "larena_storage_record_relations"
+    "larena_storage_record_relations",
+    "larena_storage_localized_values"
   ],
   "untouched": [
     "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
@@ -47,7 +48,8 @@
   ],
   "waves": [
     "A",
-    "B"
+    "B",
+    "C"
   ],
   "wave_b_changed_files": [
     ".larena/launch-context.json",
@@ -84,5 +86,38 @@
     "tests/Unit/RelationDeletePolicyTest.php",
     "tests/Unit/RelationTraversalScopeTest.php",
     "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "wave_c_changed_files": [
+    ".larena/launch-context.json",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/2026_09_28_000001_create_larena_storage_localized_values_table.php",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/deviations.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-c-implementation-summary.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-c-smoke.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-c-tests.md",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-c-storage-localized-values.json",
+    "module.yaml",
+    "operations.yaml",
+    "src/Audit/LocalizedValueAuditEventCatalog.php",
+    "src/Contracts/LocaleCoverageReport.php",
+    "src/Contracts/LocaleFallbackChain.php",
+    "src/Contracts/LocalizedValue.php",
+    "src/Contracts/LocalizedValues.php",
+    "src/Exceptions/LocalizedValueRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseLocalizedValues.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/LocaleOperationHandlers.php",
+    "tests/Support/localized-value-schema.php",
+    "tests/Unit/LocaleCoverageTest.php",
+    "tests/Unit/LocaleFallbackTest.php",
+    "tests/Unit/LocalizedValuesFailsClosedTest.php",
+    "tests/Unit/LocalizedValuesTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php",
+    "tests/Unit/WorkbenchLocalizedFieldKeyTest.php"
   ]
 }

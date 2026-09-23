@@ -19,12 +19,15 @@ use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
+use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\StructureRoleRegistry;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
+use Larena\Storage\Runtime\DatabaseLocalizedValues;
 use Larena\Storage\Runtime\DatabaseRecordRelations;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
+use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StarterStructureRoles;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
@@ -63,6 +66,15 @@ final class StorageServiceProvider extends ServiceProvider
 
         $this->app->singleton(RelationOperationHandlers::class, static function (Application $app): RelationOperationHandlers {
             return new RelationOperationHandlers($app->make(RecordRelations::class));
+        });
+
+        $this->app->singleton(DatabaseLocalizedValues::class, static function (Application $app): DatabaseLocalizedValues {
+            return new DatabaseLocalizedValues($app->make(DatabaseManager::class)->connection());
+        });
+        $this->app->alias(DatabaseLocalizedValues::class, LocalizedValues::class);
+
+        $this->app->singleton(LocaleOperationHandlers::class, static function (Application $app): LocaleOperationHandlers {
+            return new LocaleOperationHandlers($app->make(LocalizedValues::class));
         });
 
         // The core registry is composed from a hard-coded provider list inside

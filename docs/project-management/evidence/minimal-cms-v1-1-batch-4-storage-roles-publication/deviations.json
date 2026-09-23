@@ -78,6 +78,23 @@
       "detail": "explain() first counted every edge leaving the record, so a record with one parent and no references reported one reference.",
       "resolution": "The tree edge is counted separately from references.",
       "shape_impact": "none"
+    },
+    {
+      "id": "localized_flag_kept_out_of_the_storage_schema",
+      "kind": "boundary_finding",
+      "path": "src/Runtime/DatabaseStorageWorkbench.php",
+      "detail": "The first attempt passed the localized flag into the storage schema field list. The workbench integration test failed immediately with storage_schema_field_unknown_key: the schema normalizer has a closed key set of its own, and widening it would mean migrating every stored definition.",
+      "resolution": "The flag stays in the workbench structure descriptor. Nothing needs it in the schema: the localized value writer is told which fields are localized by its caller. The reason is written in the code where the next reader will look, and a test asserts the flag is absent from the schema mapping.",
+      "follow_up": "If a later batch needs Storage itself to know which fields are localized, that is a schema normalizer change with a definition migration, and it needs its own freeze.",
+      "shape_impact": "none on the frozen table; the freeze's field_declaration note said the workbench gains the key, which it does"
+    },
+    {
+      "id": "workbench_test_is_a_source_level_guard",
+      "kind": "test_approach",
+      "path": "tests/Unit/WorkbenchLocalizedFieldKeyTest.php",
+      "detail": "The workbench normalizer is private and calls the schema normalizer, the Property type registry and a database, so exercising it in isolation would mean building the whole workbench graph.",
+      "resolution": "The unit test guards the assertion at source level and checks that the behavioural proof — tests/Integration/StorageWorkbenchTest.php, which defines structures with the eight-key shape — is present and still omits the key. That integration test is what caught the storage-schema mistake.",
+      "shape_impact": "none"
     }
   ],
   "no_deviation_areas": [
@@ -91,6 +108,7 @@
   ],
   "waves": [
     "A",
-    "B"
+    "B",
+    "C"
   ]
 }

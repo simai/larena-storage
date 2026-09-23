@@ -40,3 +40,22 @@ No independent review yet. What a reviewer should attack first:
 4. **Reference targets are not validated.** The feature spec wants an unresolvable
    target refused before the record is written, which needs the record mutation
    path this wave does not touch. Recorded as not covered.
+
+## Wave C
+
+1. **Values are stored without validation.** The writer checks that a field is
+   declared localized and that required fields are present, but it does not run the
+   Property validation pipeline on the value itself — that pipeline lives in the
+   record mutation path this wave does not touch. A reviewer should decide whether a
+   localized write must go through it before wave E exposes these values to a
+   reader.
+2. **The localized flag lives only in the workbench structure descriptor.** Storage's
+   own schema does not carry it, so `DatabaseLocalizedValues` trusts its caller's
+   list of localized fields. A reviewer should decide whether that trust is
+   acceptable or whether the schema normalizer must learn the key.
+3. **`resolve()` reads the whole chain in one query.** For a very long chain and a
+   very wide record that is a large `IN` set. A reviewer should sanity-check the
+   shape against a realistic page before wave E starts reading through it.
+4. **Absent versus empty is load-bearing.** `resolve()` omits a field it cannot find.
+   Every consumer must treat a missing key as "not translated" rather than as an
+   empty value, and wave E is the first consumer.

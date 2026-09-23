@@ -62,6 +62,33 @@
         "a reference relation validates its target before the record is written: target validation needs the record mutation path, which this wave does not touch",
         "SitePack export and import preserve relations by logical identifier: its own feature and its own wave"
       ]
+    },
+    {
+      "feature": "storage.localized_values",
+      "observed_state": "implemented",
+      "implemented": [
+        "a localized value as a row in its own immutable table keyed by revision, locale and field",
+        "a field declared localizable through the workbench structure descriptor",
+        "a fallback chain that marks every value exact or fallback and names its source locale",
+        "coverage as a count per locale with the gaps named",
+        "a required field missing in a locale refused unless the schema allows partial locales"
+      ],
+      "not_implemented": [
+        "per-locale validation through the Property pipeline",
+        "publication state per locale",
+        "SitePack export of every locale"
+      ],
+      "acceptance_covered": [
+        "a field is declared localizable in the schema; non-localizable fields have one value shared by all locales",
+        "reading a record for a locale applies the fallback chain and marks each returned value as exact or fallback",
+        "a required field may be missing in a secondary locale only when the schema allows partial locales"
+      ],
+      "acceptance_not_covered": [
+        "per-locale validation uses the same Property validation pipeline: the writer stores values and does not validate them, because the validation pipeline runs in the record mutation path this wave does not touch",
+        "publication state is tracked per record and locale: wave D",
+        "SitePack export carries every locale and import rejects an undeclared locale: its own feature",
+        "a site tree with localized values renders in two locales from one set of site_node records: needs the read contracts in wave E"
+      ]
     }
   ],
   "nonclaims": [
@@ -69,6 +96,7 @@
   ],
   "waves": [
     "A",
-    "B"
+    "B",
+    "C"
   ]
 }

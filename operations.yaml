@@ -937,3 +937,376 @@ operations:
         depth:
           type: 'integer'
       required: []
+  - name: 'storage.locale.read'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        values:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              field_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              requested_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              source_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              value:
+                type: 'string'
+              exact:
+                type: 'boolean'
+              resolution:
+                type: 'string'
+                enum:
+                  - 'exact'
+                  - 'fallback'
+            required:
+              - 'field_key'
+              - 'requested_locale'
+              - 'source_locale'
+              - 'exact'
+              - 'resolution'
+      required:
+        - 'values'
+  - name: 'storage.locale.write'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.locale.write'
+    audit_event: 'storage.locale.written'
+    idempotency_key: 'content_hash'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        values:
+          type: 'object'
+          additionalProperties: true
+          properties: {}
+          required: []
+        localized_field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+        required_field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+        partial_locales_allowed:
+          type: 'boolean'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'locale'
+        - 'values'
+        - 'localized_field_keys'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        written:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+      required:
+        - 'written'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.locale.fallback_resolve'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'locales'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        values:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              field_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              requested_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              source_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              value:
+                type: 'string'
+              exact:
+                type: 'boolean'
+              resolution:
+                type: 'string'
+                enum:
+                  - 'exact'
+                  - 'fallback'
+            required:
+              - 'field_key'
+              - 'requested_locale'
+              - 'source_locale'
+              - 'exact'
+              - 'resolution'
+      required:
+        - 'values'
+  - name: 'storage.locale.coverage'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        declared_locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        localized_field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'declared_locales'
+        - 'localized_field_keys'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        declared_locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        localized_fields:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+        per_locale:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              present:
+                type: 'array'
+                items:
+                  type: 'string'
+                  pattern: '^[a-z][a-z0-9_]{0,63}$'
+                  maxLength: 64
+              missing:
+                type: 'array'
+                items:
+                  type: 'string'
+                  pattern: '^[a-z][a-z0-9_]{0,63}$'
+                  maxLength: 64
+              complete:
+                type: 'boolean'
+            required:
+              - 'locale'
+              - 'present'
+              - 'missing'
+              - 'complete'
+        complete:
+          type: 'boolean'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'per_locale'
+        - 'complete'
+  - name: 'storage.locale.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        stored_locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        value_count:
+          type: 'integer'
+        immutable:
+          type: 'boolean'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'stored_locales'
+        - 'value_count'
+        - 'immutable'
