@@ -32,17 +32,19 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
         $public = 'storage.read.public';
 
         $descriptors = [
+            // The two public reads carry no access scope. They return only the
+            // published head's public fields, which is what an anonymous visitor of
+            // the site sees anyway, and the REST public site boundary cannot name
+            // an Access check an anonymous caller could pass.
             new OperationDescriptor(
                 name: 'storage.read.resolve_key',
                 executionMode: OperationExecutionMode::Sync,
-                accessScope: $public,
                 riskClass: OperationRiskClass::Read,
                 reversible: true,
             ),
             new OperationDescriptor(
                 name: 'storage.read.published_projection',
                 executionMode: OperationExecutionMode::Sync,
-                accessScope: $public,
                 riskClass: OperationRiskClass::Read,
                 reversible: true,
             ),

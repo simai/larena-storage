@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: minimal-cms-v1-1-batch-6-wave-b-storage-block-documents-site
+batch: minimal-cms-v1-1-batch-7-wave-a-storage-public-read-api
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -49,4 +49,4 @@ runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/minimal-cms-v1-1-batch-6-content-retirement
+  path: docs/project-management/evidence/minimal-cms-v1-1-batch-7-admin-headless

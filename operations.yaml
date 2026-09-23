@@ -1972,7 +1972,6 @@ operations:
     execution_mode: 'sync'
     risk: 'read'
     reversible: true
-    access_scope: 'storage.read.public'
     transports:
       - 'local'
     input:
@@ -2050,7 +2049,6 @@ operations:
     execution_mode: 'sync'
     risk: 'read'
     reversible: true
-    access_scope: 'storage.read.public'
     transports:
       - 'local'
     input:

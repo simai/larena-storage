@@ -97,9 +97,22 @@ larena_storage_role_assert($explain->receiptSchema === null);
 
 // The two access operation codes this wave adds are the ones the freeze names.
 $scopes = [];
+$unscoped = [];
 foreach ($registry->list('larena/storage') as $declaration) {
-    $scopes[(string) $declaration->accessScope] = true;
+    if ($declaration->accessScope === null) {
+        $unscoped[] = $declaration->name;
+        continue;
+    }
+    $scopes[$declaration->accessScope] = true;
 }
+sort($unscoped);
+
+// Exactly the two public reads carry no access scope, by owner decision for the
+// public site boundary: they return only published heads and public fields.
+larena_storage_role_assert(
+    $unscoped === ['storage.read.published_projection', 'storage.read.resolve_key'],
+    'only the two public reads are unscoped, got: ' . implode(', ', $unscoped),
+);
 ksort($scopes);
 larena_storage_role_assert(
     array_keys($scopes) === [

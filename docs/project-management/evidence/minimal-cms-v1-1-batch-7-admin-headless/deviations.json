@@ -1,0 +1,7 @@
+{
+  "schema": "larena.batch_evidence.v1",
+  "batch": "batch-7-admin-headless",
+  "wave": "A",
+  "package": "larena/storage",
+  "status": "in_progress"
+}

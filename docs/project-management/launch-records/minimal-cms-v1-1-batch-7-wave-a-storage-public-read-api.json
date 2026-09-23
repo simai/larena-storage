@@ -1,0 +1,34 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_7.wave_a.storage_public_read_api",
+  "status": "coding_started",
+  "coding_started": true,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-7-admin-headless",
+  "wave": "A",
+  "target_package": "larena/storage",
+  "branch": "feature/minimal-cms-v1-1-batch-7-storage-public-read-api",
+  "base_commit": "d137b14a",
+  "owner_decision": "public /api/v1/site/ boundary; the two public reads carry no access scope (2026-09-23)",
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "api.yaml",
+    "composer.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-7-admin-headless/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-7-wave-a-storage-public-read-api.json",
+    "module.yaml",
+    "operations.yaml",
+    "src/Runtime/ReadContractOperationHandlers.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "forbidden_behavior": [
+    "returning anything but published heads and public fields",
+    "distinguishing an unreadable record from an absent one",
+    "adding a write under the public site boundary"
+  ],
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize release or deployment."
+  ]
+}
