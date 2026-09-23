@@ -67,9 +67,18 @@ foreach ($operations as $operation) {
 // REST parity and the MCP projection read this one registry.
 $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(), $provider]);
 
-larena_storage_role_assert(count($registry->list()) === 49, 'core 22 plus storage 27');
-larena_storage_role_assert(count($registry->list('larena/storage')) === 27);
-larena_storage_role_assert(count($registry->list('larena/core')) === 22);
+// Storage's own count is asserted absolutely, because an operation appearing here
+// without anyone noticing is what this test is for. Core's is derived, not
+// asserted: a literal would break this suite every time core adds an operation,
+// which is core's business and not Storage's. The claim that matters is that the
+// two catalogues compose into one without either losing an entry.
+$coreCount = count($registry->list('larena/core'));
+larena_storage_role_assert(count($registry->list('larena/storage')) === 27, 'storage declares 27 operations');
+larena_storage_role_assert($coreCount >= 22, 'core contributes at least the operations Batch 3 declared, got ' . $coreCount);
+larena_storage_role_assert(
+    count($registry->list()) === $coreCount + 27,
+    'one catalogue holds both packages with nothing lost',
+);
 
 // The gates and risks survive into the registry.
 $register = $registry->describe('storage.role.register');
