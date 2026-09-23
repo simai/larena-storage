@@ -44,6 +44,9 @@ use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
 use Larena\Storage\Runtime\ReadContractOperationHandlers;
+use Larena\Storage\Runtime\RecordOperationHandlers;
+use Larena\Core\Runtime\OperationHandlerCatalog;
+use Larena\Core\Contracts\OperationHandler;
 use Larena\Storage\Runtime\SlugUniquenessGuard;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StarterStructureRoles;
@@ -156,6 +159,32 @@ final class StorageServiceProvider extends ServiceProvider
         $this->app->singleton(SlugUniquenessGuard::class, static function (Application $app): SlugUniquenessGuard {
             return new SlugUniquenessGuard($app->make(DatabaseReadContracts::class));
         });
+
+        $this->app->singleton(RecordOperationHandlers::class, static fn (Application $app): RecordOperationHandlers => new RecordOperationHandlers(
+            $app->make(VersionedStorageContract::class),
+        ));
+
+        // Storage serves its own handler references when an operation runs
+        // inside the application.
+        $this->app->extend(
+            OperationHandlerCatalog::class,
+            static function (OperationHandlerCatalog $catalog, Application $app): OperationHandlerCatalog {
+                foreach ([
+                    'storage.handler.structure_role' => StructureRoleOperationHandlers::class,
+                    'storage.handler.relation' => RelationOperationHandlers::class,
+                    'storage.handler.locale' => LocaleOperationHandlers::class,
+                    'storage.handler.publication' => PublicationOperationHandlers::class,
+                    'storage.handler.read_contract' => ReadContractOperationHandlers::class,
+                    'storage.handler.record' => RecordOperationHandlers::class,
+                ] as $ref => $class) {
+                    if (!$catalog->has($ref)) {
+                        $catalog->register($ref, static fn (): OperationHandler => $app->make($class));
+                    }
+                }
+
+                return $catalog;
+            },
+        );
 
         $this->app->singleton(ReadContractOperationHandlers::class, static function (Application $app): ReadContractOperationHandlers {
             return new ReadContractOperationHandlers($app->make(ReadContracts::class));
@@ -304,6 +333,20 @@ final class StorageServiceProvider extends ServiceProvider
             ['content.item.read', 'block_document_read', 'read', 'high'],
             ['content.item.create', 'block_document_create', 'create', 'high'],
             ['content.item.update', 'block_document_update', 'update', 'high'],
+            // The codes the registry operations name (access.yaml). They were
+            // declared but not registered, so every check on them denied.
+            ['storage.role.manage', 'role_manage', 'manage', 'critical'],
+            ['storage.role.read', 'role_read', 'read', 'high'],
+            ['storage.relation.manage', 'relation_manage', 'manage', 'high'],
+            ['storage.relation.read', 'relation_read', 'read', 'high'],
+            ['storage.locale.read', 'locale_read', 'read', 'high'],
+            ['storage.locale.write', 'locale_write', 'update', 'high'],
+            ['storage.publication.publish', 'publication_publish', 'publish', 'high'],
+            ['storage.publication.unpublish', 'publication_unpublish', 'unpublish', 'high'],
+            ['storage.publication.schedule', 'publication_schedule', 'schedule', 'high'],
+            ['storage.publication.archive', 'publication_archive', 'archive', 'critical'],
+            ['storage.publication.read', 'publication_read', 'read', 'high'],
+            ['storage.read.public', 'read_public', 'read', 'normal'],
         ] as [$code, $label, $grant, $risk]) {
             $registered = $registry->register(new AccessOperationDescriptor(
                 code: $code,
@@ -317,7 +360,9 @@ final class StorageServiceProvider extends ServiceProvider
                         ? 'storage.workbench.structure:all'
                         : (str_starts_with($code, 'storage.workbench.record.')
                             ? 'storage.workbench.record:all'
-                            : 'storage.record:all'))),
+                            : (preg_match('/^storage\.(role|relation|locale|publication|read)\./', $code, $area) === 1
+                                ? 'storage.' . $area[1] . ':all'
+                                : 'storage.record:all')))),
                 requiredGrant: $grant,
                 risk: $risk,
                 auditDenials: true,

@@ -1,10 +1,15 @@
 {
   "schema": "larena.graph_sync_proposal.v1",
   "batch": "batch-7-admin-headless",
-  "wave": "A",
+  "wave": "D2",
   "package": "larena/storage",
-  "status": "in_progress",
+  "status": "evidence",
   "canonical_update_allowed": false,
   "canonical_update_reason": "a package coding wave never writes the canonical graph",
-  "feature_observations": []
+  "feature_observations": [
+    {
+      "feature": "storage.versioned_records",
+      "observation": "Record writes had no registry operation, and the Access codes Storage's operations name were declared in access.yaml but never registered, so every check denied. Storage now declares storage.record.create and storage.record.update over the versioned storage contract, registers its handler references in core's catalog, and registers the role, relation, locale, publication and public-read codes."
+    }
+  ]
 }

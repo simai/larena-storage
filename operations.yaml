@@ -2171,3 +2171,158 @@ operations:
         - 'public_field_keys'
         - 'published_record_count'
         - 'derived'
+  - name: 'storage.record.create'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.record.create'
+    audit_event: 'storage.record.created'
+    idempotency_key: 'owner_ref'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        schema_version:
+          type: 'integer'
+        owner_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 190
+        values:
+          type: 'object'
+          additionalProperties: true
+      required:
+        - 'schema_id'
+        - 'schema_version'
+        - 'owner_ref'
+        - 'values'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        record:
+          type: 'object'
+          additionalProperties: false
+          properties:
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            revision:
+              type: 'integer'
+            owner_ref:
+              type: 'string'
+              maxLength: 190
+          required:
+            - 'schema_id'
+            - 'record_id'
+            - 'revision'
+            - 'owner_ref'
+      required:
+        - 'record'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.record.update'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.record.update'
+    audit_event: 'storage.record.updated'
+    idempotency_key: 'record_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        schema_version:
+          type: 'integer'
+        owner_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 190
+        record_id:
+          type: 'string'
+          maxLength: 39
+        expected_revision:
+          type: 'integer'
+        values:
+          type: 'object'
+          additionalProperties: true
+      required:
+        - 'schema_id'
+        - 'schema_version'
+        - 'owner_ref'
+        - 'record_id'
+        - 'expected_revision'
+        - 'values'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        record:
+          type: 'object'
+          additionalProperties: false
+          properties:
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            revision:
+              type: 'integer'
+            owner_ref:
+              type: 'string'
+              maxLength: 190
+          required:
+            - 'schema_id'
+            - 'record_id'
+            - 'revision'
+            - 'owner_ref'
+      required:
+        - 'record'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'

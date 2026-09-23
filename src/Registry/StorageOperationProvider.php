@@ -12,6 +12,7 @@ use Larena\Core\Registry\OperationDeclarationLoader;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
 use Larena\Storage\Runtime\ReadContractOperationHandlers;
+use Larena\Storage\Runtime\RecordOperationHandlers;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
 
@@ -73,6 +74,7 @@ final class StorageOperationProvider implements OperationProvider
             ...LocaleOperationHandlers::descriptors(),
             ...PublicationOperationHandlers::descriptors(),
             ...ReadContractOperationHandlers::descriptors(),
+            ...RecordOperationHandlers::descriptors(),
         ];
     }
 
@@ -100,6 +102,10 @@ final class StorageOperationProvider implements OperationProvider
 
         foreach (array_keys(ReadContractOperationHandlers::descriptors()) as $name) {
             $refs[$name] = 'storage.handler.read_contract';
+        }
+
+        foreach (array_keys(RecordOperationHandlers::descriptors()) as $name) {
+            $refs[$name] = 'storage.handler.record';
         }
 
         return $refs;

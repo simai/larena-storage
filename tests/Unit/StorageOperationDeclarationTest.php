@@ -15,7 +15,7 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 27, 'waves A to E declare twenty-seven operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 29, 'waves A to E and batch 7 D2 declare twenty-nine operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
@@ -36,6 +36,8 @@ larena_storage_role_assert($names === [
     'storage.read.projection_explain',
     'storage.read.published_projection',
     'storage.read.resolve_key',
+    'storage.record.create',
+    'storage.record.update',
     'storage.relation.define',
     'storage.relation.explain',
     'storage.relation.resolve',
@@ -58,6 +60,7 @@ foreach ($operations as $operation) {
             'storage.handler.locale',
             'storage.handler.publication',
             'storage.handler.read_contract',
+            'storage.handler.record',
         ], true),
         $operation['declaration']->name . ' binds to a storage handler',
     );
@@ -73,10 +76,10 @@ $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(
 // which is core's business and not Storage's. The claim that matters is that the
 // two catalogues compose into one without either losing an entry.
 $coreCount = count($registry->list('larena/core'));
-larena_storage_role_assert(count($registry->list('larena/storage')) === 27, 'storage declares 27 operations');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 29, 'storage declares 29 operations');
 larena_storage_role_assert($coreCount >= 22, 'core contributes at least the operations Batch 3 declared, got ' . $coreCount);
 larena_storage_role_assert(
-    count($registry->list()) === $coreCount + 27,
+    count($registry->list()) === $coreCount + 29,
     'one catalogue holds both packages with nothing lost',
 );
 
@@ -124,12 +127,14 @@ larena_storage_role_assert(
         'storage.publication.schedule',
         'storage.publication.unpublish',
         'storage.read.public',
+        'storage.record.create',
+        'storage.record.update',
         'storage.relation.manage',
         'storage.relation.read',
         'storage.role.manage',
         'storage.role.read',
     ],
-    'waves A to E use exactly twelve access codes: ' . implode(', ', array_keys($scopes)),
+    'waves A to E use twelve access codes and batch 7 D2 adds record create and update: ' . implode(', ', array_keys($scopes)),
 );
 
 // Publish, unpublish, schedule and archive are four separate access codes, which is

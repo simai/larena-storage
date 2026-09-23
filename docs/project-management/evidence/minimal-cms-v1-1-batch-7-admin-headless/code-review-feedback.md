@@ -1,3 +1,3 @@
-# Batch 7 wave A — code review feedback
+# Code review feedback
 
-In progress.
+Reviewed with the batch-7 wave-D review in simai/larena-specs.

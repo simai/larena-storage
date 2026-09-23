@@ -1,7 +1,37 @@
 {
   "schema": "larena.batch_evidence.v1",
   "batch": "batch-7-admin-headless",
-  "wave": "A",
+  "wave": "D2",
   "package": "larena/storage",
-  "status": "in_progress"
+  "status": "evidence",
+  "files": [
+    {
+      "path": "operations.yaml",
+      "change": "declares storage.record.create and storage.record.update"
+    },
+    {
+      "path": "src/Runtime/RecordOperationHandlers.php",
+      "change": "new: create, and update as compare-and-swap; proposals"
+    },
+    {
+      "path": "src/Registry/StorageOperationProvider.php",
+      "change": "binds the two to storage.handler.record"
+    },
+    {
+      "path": "src/Providers/StorageServiceProvider.php",
+      "change": "registers the handler references in core's OperationHandlerCatalog; registers the twelve declared-but-unregistered Access codes"
+    },
+    {
+      "path": "resources/lang/*/operations.php",
+      "change": "labels for the new codes"
+    },
+    {
+      "path": "tests/Integration/RecordOperationExecutionTest.php",
+      "change": "new"
+    },
+    {
+      "path": "tests/Unit/StorageOperationDeclarationTest.php",
+      "change": "29 operations; record codes"
+    }
+  ]
 }

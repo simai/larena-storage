@@ -1,3 +1,3 @@
-# Batch 7 wave A — smoke
+# Smoke
 
-In progress.
+Exercised end to end by the admin journey (wave D6).

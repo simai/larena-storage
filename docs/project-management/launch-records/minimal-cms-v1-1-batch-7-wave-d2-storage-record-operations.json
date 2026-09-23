@@ -1,0 +1,40 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_7.wave_d2.storage_record_operations",
+  "status": "coding_started",
+  "coding_started": true,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-7-admin-headless",
+  "wave": "D2",
+  "target_package": "larena/storage",
+  "branch": "feature/minimal-cms-v1-1-batch-7-d2-storage-record-operations",
+  "base_commit": "aa9bf1b",
+  "owner_decision": "batch 7 wave D full scope (2026-09-23)",
+  "plan_ref": "simai/larena-specs:docs/implementation-planning/minimal-cms-v1-1-batch-7-wave-d-full-scope.md",
+  "reason": "Record writes had no registry operation, and the Access codes Storage's operations name were declared in access.yaml but never registered, so every check denied. Storage now declares storage.record.create and storage.record.update over the versioned storage contract, registers its handler references in core's catalog, and registers the role, relation, locale, publication and public-read codes.",
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "composer.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-7-admin-headless/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-7-wave-d2-storage-record-operations.json",
+    "module.yaml",
+    "operations.yaml",
+    "resources/lang/en/operations.php",
+    "resources/lang/ru/operations.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/RecordOperationHandlers.php",
+    "tests/Integration/RecordOperationExecutionTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "forbidden_behavior": [
+    "changing an existing operation declaration",
+    "a migration or new table",
+    "writing a record other than through VersionedStorage"
+  ],
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize release or deployment."
+  ]
+}
