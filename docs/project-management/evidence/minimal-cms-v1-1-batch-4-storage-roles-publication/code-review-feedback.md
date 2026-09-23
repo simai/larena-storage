@@ -59,3 +59,23 @@ No independent review yet. What a reviewer should attack first:
 4. **Absent versus empty is load-bearing.** `resolve()` omits a field it cannot find.
    Every consumer must treat a missing key as "not translated" rather than as an
    empty value, and wave E is the first consumer.
+
+## Wave D
+
+1. **The scheduled revision lives in the log, not in the state row.** `sweep()` reads
+   the most recent `schedule` transition to learn which revision to publish. That keeps
+   the state row honest — a scheduled record has no head — but it means the sweep
+   depends on the log being complete. A reviewer should confirm that is acceptable, or
+   ask for a `scheduled_revision` column.
+2. **`archive` is allowed from `archived` and `publish` from `archived`.** Archiving
+   twice is a no-op that still logs, and un-archiving is a plain publish. A reviewer
+   should confirm both read as intended rather than as missing guards.
+3. **The revision check is injected and may be absent.** A package test leaves it
+   unbound. A reviewer should decide whether the runtime should refuse to construct
+   without one.
+4. **Nothing emits a domain event.** The feature spec allows one for automation; no
+   consumer exists, so none is emitted. A reviewer should confirm the order.
+5. **`previous_published_revision` survives an archive.** After archiving, the column
+   still names the head that was live. That is deliberate — it is how "what was live
+   before we took this down" is answered — but it means the column is not "the head
+   before the current one" in every state.

@@ -95,6 +95,29 @@
       "detail": "The workbench normalizer is private and calls the schema normalizer, the Property type registry and a database, so exercising it in isolation would mean building the whole workbench graph.",
       "resolution": "The unit test guards the assertion at source level and checks that the behavioural proof — tests/Integration/StorageWorkbenchTest.php, which defines structures with the eight-key shape — is present and still omits the key. That integration test is what caught the storage-schema mistake.",
       "shape_impact": "none"
+    },
+    {
+      "id": "due_schedules_read_added",
+      "kind": "contract_addition",
+      "path": "src/Contracts/PublicationLifecycle.php",
+      "detail": "The sweep proposal needed to answer what a sweep would publish without publishing. Calling sweep with a zero limit was the first attempt and it correctly refused as invalid_limit.",
+      "resolution": "dueSchedules() was added to the contract as a read. The sweep now uses it too, so the dry run and the real run read the same rows through the same query.",
+      "shape_impact": "none on the frozen tables or operations; the contract gains one read method the freeze did not list"
+    },
+    {
+      "id": "revision_check_injected",
+      "kind": "implementation_choice",
+      "path": "src/Runtime/DatabasePublicationLifecycle.php",
+      "detail": "The freeze requires publishing a revision that does not exist to be refused, but the publication runtime must not reach into the record tables on its own.",
+      "resolution": "The check is an injected callable. The composed application binds it against larena_storage_record_versions; a package test leaves it unbound, which means the caller has taken responsibility and is stated in a comment rather than pretended. The composed refusal was observed in the smoke.",
+      "shape_impact": "none"
+    },
+    {
+      "id": "smoke_inserted_record_versions_directly",
+      "kind": "smoke_limitation",
+      "detail": "The publication smoke needed revisions to publish, and the record mutation path is not part of this batch.",
+      "resolution": "Three record-version rows were inserted directly in the smoke. Recorded rather than hidden: the publication behaviour is what was under test, and the injected revision check was exercised by the refusal that happened before the rows existed.",
+      "shape_impact": "none"
     }
   ],
   "no_deviation_areas": [
@@ -109,6 +132,7 @@
   "waves": [
     "A",
     "B",
-    "C"
+    "C",
+    "D"
   ]
 }

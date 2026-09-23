@@ -140,7 +140,12 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LocaleFallbackTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LocaleCoverageTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LocalizedValuesFailsClosedTest.php",
-            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/WorkbenchLocalizedFieldKeyTest.php"
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/WorkbenchLocalizedFieldKeyTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationLifecycleTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationTransitionMatrixTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationHistoryTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationSweepTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationFailsClosedTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",

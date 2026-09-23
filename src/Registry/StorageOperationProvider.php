@@ -10,6 +10,7 @@ use Larena\Core\Contracts\OperationProvider;
 use Larena\Core\Exceptions\OperationDeclarationInvalid;
 use Larena\Core\Registry\OperationDeclarationLoader;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
+use Larena\Storage\Runtime\PublicationOperationHandlers;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
 
@@ -69,6 +70,7 @@ final class StorageOperationProvider implements OperationProvider
             ...StructureRoleOperationHandlers::descriptors(),
             ...RelationOperationHandlers::descriptors(),
             ...LocaleOperationHandlers::descriptors(),
+            ...PublicationOperationHandlers::descriptors(),
         ];
     }
 
@@ -88,6 +90,10 @@ final class StorageOperationProvider implements OperationProvider
 
         foreach (array_keys(LocaleOperationHandlers::descriptors()) as $name) {
             $refs[$name] = 'storage.handler.locale';
+        }
+
+        foreach (array_keys(PublicationOperationHandlers::descriptors()) as $name) {
+            $refs[$name] = 'storage.handler.publication';
         }
 
         return $refs;

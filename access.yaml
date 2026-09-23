@@ -46,3 +46,18 @@ operations:
   - code: storage.locale.write
     risk: high
     audit: always
+  - code: storage.publication.publish
+    risk: critical
+    audit: always
+  - code: storage.publication.unpublish
+    risk: critical
+    audit: always
+  - code: storage.publication.schedule
+    risk: critical
+    audit: always
+  - code: storage.publication.archive
+    risk: critical
+    audit: always
+  - code: storage.publication.read
+    risk: high
+    audit: denial

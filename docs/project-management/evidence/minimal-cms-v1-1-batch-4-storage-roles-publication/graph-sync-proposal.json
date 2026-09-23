@@ -89,6 +89,35 @@
         "SitePack export carries every locale and import rejects an undeclared locale: its own feature",
         "a site tree with localized values renders in two locales from one set of site_node records: needs the read contracts in wave E"
       ]
+    },
+    {
+      "feature": "storage.publication_lifecycle",
+      "observed_state": "implemented",
+      "implemented": [
+        "publication state per record, scope and locale with the published head as a column",
+        "an append-only transition log that answers history and names the head a withdrawal replaced",
+        "publish, unpublish, schedule and archive as four separate access operations",
+        "a sweep that publishes due schedules, is idempotent and distinguishes itself in the log",
+        "a read that never publishes",
+        "publishing that changes no revision and no localized value, asserted byte for byte",
+        "an injected revision check bound in the composed application"
+      ],
+      "not_implemented": [
+        "a queue worker calling the sweep",
+        "a domain event for automation"
+      ],
+      "acceptance_covered": [
+        "every schema with the publishable lifecycle keeps an immutable revision per saved version and one published head per scope and locale",
+        "publish, unpublish, schedule and archive are separate access operations, so an editor may save drafts without the right to publish",
+        "unpublishing keeps the revision history and returns the previous published head when one exists",
+        "publication changes emit audit-safe events with actor, scope, locale and correlation",
+        "restart readback returns the same published head and revision history on sqlite and mysql"
+      ],
+      "acceptance_not_covered": [
+        "a scheduled publication executes through the queue when a worker exists: this batch ships the sweep operation a worker would call, and wiring the worker belongs to the queue batch",
+        "the published head is the only version visible to public readers and to the published safe projection: wave E",
+        "a domain event for automation: no automation consumer exists yet"
+      ]
     }
   ],
   "nonclaims": [
@@ -97,6 +126,7 @@
   "waves": [
     "A",
     "B",
-    "C"
+    "C",
+    "D"
   ]
 }

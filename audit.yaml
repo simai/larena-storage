@@ -49,6 +49,21 @@ events:
   - type: storage.locale.written
     category: storage_locale
     severity: operational
+  - type: storage.publication.published
+    category: storage_publication
+    severity: security
+  - type: storage.publication.unpublished
+    category: storage_publication
+    severity: security
+  - type: storage.publication.scheduled
+    category: storage_publication
+    severity: security
+  - type: storage.publication.archived
+    category: storage_publication
+    severity: security
+  - type: storage.publication.swept
+    category: storage_publication
+    severity: security
 forbidden_payload_fields:
   - definition
   - target_definition

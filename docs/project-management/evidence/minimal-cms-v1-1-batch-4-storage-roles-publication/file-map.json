@@ -39,7 +39,9 @@
     "larena_storage_structure_roles",
     "larena_storage_structure_role_bindings",
     "larena_storage_record_relations",
-    "larena_storage_localized_values"
+    "larena_storage_localized_values",
+    "larena_storage_publication_states",
+    "larena_storage_publication_log"
   ],
   "untouched": [
     "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
@@ -49,7 +51,8 @@
   "waves": [
     "A",
     "B",
-    "C"
+    "C",
+    "D"
   ],
   "wave_b_changed_files": [
     ".larena/launch-context.json",
@@ -119,5 +122,38 @@
     "tests/Unit/LocalizedValuesTest.php",
     "tests/Unit/StorageOperationDeclarationTest.php",
     "tests/Unit/WorkbenchLocalizedFieldKeyTest.php"
+  ],
+  "wave_d_changed_files": [
+    ".larena/launch-context.json",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/2026_09_29_000001_create_larena_storage_publication_tables.php",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/deviations.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-d-implementation-summary.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-d-smoke.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-d-tests.md",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-d-storage-publication-lifecycle.json",
+    "module.yaml",
+    "operations.yaml",
+    "src/Audit/PublicationAuditEventCatalog.php",
+    "src/Contracts/PublicationLifecycle.php",
+    "src/Contracts/PublicationState.php",
+    "src/Contracts/PublicationTransition.php",
+    "src/Enums/PublicationStateValue.php",
+    "src/Enums/PublicationTransitionValue.php",
+    "src/Exceptions/PublicationRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabasePublicationLifecycle.php",
+    "src/Runtime/PublicationOperationHandlers.php",
+    "tests/Support/publication-schema.php",
+    "tests/Unit/PublicationFailsClosedTest.php",
+    "tests/Unit/PublicationHistoryTest.php",
+    "tests/Unit/PublicationLifecycleTest.php",
+    "tests/Unit/PublicationSweepTest.php",
+    "tests/Unit/PublicationTransitionMatrixTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
   ]
 }

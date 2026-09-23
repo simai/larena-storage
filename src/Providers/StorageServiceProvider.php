@@ -20,14 +20,17 @@ use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\LocalizedValues;
+use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\StructureRoleRegistry;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\DatabaseLocalizedValues;
+use Larena\Storage\Runtime\DatabasePublicationLifecycle;
 use Larena\Storage\Runtime\DatabaseRecordRelations;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
+use Larena\Storage\Runtime\PublicationOperationHandlers;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StarterStructureRoles;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
@@ -75,6 +78,28 @@ final class StorageServiceProvider extends ServiceProvider
 
         $this->app->singleton(LocaleOperationHandlers::class, static function (Application $app): LocaleOperationHandlers {
             return new LocaleOperationHandlers($app->make(LocalizedValues::class));
+        });
+
+        $this->app->singleton(DatabasePublicationLifecycle::class, static function (Application $app): DatabasePublicationLifecycle {
+            $connection = $app->make(DatabaseManager::class)->connection();
+
+            // The composed application can check that a revision really belongs to the
+            // record, so it does: a head pointing at a revision nobody can read would
+            // be worse than no head at all.
+            return new DatabasePublicationLifecycle(
+                $connection,
+                static fn (string $schemaId, string $recordId, int $revision): bool => $connection
+                    ->table('larena_storage_record_versions')
+                    ->where('schema_id', $schemaId)
+                    ->where('record_id', $recordId)
+                    ->where('revision', $revision)
+                    ->exists(),
+            );
+        });
+        $this->app->alias(DatabasePublicationLifecycle::class, PublicationLifecycle::class);
+
+        $this->app->singleton(PublicationOperationHandlers::class, static function (Application $app): PublicationOperationHandlers {
+            return new PublicationOperationHandlers($app->make(PublicationLifecycle::class));
         });
 
         // The core registry is composed from a hard-coded provider list inside

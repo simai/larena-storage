@@ -15,7 +15,7 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 16, 'waves A to C declare sixteen operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 24, 'waves A to D declare twenty-four operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
@@ -25,6 +25,14 @@ larena_storage_role_assert($names === [
     'storage.locale.fallback_resolve',
     'storage.locale.read',
     'storage.locale.write',
+    'storage.publication.archive',
+    'storage.publication.explain',
+    'storage.publication.head',
+    'storage.publication.history',
+    'storage.publication.publish',
+    'storage.publication.schedule',
+    'storage.publication.sweep',
+    'storage.publication.unpublish',
     'storage.relation.define',
     'storage.relation.explain',
     'storage.relation.resolve',
@@ -41,7 +49,12 @@ larena_storage_role_assert($names === [
 foreach ($operations as $operation) {
     larena_storage_role_assert($operation['declaration']->package === 'larena/storage');
     larena_storage_role_assert(
-        in_array($operation['handler_ref'], ['storage.handler.structure_role', 'storage.handler.relation', 'storage.handler.locale'], true),
+        in_array($operation['handler_ref'], [
+            'storage.handler.structure_role',
+            'storage.handler.relation',
+            'storage.handler.locale',
+            'storage.handler.publication',
+        ], true),
         $operation['declaration']->name . ' binds to a storage handler',
     );
 }
@@ -50,8 +63,8 @@ foreach ($operations as $operation) {
 // REST parity and the MCP projection read this one registry.
 $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(), $provider]);
 
-larena_storage_role_assert(count($registry->list()) === 38, 'core 22 plus storage 16');
-larena_storage_role_assert(count($registry->list('larena/storage')) === 16);
+larena_storage_role_assert(count($registry->list()) === 46, 'core 22 plus storage 24');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 24);
 larena_storage_role_assert(count($registry->list('larena/core')) === 22);
 
 // The gates and risks survive into the registry.
@@ -79,12 +92,33 @@ larena_storage_role_assert(
     array_keys($scopes) === [
         'storage.locale.read',
         'storage.locale.write',
+        'storage.publication.archive',
+        'storage.publication.publish',
+        'storage.publication.read',
+        'storage.publication.schedule',
+        'storage.publication.unpublish',
         'storage.relation.manage',
         'storage.relation.read',
         'storage.role.manage',
         'storage.role.read',
     ],
-    'waves A to C use exactly six access codes: ' . implode(', ', array_keys($scopes)),
+    'waves A to D use exactly eleven access codes: ' . implode(', ', array_keys($scopes)),
+);
+
+// Publish, unpublish, schedule and archive are four separate access codes, which is
+// what lets an editor save and schedule without holding the right to publish.
+$publicationScopes = [];
+foreach (['publish', 'unpublish', 'schedule', 'archive'] as $transition) {
+    $publicationScopes[] = (string) $registry->describe('storage.publication.' . $transition)->accessScope;
+}
+larena_storage_role_assert(
+    count(array_unique($publicationScopes)) === 4,
+    'the four transitions do not share an access code: ' . implode(', ', $publicationScopes),
+);
+
+// The sweep is bulk, so a human running it by hand is asked first.
+larena_storage_role_assert(
+    $registry->describe('storage.publication.sweep')->riskClass === OperationRiskClass::Bulk,
 );
 
 // A subtree move is bulk, so the confirmation policy always asks before it runs.

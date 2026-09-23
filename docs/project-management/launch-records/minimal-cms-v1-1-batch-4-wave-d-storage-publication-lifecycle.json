@@ -1,0 +1,205 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_4.wave_d.storage_publication_lifecycle",
+  "status": "ready_to_code",
+  "verdict": "ready_to_code",
+  "coding_started": false,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-4-storage-roles-publication",
+  "wave": "D",
+  "target_package": "larena/storage",
+  "target_repo": "simai/larena-storage",
+  "expected_repository": "simai/larena-storage",
+  "target_repository_path": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage",
+  "base_commit": "9c515d9",
+  "base_branch": "feature/minimal-cms-v1-1-batch-4-storage-localized-values",
+  "base_branch_rationale": "Wave D branches from wave C because publication state is per record, scope and locale, so it consumes the locale surface.",
+  "target_repository_state": {
+    "workspace_path_exists": true,
+    "is_git_repository": true,
+    "independent_repository": true,
+    "default_branch": "main",
+    "clean_at_record_time": true
+  },
+  "branch": "feature/minimal-cms-v1-1-batch-4-storage-publication-lifecycle",
+  "secondary_repositories": [],
+  "specs_commit": "44bec272",
+  "larena_specs_commit": "44bec272",
+  "target_ref": "specs/project-management/larena-minimal-cms-v1-1-owner-amendment-target-state.json",
+  "target_semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "package_repo_enforcement_ref": "specs/implementation-planning/repository-preparation/larena-storage-enforcement-kit.json",
+  "pre_codegen_freeze_ref": "specs/implementation-planning/minimal-cms-v1-1-batch-4-pre-codegen-freeze.json",
+  "implementation_tz_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-batch-4-storage-roles-publication.md",
+  "plan_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-cluster-plan.md",
+  "depends_on_batch": {
+    "batch": "batch-4-storage-roles-publication",
+    "waves": [
+      "A",
+      "B",
+      "C"
+    ],
+    "storage_commit": "9c515d9",
+    "state": "implemented_verified_pending_independent_review"
+  },
+  "owner_start_signal": {
+    "kind": "federation_goal",
+    "recorded_at": "2026-09-23",
+    "detail": "The owner set the goal to implement the whole cluster plan in batch order; this record bounds Batch 3 wave A."
+  },
+  "spec_refs": [
+    "specs/packages/storage/package.json",
+    "specs/packages/storage/features/publication-lifecycle/feature.json"
+  ],
+  "dna_refs": [
+    "specs/packages/storage/dna.json",
+    "specs/standards/larena-dna-standard.json"
+  ],
+  "feature_refs": [
+    "storage.publication_lifecycle"
+  ],
+  "selected_features": [
+    "storage.publication_lifecycle"
+  ],
+  "implementation_scope": {
+    "cluster": "minimal_cms_v1_1_alignment",
+    "batch": "batch-4-storage-roles-publication",
+    "wave": "D",
+    "generation_mode": "interface-first",
+    "summary": "Publication state per record, scope and locale in one table with the published head as a column, an append-only transition log that answers history and the previous head, four separate access operations plus an explicit sweep, and the rule that a read never publishes."
+  },
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/2026_09_29_000001_create_larena_storage_publication_tables.php",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-d-storage-publication-lifecycle.json",
+    "docs/publication-lifecycle.md",
+    "module.yaml",
+    "operations.yaml",
+    "phpstan.neon.dist",
+    "scripts/validate-larena-package.php",
+    "source/output/action-gates/*",
+    "src/Audit/PublicationAuditEventCatalog.php",
+    "src/Contracts/PublicationHistoryPage.php",
+    "src/Contracts/PublicationLifecycle.php",
+    "src/Contracts/PublicationState.php",
+    "src/Contracts/PublicationTransition.php",
+    "src/Enums/PublicationStateValue.php",
+    "src/Enums/PublicationTransitionValue.php",
+    "src/Exceptions/PublicationRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabasePublicationLifecycle.php",
+    "src/Runtime/PublicationOperationHandlers.php",
+    "tests/Support/localized-value-schema.php",
+    "tests/Support/publication-schema.php",
+    "tests/Unit/PublicationFailsClosedTest.php",
+    "tests/Unit/PublicationHistoryTest.php",
+    "tests/Unit/PublicationLifecycleTest.php",
+    "tests/Unit/PublicationSweepTest.php",
+    "tests/Unit/PublicationTransitionMatrixTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "forbidden_files": [
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "database/migrations/2026_07_14_*",
+    "database/migrations/2026_08_09_*",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/VersionedStorage.php",
+    "src/Http/*",
+    "routes/*",
+    "api.yaml",
+    "mcp.yaml"
+  ],
+  "forbidden_files_note": "OperationDescriptor and SyncOperationRuntime are forbidden on purpose: the freeze enforces the v2 policy at registration precisely so that neither has to change.",
+  "forbidden_behavior": [
+    "changing the existing schema, record or version tables in any way",
+    "changing the workbench",
+    "mutating a revision, its values_json or any localized value when publishing",
+    "publishing from a read path: a read must never write",
+    "treating a scheduled publication as published before the sweep runs",
+    "folding publish, unpublish, schedule and archive into one operation with a mode argument",
+    "updating or deleting a row in the transition log",
+    "adding a public HTTP, REST or MCP surface",
+    "changing larena/core, larena/access or any package other than larena/storage",
+    "touching larena.test or any live environment",
+    "push, release or deployment without a separate owner request"
+  ],
+  "test_plan": "Plain-PHP package tests in the existing storage style with an in-memory SQLite capsule mirroring the frozen shapes.",
+  "required_tests": [
+    "publish sets the head for one scope and locale and leaves another scope and locale untouched",
+    "the four transitions are four access operations, and each is refused from a state the matrix does not allow",
+    "unpublish clears the head, keeps the revision history and returns the head it withdrew",
+    "archive clears the head and keeps the revisions",
+    "a schedule does not publish, and the head stays what it was",
+    "the sweep publishes a due schedule and leaves a future one alone, and it is idempotent",
+    "publishing a revision that does not exist for the record is refused",
+    "publishing never changes values_json or a localized value",
+    "history returns the transitions in order with the from and to state of each",
+    "one locale can be published while another stays a draft",
+    "the head reads back after a restart on sqlite and mysql"
+  ],
+  "smoke_plan": "Migration parity on sqlite and mysql, publish and unpublish in two locales with restart readback of the head and the history, and a sweep run over a due schedule.",
+  "evidence_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/",
+  "required_evidence_files": [
+    "implementation-summary.md",
+    "tests.md",
+    "smoke.md",
+    "file-map.json",
+    "deviations.json",
+    "graph-sync-proposal.json",
+    "code-review-feedback.md"
+  ],
+  "graph_sync_proposal_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+  "dependency_revisions": {
+    "larena_specs": "44bec272",
+    "larena_storage": "9c515d9",
+    "larena_core": "af09e6e",
+    "larena_access": "2a91c61",
+    "larena_root": "0d328ea1"
+  },
+  "action_gate_summary": {
+    "phase": "preflight",
+    "status": "pending",
+    "note": "Re-run the action gate inside the core package repository at coding start."
+  },
+  "required_before_ready_to_code": [
+    "pre_codegen_freeze_accepted",
+    "implementation_tz_present",
+    "batch_3_verified_against_the_root_baseline",
+    "allowed_file_boundary_present",
+    "evidence_path_defined",
+    "graph_sync_proposal_path_defined"
+  ],
+  "required_before_coding_started": [
+    "batch_branch_created_in_storage",
+    "storage_package_repo_clean_at_launch",
+    "php_8_3_runtime_available",
+    "owner_start_signal"
+  ],
+  "stop_conditions": [
+    "a frozen table shape, identity grammar, state set or reason code would have to change",
+    "an existing schema, record or version table would have to change",
+    "the workbench would have to change",
+    "a recursive CTE or a MySQL 8 only feature would be required",
+    "a file outside the allowed boundary would have to change",
+    "an unrecorded product or architecture decision is required",
+    "the storage package repository is dirty or not initialized"
+  ],
+  "not_a_release_authorization": true,
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize push, release or deployment.",
+    "Wave D publishes revisions. Serving them to a public reader is wave E.",
+    "The sweep is the contract a queue worker would call; wiring a worker is not part of this batch."
+  ],
+  "amendments": [
+    {
+      "date": "2026-09-23",
+      "reason": "the localized flag stays in the workbench structure descriptor and is not passed into the storage schema: the schema normalizer has a closed key set of its own and the workbench integration test refused the unknown key immediately"
+    }
+  ]
+}
