@@ -325,8 +325,19 @@ final readonly class StorageSchemaMigrationTableShapeGuard
         }
     }
 
+    /**
+     * A MariaDB server reached through Laravel's mysql driver still reports
+     * MariaDB's types, so the guard judges it as MariaDB.
+     */
     private function normalizedDriver(): string
     {
-        return strtolower($this->connection->getDriverName());
+        $driver = strtolower($this->connection->getDriverName());
+        if ($driver === 'mysql'
+            && $this->connection instanceof \Illuminate\Database\MySqlConnection
+            && $this->connection->isMaria()) {
+            return 'mariadb';
+        }
+
+        return $driver;
     }
 }

@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: minimal-cms-v1-1-batch-7-wave-d2-storage-record-operations
+batch: minimal-cms-v1-1-batch-7-wave-p1-storage-mariadb-shape-guards
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy

@@ -1,7 +1,7 @@
 {
   "schema": "larena.batch_evidence.v1",
   "batch": "batch-7-admin-headless",
-  "wave": "D2",
+  "wave": "P1",
   "package": "larena/storage",
   "status": "evidence",
   "deviations": []
