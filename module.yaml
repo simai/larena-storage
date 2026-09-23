@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: minimal-cms-v1-1-batch-4-wave-d-storage-publication-lifecycle
+batch: minimal-cms-v1-1-batch-4-wave-e-storage-read-contracts
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -44,6 +44,7 @@ features:
   - storage.record_relations
   - storage.localized_values
   - storage.publication_lifecycle
+  - storage.read_contracts
 runtime:
   php: "^8.3"
   laravel: "^13.0"

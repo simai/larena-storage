@@ -15,7 +15,7 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 24, 'waves A to D declare twenty-four operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 27, 'waves A to E declare twenty-seven operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
@@ -33,6 +33,9 @@ larena_storage_role_assert($names === [
     'storage.publication.schedule',
     'storage.publication.sweep',
     'storage.publication.unpublish',
+    'storage.read.projection_explain',
+    'storage.read.published_projection',
+    'storage.read.resolve_key',
     'storage.relation.define',
     'storage.relation.explain',
     'storage.relation.resolve',
@@ -54,6 +57,7 @@ foreach ($operations as $operation) {
             'storage.handler.relation',
             'storage.handler.locale',
             'storage.handler.publication',
+            'storage.handler.read_contract',
         ], true),
         $operation['declaration']->name . ' binds to a storage handler',
     );
@@ -63,8 +67,8 @@ foreach ($operations as $operation) {
 // REST parity and the MCP projection read this one registry.
 $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(), $provider]);
 
-larena_storage_role_assert(count($registry->list()) === 46, 'core 22 plus storage 24');
-larena_storage_role_assert(count($registry->list('larena/storage')) === 24);
+larena_storage_role_assert(count($registry->list()) === 49, 'core 22 plus storage 27');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 27);
 larena_storage_role_assert(count($registry->list('larena/core')) === 22);
 
 // The gates and risks survive into the registry.
@@ -97,12 +101,13 @@ larena_storage_role_assert(
         'storage.publication.read',
         'storage.publication.schedule',
         'storage.publication.unpublish',
+        'storage.read.public',
         'storage.relation.manage',
         'storage.relation.read',
         'storage.role.manage',
         'storage.role.read',
     ],
-    'waves A to D use exactly eleven access codes: ' . implode(', ', array_keys($scopes)),
+    'waves A to E use exactly twelve access codes: ' . implode(', ', array_keys($scopes)),
 );
 
 // Publish, unpublish, schedule and archive are four separate access codes, which is

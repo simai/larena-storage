@@ -79,3 +79,22 @@ No independent review yet. What a reviewer should attack first:
    still names the head that was live. That is deliberate — it is how "what was live
    before we took this down" is answered — but it means the column is not "the head
    before the current one" in every state.
+
+## Wave E
+
+1. **`resolveKey` scans the projection.** It reads up to the budget of published heads
+   and compares the key field in PHP rather than querying it, because the key field's
+   name is declared per schema and its value may be localized. That is correct and it is
+   O(published records in the scope). A reviewer should decide when this needs an index
+   or a materialized key table.
+2. **The same is true of `SlugUniquenessGuard`.** It asks the projection, which keeps
+   one definition of "published" but pays the same scan on every check.
+3. **A role reference resolves to the first active binding.** If a role is bound to two
+   structures in one scope, `resolveKey` silently picks one. A reviewer should decide
+   whether that should be `ambiguous_role_binding`.
+4. **The two defects the smoke found were both invisible to the unit tests**, because the
+   tests and the fixture agreed with each other and disagreed with the migration. A
+   reviewer should look for other fixtures in this package with the same problem.
+5. **Nothing caches the projection.** Every read rebuilds it. That is the correct default
+   for this batch — correctness before speed — but it is worth a measurement before the
+   Admin surfaces start reading it per request.

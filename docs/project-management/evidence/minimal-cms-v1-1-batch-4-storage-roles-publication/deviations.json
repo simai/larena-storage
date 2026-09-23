@@ -118,6 +118,32 @@
       "detail": "The publication smoke needed revisions to publish, and the record mutation path is not part of this batch.",
       "resolution": "Three record-version rows were inserted directly in the smoke. Recorded rather than hidden: the publication behaviour is what was under test, and the injected revision check was exercised by the refusal that happened before the rows existed.",
       "shape_impact": "none"
+    },
+    {
+      "id": "empty_public_field_list_leaked_localized_values",
+      "kind": "security_correction_during_batch",
+      "path": "src/Runtime/DatabaseReadContracts.php",
+      "detail": "publicValues() passed the public field list to the localized reader, and that reader treats an empty list as every field. A schema whose visibility nobody had declared therefore projected no shared values and every localized value.",
+      "resolution": "The projection returns early on an empty public field list, and a test writes a localized value for an undeclared schema and asserts it stays out in every locale.",
+      "found_by": "the SQLite smoke, where the schema row was missing so the public field list came back empty",
+      "shape_impact": "none"
+    },
+    {
+      "id": "schema_versions_fixture_was_narrower_than_the_migration",
+      "kind": "fixture_fidelity_defect",
+      "path": "tests/Support/read-contract-schema.php",
+      "detail": "larena_storage_schema_versions has a NOT NULL definition_hash and a correlation_id column that the fixture omitted, so the fixture accepted inserts the real table refuses.",
+      "resolution": "The fixture mirrors the migration column for column, including both indexes. A fixture that omits a NOT NULL column is worse than no fixture: it makes a test pass against a shape that cannot exist.",
+      "found_by": "the SQLite smoke, where every insert was silently dropped",
+      "shape_impact": "none on the migration; the fixture now matches it"
+    },
+    {
+      "id": "slug_guard_has_no_connection",
+      "kind": "implementation_choice",
+      "path": "src/Runtime/SlugUniquenessGuard.php",
+      "detail": "The guard first took a connection it never used, which PHPStan reported.",
+      "resolution": "It asks the published projection instead, so published has exactly one definition in the package rather than two that could drift.",
+      "shape_impact": "none"
     }
   ],
   "no_deviation_areas": [
@@ -133,6 +159,7 @@
     "A",
     "B",
     "C",
-    "D"
+    "D",
+    "E"
   ]
 }

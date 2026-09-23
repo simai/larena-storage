@@ -61,3 +61,6 @@ operations:
   - code: storage.publication.read
     risk: high
     audit: denial
+  - code: storage.read.public
+    risk: medium
+    audit: denial

@@ -1,0 +1,201 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_4.wave_e.storage_read_contracts",
+  "status": "ready_to_code",
+  "verdict": "ready_to_code",
+  "coding_started": false,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-4-storage-roles-publication",
+  "wave": "E",
+  "target_package": "larena/storage",
+  "target_repo": "simai/larena-storage",
+  "expected_repository": "simai/larena-storage",
+  "target_repository_path": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage",
+  "base_commit": "4640a1e",
+  "base_branch": "feature/minimal-cms-v1-1-batch-4-storage-publication-lifecycle",
+  "base_branch_rationale": "Wave E reads what waves B, C and D wrote, so it branches from wave D.",
+  "target_repository_state": {
+    "workspace_path_exists": true,
+    "is_git_repository": true,
+    "independent_repository": true,
+    "default_branch": "main",
+    "clean_at_record_time": true
+  },
+  "branch": "feature/minimal-cms-v1-1-batch-4-storage-read-contracts",
+  "secondary_repositories": [],
+  "specs_commit": "7eccfb01",
+  "larena_specs_commit": "7eccfb01",
+  "target_ref": "specs/project-management/larena-minimal-cms-v1-1-owner-amendment-target-state.json",
+  "target_semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "package_repo_enforcement_ref": "specs/implementation-planning/repository-preparation/larena-storage-enforcement-kit.json",
+  "pre_codegen_freeze_ref": "specs/implementation-planning/minimal-cms-v1-1-batch-4-pre-codegen-freeze.json",
+  "implementation_tz_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-batch-4-storage-roles-publication.md",
+  "plan_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-cluster-plan.md",
+  "depends_on_batch": {
+    "batch": "batch-4-storage-roles-publication",
+    "waves": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "storage_commit": "4640a1e",
+    "state": "implemented_verified_pending_independent_review"
+  },
+  "owner_start_signal": {
+    "kind": "federation_goal",
+    "recorded_at": "2026-09-23",
+    "detail": "The owner set the goal to implement the whole cluster plan in batch order; this record bounds Batch 3 wave A."
+  },
+  "spec_refs": [
+    "specs/packages/storage/package.json",
+    "specs/packages/storage/features/read-contracts/feature.json"
+  ],
+  "dna_refs": [
+    "specs/packages/storage/dna.json",
+    "specs/standards/larena-dna-standard.json"
+  ],
+  "feature_refs": [
+    "storage.read_contracts"
+  ],
+  "selected_features": [
+    "storage.read_contracts"
+  ],
+  "implementation_scope": {
+    "cluster": "minimal_cms_v1_1_alignment",
+    "batch": "batch-4-storage-roles-publication",
+    "wave": "E",
+    "generation_mode": "interface-first",
+    "summary": "resolve_key returning at most one published record per role, scope and locale and failing closed on an ambiguous key; a published projection carrying only the published head, only public fields and only records the caller may read, with filtered records counted and never named; and a slug uniqueness guard whose scope is role, scope and locale."
+  },
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-e-storage-read-contracts.json",
+    "docs/read-contracts.md",
+    "module.yaml",
+    "operations.yaml",
+    "phpstan.neon.dist",
+    "scripts/validate-larena-package.php",
+    "source/output/action-gates/*",
+    "src/Contracts/PublishedProjection.php",
+    "src/Contracts/PublishedProjectionPage.php",
+    "src/Contracts/ReadContracts.php",
+    "src/Contracts/ResolvedKey.php",
+    "src/Exceptions/ReadContractRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseReadContracts.php",
+    "src/Runtime/ReadContractOperationHandlers.php",
+    "src/Runtime/SlugUniquenessGuard.php",
+    "tests/Support/publication-schema.php",
+    "tests/Support/read-contract-schema.php",
+    "tests/Unit/PublishedProjectionTest.php",
+    "tests/Unit/ReadContractsFailsClosedTest.php",
+    "tests/Unit/ReadContractsResolveKeyTest.php",
+    "tests/Unit/RoleBoundSiteTreeTwoLocalesTest.php",
+    "tests/Unit/SlugUniquenessTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "forbidden_files": [
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "database/migrations/2026_07_14_*",
+    "database/migrations/2026_08_09_*",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/VersionedStorage.php",
+    "src/Http/*",
+    "routes/*",
+    "api.yaml",
+    "mcp.yaml"
+  ],
+  "forbidden_files_note": "OperationDescriptor and SyncOperationRuntime are forbidden on purpose: the freeze enforces the v2 policy at registration precisely so that neither has to change.",
+  "forbidden_behavior": [
+    "changing the existing schema, record or version tables in any way",
+    "changing the workbench",
+    "returning a draft, scheduled or archived revision from a public read",
+    "returning a field whose visibility is not public from the published projection",
+    "naming a filtered record to a caller who may not read it",
+    "returning the first of several candidates for a key instead of failing closed",
+    "writing anything from a read path",
+    "adding a public HTTP, REST or MCP surface",
+    "changing larena/core, larena/access or any package other than larena/storage",
+    "touching larena.test or any live environment",
+    "push, release or deployment without a separate owner request"
+  ],
+  "test_plan": "Plain-PHP package tests in the existing storage style with an in-memory SQLite capsule mirroring the frozen shapes.",
+  "required_tests": [
+    "resolve_key returns the published record for a role, scope and locale and nothing for an unpublished one",
+    "two candidates for the same key fail closed with ambiguous_key rather than returning the first",
+    "a miss is indistinguishable from a record the caller may not read",
+    "the projection carries only the published head and excludes draft, scheduled and archived revisions",
+    "the projection excludes every field whose visibility is not public",
+    "a scope-filtered record is reported as a count and never as an identifier",
+    "slug uniqueness holds per role, scope and locale and a conflicting value is refused",
+    "the same slug is allowed in another scope and in another locale",
+    "a role-bound site_node tree with localized values renders in two locales from one record set"
+  ],
+  "smoke_plan": "resolve_key and the published projection against the root on sqlite and mysql, with a two-locale site tree rendered from one record set and read back after a restart.",
+  "evidence_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/",
+  "required_evidence_files": [
+    "implementation-summary.md",
+    "tests.md",
+    "smoke.md",
+    "file-map.json",
+    "deviations.json",
+    "graph-sync-proposal.json",
+    "code-review-feedback.md"
+  ],
+  "graph_sync_proposal_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+  "dependency_revisions": {
+    "larena_specs": "7eccfb01",
+    "larena_storage": "4640a1e",
+    "larena_core": "af09e6e",
+    "larena_access": "2a91c61",
+    "larena_root": "0d328ea1"
+  },
+  "action_gate_summary": {
+    "phase": "preflight",
+    "status": "pending",
+    "note": "Re-run the action gate inside the core package repository at coding start."
+  },
+  "required_before_ready_to_code": [
+    "pre_codegen_freeze_accepted",
+    "implementation_tz_present",
+    "batch_3_verified_against_the_root_baseline",
+    "allowed_file_boundary_present",
+    "evidence_path_defined",
+    "graph_sync_proposal_path_defined"
+  ],
+  "required_before_coding_started": [
+    "batch_branch_created_in_storage",
+    "storage_package_repo_clean_at_launch",
+    "php_8_3_runtime_available",
+    "owner_start_signal"
+  ],
+  "stop_conditions": [
+    "a frozen table shape, identity grammar, state set or reason code would have to change",
+    "an existing schema, record or version table would have to change",
+    "the workbench would have to change",
+    "a recursive CTE or a MySQL 8 only feature would be required",
+    "a file outside the allowed boundary would have to change",
+    "an unrecorded product or architecture decision is required",
+    "the storage package repository is dirty or not initialized"
+  ],
+  "not_a_release_authorization": true,
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize push, release or deployment.",
+    "Wave E ships read contracts as PHP contracts and operations. The REST endpoints that consume them are a later batch.",
+    "A headless read is proven through the contracts, not through a route."
+  ],
+  "amendments": [
+    {
+      "date": "2026-09-23",
+      "reason": "the lifecycle contract gains dueSchedules() as a read so the sweep proposal is a genuine dry run; the revision-existence check is an injected callable bound by the composed application"
+    }
+  ]
+}

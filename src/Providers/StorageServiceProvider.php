@@ -21,16 +21,20 @@ use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
+use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\StructureRoleRegistry;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\DatabaseLocalizedValues;
 use Larena\Storage\Runtime\DatabasePublicationLifecycle;
+use Larena\Storage\Runtime\DatabaseReadContracts;
 use Larena\Storage\Runtime\DatabaseRecordRelations;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
+use Larena\Storage\Runtime\ReadContractOperationHandlers;
+use Larena\Storage\Runtime\SlugUniquenessGuard;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StarterStructureRoles;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
@@ -100,6 +104,22 @@ final class StorageServiceProvider extends ServiceProvider
 
         $this->app->singleton(PublicationOperationHandlers::class, static function (Application $app): PublicationOperationHandlers {
             return new PublicationOperationHandlers($app->make(PublicationLifecycle::class));
+        });
+
+        $this->app->singleton(DatabaseReadContracts::class, static function (Application $app): DatabaseReadContracts {
+            return new DatabaseReadContracts(
+                $app->make(DatabaseManager::class)->connection(),
+                $app->make(LocalizedValues::class),
+            );
+        });
+        $this->app->alias(DatabaseReadContracts::class, ReadContracts::class);
+
+        $this->app->singleton(SlugUniquenessGuard::class, static function (Application $app): SlugUniquenessGuard {
+            return new SlugUniquenessGuard($app->make(DatabaseReadContracts::class));
+        });
+
+        $this->app->singleton(ReadContractOperationHandlers::class, static function (Application $app): ReadContractOperationHandlers {
+            return new ReadContractOperationHandlers($app->make(ReadContracts::class));
         });
 
         // The core registry is composed from a hard-coded provider list inside

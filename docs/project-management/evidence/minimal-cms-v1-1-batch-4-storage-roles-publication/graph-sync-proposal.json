@@ -118,6 +118,32 @@
         "the published head is the only version visible to public readers and to the published safe projection: wave E",
         "a domain event for automation: no automation consumer exists yet"
       ]
+    },
+    {
+      "feature": "storage.read_contracts",
+      "observed_state": "implemented",
+      "implemented": [
+        "resolve_key returning at most one published record per structure, scope and locale",
+        "ambiguous_key failing closed rather than returning the first candidate",
+        "a published projection carrying only the published head, only public fields and only records the caller may read",
+        "filtered records reported as a count and never as identifiers",
+        "slug uniqueness per structure, scope and locale enforced by a guard",
+        "a role reference resolved through its active binding"
+      ],
+      "not_implemented": [
+        "a REST endpoint over either read model",
+        "a cached or materialized copy of the projection"
+      ],
+      "acceptance_covered": [
+        "a key field declares its uniqueness scope as structure plus scope plus locale, and storage.read.resolve_key returns at most one published record for that tuple",
+        "the published safe projection contains only the published head, only fields marked public in the schema and only records that pass the caller's query scope",
+        "the projection is rebuildable from Storage at any time and no consumer may treat its copy as a source of truth",
+        "projection diagnostics report filtered records as counts, never as identifiers"
+      ],
+      "acceptance_not_covered": [
+        "resolve_key is a read model and turning a resolved record into an HTTP route is a stateless adapter: no adapter exists yet",
+        "a headless installation can serve a site through REST alone: proven through the contracts in this wave, not through a route"
+      ]
     }
   ],
   "nonclaims": [
@@ -127,6 +153,10 @@
     "A",
     "B",
     "C",
-    "D"
+    "D",
+    "E"
+  ],
+  "acceptance_criteria_proven": [
+    "larena.acceptance.minimal_cms.role_bound_site_tree_two_locales"
   ]
 }

@@ -52,7 +52,8 @@
     "A",
     "B",
     "C",
-    "D"
+    "D",
+    "E"
   ],
   "wave_b_changed_files": [
     ".larena/launch-context.json",
@@ -154,6 +155,35 @@
     "tests/Unit/PublicationLifecycleTest.php",
     "tests/Unit/PublicationSweepTest.php",
     "tests/Unit/PublicationTransitionMatrixTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "wave_e_changed_files": [
+    ".larena/launch-context.json",
+    "access.yaml",
+    "composer.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/deviations.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-e-implementation-summary.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-e-smoke.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-e-tests.md",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-e-storage-read-contracts.json",
+    "module.yaml",
+    "operations.yaml",
+    "src/Contracts/PublishedProjectionPage.php",
+    "src/Contracts/ReadContracts.php",
+    "src/Contracts/ResolvedKey.php",
+    "src/Exceptions/ReadContractRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseReadContracts.php",
+    "src/Runtime/ReadContractOperationHandlers.php",
+    "src/Runtime/SlugUniquenessGuard.php",
+    "tests/Support/read-contract-schema.php",
+    "tests/Unit/PublishedProjectionTest.php",
+    "tests/Unit/ReadContractsFailsClosedTest.php",
+    "tests/Unit/ReadContractsResolveKeyTest.php",
+    "tests/Unit/RoleBoundSiteTreeTwoLocalesTest.php",
+    "tests/Unit/SlugUniquenessTest.php",
     "tests/Unit/StorageOperationDeclarationTest.php"
   ]
 }
