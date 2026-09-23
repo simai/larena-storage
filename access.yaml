@@ -64,3 +64,15 @@ operations:
   - code: storage.read.public
     risk: medium
     audit: denial
+  - code: content.item.list
+    risk: high
+    audit: denial
+  - code: content.item.read
+    risk: high
+    audit: denial
+  - code: content.item.create
+    risk: high
+    audit: always
+  - code: content.item.update
+    risk: high
+    audit: always

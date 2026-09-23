@@ -150,7 +150,8 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublishedProjectionTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SlugUniquenessTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadContractsFailsClosedTest.php",
-            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RoleBoundSiteTreeTwoLocalesTest.php"
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RoleBoundSiteTreeTwoLocalesTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/BlockDocumentServiceTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",

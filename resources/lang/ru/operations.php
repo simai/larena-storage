@@ -14,4 +14,8 @@ return [
     'workbench_record_archive' => 'Архивирование записи хранения',
     'workbench_record_bulk_archive' => 'Массовое архивирование записей хранения',
     'workbench_record_history' => 'История записи хранения',
+    'block_document_list' => 'Просмотр списка документов страниц',
+    'block_document_read' => 'Чтение документов страниц',
+    'block_document_create' => 'Создание документов страниц',
+    'block_document_update' => 'Редактирование документов страниц',
 ];

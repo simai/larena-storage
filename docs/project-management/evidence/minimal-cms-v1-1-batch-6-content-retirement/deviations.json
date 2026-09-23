@@ -1,0 +1,7 @@
+{
+  "schema": "larena.batch_evidence.v1",
+  "batch": "batch-6-content-retirement",
+  "wave": "B",
+  "package": "larena/storage",
+  "status": "in_progress"
+}

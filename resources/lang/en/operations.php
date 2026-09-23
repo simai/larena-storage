@@ -14,4 +14,8 @@ return [
     'workbench_record_archive' => 'Archive storage record',
     'workbench_record_bulk_archive' => 'Bulk archive storage records',
     'workbench_record_history' => 'Read storage record history',
+    'block_document_list' => 'List page documents',
+    'block_document_read' => 'Read page documents',
+    'block_document_create' => 'Create page documents',
+    'block_document_update' => 'Edit page documents',
 ];

@@ -1,0 +1,56 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_6.wave_b.storage_block_documents_site",
+  "status": "coding_started",
+  "verdict": "ready_to_code",
+  "coding_started": true,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-6-content-retirement",
+  "wave": "B",
+  "target_package": "larena/storage",
+  "target_repo": "simai/larena-storage",
+  "base_commit": "2b3cb9d3",
+  "branch": "feature/minimal-cms-v1-1-batch-6-storage-block-documents-site",
+  "specs_commit": "94f6d9cc",
+  "freeze_ref": "specs/implementation-planning/minimal-cms-v1-1-batch-6-pre-codegen-freeze.json",
+  "implementation_scope": {
+    "summary": "Block documents move into Storage, where their data always lived, with the schema id unchanged; the site first-run contributor writes the starter Home page through Storage's own APIs."
+  },
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-6-content-retirement/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-6-wave-b-storage-block-documents-site.json",
+    "module.yaml",
+    "operations.yaml",
+    "phpstan.neon.dist",
+    "resources/lang/en/operations.php",
+    "resources/lang/ru/operations.php",
+    "src/BlockDocuments/*",
+    "src/BlockDocuments/Access/*",
+    "src/FirstRun/*",
+    "src/Providers/StorageServiceProvider.php",
+    "tests/Integration/BlockDocumentServiceTest.php",
+    "tests/Integration/SiteFirstRunContributorTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "forbidden_behavior": [
+    "dropping or renaming any table",
+    "renaming the content.block_document schema id or the content.document owner-ref format",
+    "renaming a content.item access code",
+    "depending on larena/filesystem or larena/content",
+    "touching larena.test or any live environment"
+  ],
+  "stop_conditions": [
+    "a data migration would be required",
+    "Storage would need to depend on Filesystem or Content",
+    "an access code would have to be renamed"
+  ],
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize push, release or deployment."
+  ]
+}

@@ -24,6 +24,12 @@ use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\StructureRoleRegistry;
+use Larena\Storage\BlockDocuments\Access\AccessBlockDocumentAuthorization;
+use Larena\Storage\BlockDocuments\BlockDocumentAuthorization;
+use Larena\Storage\BlockDocuments\BlockDocumentFileInspector;
+use Larena\Storage\BlockDocuments\BlockDocumentService;
+use Larena\Storage\BlockDocuments\StorageBackedBlockDocumentService;
+use Larena\Storage\BlockDocuments\UnavailableBlockDocumentFileInspector;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\DatabaseLocalizedValues;
@@ -113,6 +119,21 @@ final class StorageServiceProvider extends ServiceProvider
             );
         });
         $this->app->alias(DatabaseReadContracts::class, ReadContracts::class);
+
+        // Block documents moved here from larena/content; they always lived in
+        // Storage's tables. The two ports have defaults so Storage boots alone:
+        // authorization goes through Access, and without a file owner composed
+        // every file is unavailable, which fails an image block closed.
+        $this->app->bindIf(BlockDocumentFileInspector::class, UnavailableBlockDocumentFileInspector::class);
+        $this->app->bindIf(BlockDocumentAuthorization::class, static fn (Application $app): BlockDocumentAuthorization => new AccessBlockDocumentAuthorization(
+            $app->make(ActorOperationAuthorizer::class),
+            $app->make(QueryScopeProvider::class),
+        ));
+        $this->app->bindIf(BlockDocumentService::class, static fn (Application $app): BlockDocumentService => new StorageBackedBlockDocumentService(
+            $app->make(VersionedStorageContract::class),
+            $app->make(BlockDocumentAuthorization::class),
+            $app->make(BlockDocumentFileInspector::class),
+        ));
 
         $this->app->singleton(SlugUniquenessGuard::class, static function (Application $app): SlugUniquenessGuard {
             return new SlugUniquenessGuard($app->make(DatabaseReadContracts::class));
@@ -258,18 +279,27 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.workbench.record.restore', 'workbench_record_restore', 'restore', 'critical'],
             ['storage.workbench.record.bulk_archive', 'workbench_record_bulk_archive', 'delete', 'critical'],
             ['storage.workbench.record.history', 'workbench_record_history', 'read', 'high'],
+            // Block document codes. They keep the content.item spelling because
+            // system role presets and every existing role grant name them;
+            // renaming them would change an accepted access contract.
+            ['content.item.list', 'block_document_list', 'list', 'high'],
+            ['content.item.read', 'block_document_read', 'read', 'high'],
+            ['content.item.create', 'block_document_create', 'create', 'high'],
+            ['content.item.update', 'block_document_update', 'update', 'high'],
         ] as [$code, $label, $grant, $risk]) {
             $registered = $registry->register(new AccessOperationDescriptor(
                 code: $code,
                 ownerPackage: 'larena/storage',
                 labelKey: 'larena-storage::operations.' . $label,
-                target: str_starts_with($code, 'storage.schema.') || str_starts_with($code, 'storage.schema_migration.')
+                target: str_starts_with($code, 'content.item.')
+                    ? 'content.item:all'
+                    : (str_starts_with($code, 'storage.schema.') || str_starts_with($code, 'storage.schema_migration.')
                     ? 'storage.schema:all'
                     : (str_starts_with($code, 'storage.workbench.structure.')
                         ? 'storage.workbench.structure:all'
                         : (str_starts_with($code, 'storage.workbench.record.')
                             ? 'storage.workbench.record:all'
-                            : 'storage.record:all')),
+                            : 'storage.record:all'))),
                 requiredGrant: $grant,
                 risk: $risk,
                 auditDenials: true,
