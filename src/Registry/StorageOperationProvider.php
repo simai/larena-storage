@@ -9,6 +9,7 @@ use Larena\Core\Contracts\OperationDescriptor;
 use Larena\Core\Contracts\OperationProvider;
 use Larena\Core\Exceptions\OperationDeclarationInvalid;
 use Larena\Core\Registry\OperationDeclarationLoader;
+use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
 
 /**
@@ -63,7 +64,10 @@ final class StorageOperationProvider implements OperationProvider
      */
     public static function descriptors(): array
     {
-        return StructureRoleOperationHandlers::descriptors();
+        return [
+            ...StructureRoleOperationHandlers::descriptors(),
+            ...RelationOperationHandlers::descriptors(),
+        ];
     }
 
     /**
@@ -74,6 +78,10 @@ final class StorageOperationProvider implements OperationProvider
         $refs = [];
         foreach (array_keys(StructureRoleOperationHandlers::descriptors()) as $name) {
             $refs[$name] = 'storage.handler.structure_role';
+        }
+
+        foreach (array_keys(RelationOperationHandlers::descriptors()) as $name) {
+            $refs[$name] = 'storage.handler.relation';
         }
 
         return $refs;

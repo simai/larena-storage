@@ -45,6 +45,39 @@
       "detail": "The registry accepts a null ScopeRefResolver so a package test can run without the core scope tables.",
       "resolution": "Null means the caller has taken responsibility for the scope, stated in a comment rather than implied. The composed application always binds a resolver, and the smoke proves an unknown scope fails closed there.",
       "shape_impact": "none"
+    },
+    {
+      "id": "traversal_payload_leaked_filtered_ids",
+      "kind": "security_correction_during_batch",
+      "path": "src/Runtime/DatabaseRecordRelations.php",
+      "detail": "The first scoped traversal filtered the rows and returned the surviving records untouched, so a caller who could not read an ancestor still received its id in the materialized path, in the parent link and inside the relation id. The filter hid the row and the payload handed it back.",
+      "resolution": "The filter is evaluated for the whole slice first and only the ids it rejected are masked with *, plus the ids the caller supplied. Depth and order survive because they are structural, not identifying. Blanking everything was rejected: it would also hide ancestors the caller may read and make the answer useless for building a tree.",
+      "found_by": "writing RelationTraversalScopeTest, which asserted the payload does not contain the hidden id",
+      "shape_impact": "none on the frozen table; the traversal page contract is unchanged"
+    },
+    {
+      "id": "relation_identity_rewritten_on_move",
+      "kind": "frozen_invariant_upheld",
+      "path": "src/Runtime/DatabaseRecordRelations.php",
+      "detail": "The freeze defines relation_id as <relation_key>|<from_record_id>|<to_record_id>. A subtree move changes the parent, so leaving the identity alone would leave a primary key naming a parent the row no longer has.",
+      "resolution": "A move rewrites the moved record's relation_id along with its path and depth, so the frozen grammar stays true of the row as it is rather than only as it was created. Found in the MySQL smoke, not in a unit test.",
+      "shape_impact": "none"
+    },
+    {
+      "id": "path_index_is_driver_specific",
+      "kind": "implementation_choice",
+      "path": "database/migrations/platform/2026_09_27_000001_create_larena_storage_record_relations_table.php",
+      "detail": "A 2048-character column cannot be indexed whole on MySQL with utf8mb4.",
+      "resolution": "The migration issues a path(191) prefix index on MySQL and a plain index on SQLite. One Blueprint index would have produced a migration that passes on SQLite and fails on the production driver, which is the same trap as the index-name length limit found in Batch 1.",
+      "shape_impact": "none on the frozen index list; only the MySQL prefix length is added"
+    },
+    {
+      "id": "reference_count_excludes_the_tree_edge",
+      "kind": "implementation_choice",
+      "path": "src/Runtime/DatabaseRecordRelations.php",
+      "detail": "explain() first counted every edge leaving the record, so a record with one parent and no references reported one reference.",
+      "resolution": "The tree edge is counted separately from references.",
+      "shape_impact": "none"
     }
   ],
   "no_deviation_areas": [
@@ -55,5 +88,9 @@
     "the workbench is untouched: the optional localized field key belongs to wave C",
     "no public HTTP, REST or MCP surface added",
     "no change to any package other than larena/storage"
+  ],
+  "waves": [
+    "A",
+    "B"
   ]
 }

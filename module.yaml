@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: minimal-cms-v1-1-batch-4-wave-a-storage-structure-roles
+batch: minimal-cms-v1-1-batch-4-wave-b-storage-record-relations
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -41,6 +41,7 @@ features:
   - storage.workbench_filter_operators
   - storage.workbench_scan_limit_5000
   - storage.structure_roles
+  - storage.record_relations
 runtime:
   php: "^8.3"
   laravel: "^13.0"

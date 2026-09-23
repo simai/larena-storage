@@ -37,6 +37,15 @@ events:
   - type: storage.role.bound
     category: storage_structure_role
     severity: security
+  - type: storage.relation.defined
+    category: storage_relation
+    severity: security
+  - type: storage.tree.moved
+    category: storage_relation
+    severity: security
+  - type: storage.relation.deleted
+    category: storage_relation
+    severity: security
 forbidden_payload_fields:
   - definition
   - target_definition

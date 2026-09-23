@@ -34,9 +34,41 @@
         "each role ships with a SitePack example: SitePack portability is its own feature and its own wave",
         "site_node requires the publishable lifecycle and a parent relation: declared and validated here, but the tree itself is wave B"
       ]
+    },
+    {
+      "feature": "storage.record_relations",
+      "observed_state": "implemented",
+      "implemented": [
+        "reference and tree relations on one table",
+        "a portable single-parent guarantee enforced by a unique index",
+        "adjacency plus materialized path traversal with no recursive query",
+        "the three delete policies",
+        "a subtree move in one transaction preserving sibling order",
+        "scoped traversal that counts filtered records and masks their identifiers",
+        "a declared traversal budget that reports truncation"
+      ],
+      "not_implemented": [
+        "SitePack export and import of relations by logical identifier",
+        "relation cardinality constraints beyond single parent"
+      ],
+      "acceptance_covered": [
+        "a tree relation stores parent and order and rejects cycles and cross-scope parents at mutation time",
+        "storage.tree.children and storage.tree.ancestors return only records visible through the caller's query scope, and a hidden ancestor is reported as filtered rather than absent",
+        "delete behavior per relation is explicit: restrict, cascade to descendants or detach, and the choice is part of the versioned schema",
+        "moving a subtree preserves order among siblings and emits one audit event with the moved record set",
+        "tree traversal declares a query budget and reports when a slice is truncated"
+      ],
+      "acceptance_not_covered": [
+        "a reference relation validates its target before the record is written: target validation needs the record mutation path, which this wave does not touch",
+        "SitePack export and import preserve relations by logical identifier: its own feature and its own wave"
+      ]
     }
   ],
   "nonclaims": [
     "A conforming binding is not a site tree. Relations, locales and publication are waves B, C and D."
+  ],
+  "waves": [
+    "A",
+    "B"
   ]
 }

@@ -19,10 +19,13 @@ use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
+use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\StructureRoleRegistry;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
+use Larena\Storage\Runtime\DatabaseRecordRelations;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
+use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StarterStructureRoles;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
@@ -51,6 +54,15 @@ final class StorageServiceProvider extends ServiceProvider
 
         $this->app->singleton(StructureRoleOperationHandlers::class, static function (Application $app): StructureRoleOperationHandlers {
             return new StructureRoleOperationHandlers($app->make(StructureRoleRegistry::class));
+        });
+
+        $this->app->singleton(DatabaseRecordRelations::class, static function (Application $app): DatabaseRecordRelations {
+            return new DatabaseRecordRelations($app->make(DatabaseManager::class)->connection());
+        });
+        $this->app->alias(DatabaseRecordRelations::class, RecordRelations::class);
+
+        $this->app->singleton(RelationOperationHandlers::class, static function (Application $app): RelationOperationHandlers {
+            return new RelationOperationHandlers($app->make(RecordRelations::class));
         });
 
         // The core registry is composed from a hard-coded provider list inside

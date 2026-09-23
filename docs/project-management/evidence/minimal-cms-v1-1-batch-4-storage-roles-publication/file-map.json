@@ -37,11 +37,52 @@
   ],
   "new_tables": [
     "larena_storage_structure_roles",
-    "larena_storage_structure_role_bindings"
+    "larena_storage_structure_role_bindings",
+    "larena_storage_record_relations"
   ],
   "untouched": [
     "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
     "src/Runtime/DatabaseStorageWorkbench.php",
     "src/Runtime/VersionedStorage.php"
+  ],
+  "waves": [
+    "A",
+    "B"
+  ],
+  "wave_b_changed_files": [
+    ".larena/launch-context.json",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/2026_09_27_000001_create_larena_storage_record_relations_table.php",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/deviations.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-b-implementation-summary.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-b-smoke.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/wave-b-tests.md",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-b-storage-record-relations.json",
+    "module.yaml",
+    "operations.yaml",
+    "src/Audit/RelationAuditEventCatalog.php",
+    "src/Contracts/RecordRelations.php",
+    "src/Contracts/RelationDescriptor.php",
+    "src/Contracts/RelationRecord.php",
+    "src/Contracts/RelationTraversalPage.php",
+    "src/Enums/RelationDeletePolicy.php",
+    "src/Enums/RelationKind.php",
+    "src/Enums/RelationStatus.php",
+    "src/Exceptions/RelationRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseRecordRelations.php",
+    "src/Runtime/RelationOperationHandlers.php",
+    "src/Runtime/RelationPath.php",
+    "tests/Support/record-relation-schema.php",
+    "tests/Unit/RecordRelationsFailsClosedTest.php",
+    "tests/Unit/RecordRelationsTest.php",
+    "tests/Unit/RecordRelationsTreeTest.php",
+    "tests/Unit/RelationDeletePolicyTest.php",
+    "tests/Unit/RelationTraversalScopeTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
   ]
 }

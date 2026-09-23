@@ -415,3 +415,525 @@ operations:
         exists:
           type: 'boolean'
       required: []
+  - name: 'storage.relation.define'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.relation.manage'
+    audit_event: 'storage.relation.defined'
+    idempotency_key: 'relation_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        kind:
+          type: 'string'
+          enum:
+            - 'reference'
+            - 'tree_parent'
+        delete_policy:
+          type: 'string'
+          enum:
+            - 'restrict'
+            - 'cascade'
+            - 'detach'
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        from_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        to_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        order_index:
+          type: 'integer'
+        target_role_code:
+          type: 'string'
+          maxLength: 120
+      required:
+        - 'relation_key'
+        - 'kind'
+        - 'delete_policy'
+        - 'schema_id'
+        - 'from_record_id'
+        - 'to_record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            relation_id:
+              type: 'string'
+              maxLength: 190
+            relation_key:
+              type: 'string'
+              pattern: '^[a-z][a-z0-9_]{0,63}$'
+              maxLength: 64
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            from_record_id:
+              type: 'string'
+              minLength: 1
+              maxLength: 39
+            to_record_id:
+              type: 'string'
+              maxLength: 39
+            kind:
+              type: 'string'
+              enum:
+                - 'reference'
+                - 'tree_parent'
+            delete_policy:
+              type: 'string'
+              enum:
+                - 'restrict'
+                - 'cascade'
+                - 'detach'
+            status:
+              type: 'string'
+              enum:
+                - 'active'
+                - 'detached'
+            path:
+              type: 'string'
+              maxLength: 2048
+            depth:
+              type: 'integer'
+            order_index:
+              type: 'integer'
+          required: []
+      required:
+        - 'relation'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.relation.resolve'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        from_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+      required:
+        - 'relation_key'
+        - 'from_record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relations:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+      required:
+        - 'relations'
+  - name: 'storage.tree.children'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        parent_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        budget:
+          type: 'integer'
+      required:
+        - 'relation_key'
+        - 'parent_record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        records:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+        returned:
+          type: 'integer'
+        truncated:
+          type: 'boolean'
+        filtered_count:
+          type: 'integer'
+        budget:
+          type: 'integer'
+      required:
+        - 'records'
+        - 'returned'
+        - 'truncated'
+        - 'filtered_count'
+  - name: 'storage.tree.ancestors'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        budget:
+          type: 'integer'
+      required:
+        - 'relation_key'
+        - 'record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        records:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+        returned:
+          type: 'integer'
+        truncated:
+          type: 'boolean'
+        filtered_count:
+          type: 'integer'
+        budget:
+          type: 'integer'
+      required:
+        - 'records'
+        - 'returned'
+        - 'truncated'
+        - 'filtered_count'
+  - name: 'storage.tree.move'
+    execution_mode: 'sync'
+    risk: 'bulk'
+    reversible: true
+    access_scope: 'storage.relation.manage'
+    audit_event: 'storage.tree.moved'
+    idempotency_key: 'relation_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        new_parent_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        order_index:
+          type: 'integer'
+      required:
+        - 'relation_key'
+        - 'record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        records:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+        returned:
+          type: 'integer'
+        truncated:
+          type: 'boolean'
+        filtered_count:
+          type: 'integer'
+        budget:
+          type: 'integer'
+      required:
+        - 'records'
+        - 'returned'
+        - 'truncated'
+        - 'filtered_count'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.relation.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+      required:
+        - 'relation_key'
+        - 'record_id'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        has_tree_edge:
+          type: 'boolean'
+        depth:
+          type: 'integer'
+      required: []

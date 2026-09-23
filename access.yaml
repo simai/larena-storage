@@ -34,3 +34,9 @@ operations:
   - code: storage.role.read
     risk: high
     audit: denial
+  - code: storage.relation.manage
+    risk: critical
+    audit: always
+  - code: storage.relation.read
+    risk: high
+    audit: denial

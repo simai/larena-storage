@@ -130,7 +130,12 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureRoleConformanceTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureRoleFailsClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StarterStructureRolesIdempotencyTest.php",
-            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageOperationDeclarationTest.php"
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageOperationDeclarationTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RecordRelationsTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RecordRelationsTreeTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RecordRelationsFailsClosedTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RelationDeletePolicyTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RelationTraversalScopeTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
