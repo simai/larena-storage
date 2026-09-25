@@ -78,6 +78,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
     }
 
+    public function filterOperators(): array
+    {
+        return self::FILTER_OPERATORS_BY_TYPE;
+    }
+
     public function createStructure(
         string $scopeRef,
         array $descriptor,

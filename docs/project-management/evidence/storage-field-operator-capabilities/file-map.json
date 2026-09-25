@@ -1,0 +1,17 @@
+{
+  "schema": "larena.package_file_map.v1",
+  "package": "larena/storage",
+  "goal": "property-storage-value-presentation",
+  "changed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "README.md",
+    "composer.json",
+    "docs/project-management/evidence/storage-field-operator-capabilities",
+    "docs/project-management/launch-records/storage-field-operator-capabilities.json",
+    "module.yaml",
+    "src/Contracts/StorageWorkbench.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "tests/Integration/StorageWorkbenchFieldPresentationTest.php"
+  ]
+}

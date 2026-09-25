@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: minimal-cms-v1-1-batch-7-wave-p1-storage-mariadb-shape-guards
+batch: storage-field-operator-capabilities
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -49,4 +49,4 @@ runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/minimal-cms-v1-1-batch-7-admin-headless
+  path: docs/project-management/evidence/storage-field-operator-capabilities

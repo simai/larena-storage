@@ -4,6 +4,12 @@ Universal dynamic data storage layer for typed schemas, records, lists, query
 boundaries, persistence profiles, validation pipelines and portable
 SitePack-compatible data models.
 
+`StorageWorkbench::filterOperators()` reports executable filter operators by
+Property field type from the same rule table used by the guarded query runtime.
+Relative periods remain a host concern. Storage validates and persists typed
+values; the read-only, plain-text value projection belongs to Property, while
+Admin/Dataview own visual rendering and owner-bound reference label resolution.
+
 Current implementation state: partial data/content foundation runtime. The
 package has an in-memory runtime slice plus an additive database-native slice
 for immutable schema versions, immutable record versions, compare-and-swap,

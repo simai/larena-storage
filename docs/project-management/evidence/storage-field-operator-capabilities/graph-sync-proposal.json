@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0.0",
+  "proposal": "Record the StorageWorkbench executable operator map under existing storage.workbench_filter_operators after Frontend integration evidence.",
+  "canonical_update_allowed": false,
+  "proposals": [
+    "storage.workbench_filter_operators: link filterOperators contract and exact package evidence after coordinated review"
+  ]
+}
