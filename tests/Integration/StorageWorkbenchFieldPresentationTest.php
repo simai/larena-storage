@@ -86,13 +86,14 @@ try {
     $context = PropertyRenderContext::admin('ru', true, 'actor:admin:alpha', 'scope:tenant-alpha');
     $resolver = new class($uuid) implements PropertyReferenceLabelResolver {
         public function __construct(private string $uuid) {}
-        public function resolveLabel(string $typeKey, string $reference, PropertyRenderContext $context): ?string
+        public function resolveLabel(PropertyFieldDefinition $field, int $version, string $reference, PropertyRenderContext $context): ?string
         {
+            if ($version !== 1 || !str_starts_with($field->fieldKey, 'stored.')) return null;
             if ($context->actorRef !== 'actor:admin:alpha' || $context->scopeRef !== 'scope:tenant-alpha') return null;
             return match (true) {
-                $reference === $this->uuid && $typeKey === 'file' => 'Документ.pdf',
-                $reference === $this->uuid && $typeKey === 'relation' => 'Связанный материал',
-                $reference === 'user:admin:42' && $typeKey === 'user' => 'Редактор',
+                $reference === $this->uuid && $field->typeKey === 'file' => 'Документ.pdf',
+                $reference === $this->uuid && $field->typeKey === 'relation' => 'Связанный материал',
+                $reference === 'user:admin:42' && $field->typeKey === 'user' => 'Редактор',
                 default => null,
             };
         }
