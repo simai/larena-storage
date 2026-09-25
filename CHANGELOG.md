@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Expose the executable workbench filter operators by Property field type and verify typed readback with Property's display projection in disposable SQLite.
 - Archive up to 1000 workbench records in one bulk transaction (was 100).
 
 - Accept a declared `options` list (objects with scalar values) as the only non-scalar field constraint, for `choice` and `choices` fields; Property validates the list and schema digests stay canonical.

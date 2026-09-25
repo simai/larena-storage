@@ -6,6 +6,9 @@ namespace Larena\Storage\Contracts;
 
 interface StorageWorkbench
 {
+    /** @return array<string, list<string>> Executable operators by Property field type. */
+    public function filterOperators(): array;
+
     /** @param array<string, mixed> $descriptor */
     public function createStructure(
         string $scopeRef,

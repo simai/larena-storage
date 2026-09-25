@@ -1,0 +1,28 @@
+{
+  "schema": "larena.package_launch_record.v1",
+  "id": "frontend-adopt-storage-field-operator-capabilities",
+  "goal": "larena-frontend-dataview-conformance",
+  "package": "larena/storage",
+  "branch": "codex/table-bulk-all",
+  "base_commit": "f068586d76b7184cb501c6386509f794041e18d7",
+  "scope": "Import the exact backend storage read-only contract locally for Larena Frontend integration; preserve laboratory-only code and do not change a live repository.",
+  "source_revision": "5624dacb",
+  "source_repository": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage",
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "docs/project-management/launch-records/frontend-adopt-storage-field-operator-capabilities.json",
+    "docs/project-management/evidence/frontend-adopt-storage-field-operator-capabilities/**",
+    "src/Contracts/StorageWorkbench.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "tests/Integration/StorageWorkbenchFieldPresentationTest.php",
+    "module.yaml",
+    "README.md",
+    "CHANGELOG.md",
+    "composer.json"
+  ],
+  "evidence_path": "docs/project-management/evidence/frontend-adopt-storage-field-operator-capabilities",
+  "target_id": "larena.target.minimal_cms_v1",
+  "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
+  "production_ready": false,
+  "status": "coding_started"
+}
