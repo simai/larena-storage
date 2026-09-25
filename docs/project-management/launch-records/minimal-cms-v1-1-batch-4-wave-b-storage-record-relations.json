@@ -1,0 +1,196 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_4.wave_b.storage_record_relations",
+  "status": "ready_to_code",
+  "verdict": "ready_to_code",
+  "coding_started": false,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-4-storage-roles-publication",
+  "wave": "B",
+  "target_package": "larena/storage",
+  "target_repo": "simai/larena-storage",
+  "expected_repository": "simai/larena-storage",
+  "target_repository_path": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage",
+  "base_commit": "ed68c5a",
+  "base_branch": "feature/minimal-cms-v1-1-batch-4-storage-structure-roles",
+  "base_branch_rationale": "Wave B consumes the wave A role contract, which is not on main yet, so it branches from the wave A branch.",
+  "target_repository_state": {
+    "workspace_path_exists": true,
+    "is_git_repository": true,
+    "independent_repository": true,
+    "default_branch": "main",
+    "clean_at_record_time": true
+  },
+  "branch": "feature/minimal-cms-v1-1-batch-4-storage-record-relations",
+  "secondary_repositories": [],
+  "specs_commit": "55cb19b1",
+  "larena_specs_commit": "55cb19b1",
+  "target_ref": "specs/project-management/larena-minimal-cms-v1-1-owner-amendment-target-state.json",
+  "target_semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "package_repo_enforcement_ref": "specs/implementation-planning/repository-preparation/larena-storage-enforcement-kit.json",
+  "pre_codegen_freeze_ref": "specs/implementation-planning/minimal-cms-v1-1-batch-4-pre-codegen-freeze.json",
+  "implementation_tz_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-batch-4-storage-roles-publication.md",
+  "plan_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-cluster-plan.md",
+  "depends_on_batch": {
+    "batch": "batch-4-storage-roles-publication",
+    "wave": "A",
+    "storage_commit": "ed68c5a",
+    "state": "implemented_verified_pending_independent_review"
+  },
+  "owner_start_signal": {
+    "kind": "federation_goal",
+    "recorded_at": "2026-09-23",
+    "detail": "The owner set the goal to implement the whole cluster plan in batch order; this record bounds Batch 3 wave A."
+  },
+  "spec_refs": [
+    "specs/packages/storage/package.json",
+    "specs/packages/storage/features/record-relations/feature.json"
+  ],
+  "dna_refs": [
+    "specs/packages/storage/dna.json",
+    "specs/standards/larena-dna-standard.json"
+  ],
+  "feature_refs": [
+    "storage.record_relations"
+  ],
+  "selected_features": [
+    "storage.record_relations"
+  ],
+  "implementation_scope": {
+    "cluster": "minimal_cms_v1_1_alignment",
+    "batch": "batch-4-storage-roles-publication",
+    "wave": "B",
+    "generation_mode": "interface-first",
+    "summary": "Reference and tree relations on one table, a portable single-parent guarantee through a nullable tree_child_key, adjacency plus materialized path traversal with no recursive CTE, the three delete policies, a subtree move inside one transaction, and scoped traversal that counts what the caller may not read."
+  },
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/2026_09_27_000001_create_larena_storage_record_relations_table.php",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-b-storage-record-relations.json",
+    "docs/record-relations.md",
+    "module.yaml",
+    "operations.yaml",
+    "phpstan.neon.dist",
+    "scripts/validate-larena-package.php",
+    "source/output/action-gates/*",
+    "src/Audit/RelationAuditEventCatalog.php",
+    "src/Contracts/RecordRelations.php",
+    "src/Contracts/RelationDescriptor.php",
+    "src/Contracts/RelationRecord.php",
+    "src/Contracts/RelationTraversalPage.php",
+    "src/Enums/RelationDeletePolicy.php",
+    "src/Enums/RelationKind.php",
+    "src/Enums/RelationStatus.php",
+    "src/Exceptions/RelationRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseRecordRelations.php",
+    "src/Runtime/RelationOperationHandlers.php",
+    "src/Runtime/RelationPath.php",
+    "tests/Support/record-relation-schema.php",
+    "tests/Support/structure-role-schema.php",
+    "tests/Unit/RecordRelationsFailsClosedTest.php",
+    "tests/Unit/RecordRelationsTest.php",
+    "tests/Unit/RecordRelationsTreeTest.php",
+    "tests/Unit/RelationDeletePolicyTest.php",
+    "tests/Unit/RelationTraversalScopeTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
+  ],
+  "forbidden_files": [
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "database/migrations/2026_07_14_*",
+    "database/migrations/2026_08_09_*",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/VersionedStorage.php",
+    "src/Http/*",
+    "routes/*",
+    "api.yaml",
+    "mcp.yaml"
+  ],
+  "forbidden_files_note": "OperationDescriptor and SyncOperationRuntime are forbidden on purpose: the freeze enforces the v2 policy at registration precisely so that neither has to change.",
+  "forbidden_behavior": [
+    "changing the existing schema, record or version tables in any way",
+    "changing the workbench",
+    "using a recursive CTE or any MySQL 8 only feature",
+    "allowing a second tree parent for the same child",
+    "allowing a cycle, a cross-scope parent or a cross-schema parent",
+    "returning a silently short traversal instead of reporting truncation",
+    "naming a record the caller may not read in a traversal result",
+    "adding a public HTTP, REST or MCP surface",
+    "changing larena/core, larena/access or any package other than larena/storage",
+    "touching larena.test or any live environment",
+    "push, release or deployment without a separate owner request"
+  ],
+  "test_plan": "Plain-PHP package tests in the existing storage style with an in-memory SQLite capsule mirroring the frozen shapes.",
+  "required_tests": [
+    "a reference relation is defined, resolved and explained",
+    "a second tree parent for the same child is refused by the unique index, not only by the code path",
+    "a cycle, a cross-scope parent and a cross-schema parent are each refused with their own reason code",
+    "depth beyond 32 is refused with depth_exceeded",
+    "children read in order and ancestors read from the path with no recursive query",
+    "a subtree move rewrites the path and depth of every descendant inside one transaction and preserves sibling order",
+    "restrict refuses a delete with descendants, cascade removes the subtree, detach leaves the descendants reachable",
+    "a traversal beyond its budget reports truncated with the count returned",
+    "an ancestor the caller may not read is counted as filtered and never named"
+  ],
+  "smoke_plan": "Migration parity on sqlite and mysql, a three-level tree built and moved with restart readback of the paths, and the coverage report showing the relation codes as covered.",
+  "evidence_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/",
+  "required_evidence_files": [
+    "implementation-summary.md",
+    "tests.md",
+    "smoke.md",
+    "file-map.json",
+    "deviations.json",
+    "graph-sync-proposal.json",
+    "code-review-feedback.md"
+  ],
+  "graph_sync_proposal_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+  "dependency_revisions": {
+    "larena_specs": "55cb19b1",
+    "larena_storage": "ed68c5a",
+    "larena_core": "af09e6e",
+    "larena_access": "2a91c61",
+    "larena_root": "0d328ea1"
+  },
+  "action_gate_summary": {
+    "phase": "preflight",
+    "status": "pending",
+    "note": "Re-run the action gate inside the core package repository at coding start."
+  },
+  "required_before_ready_to_code": [
+    "pre_codegen_freeze_accepted",
+    "implementation_tz_present",
+    "batch_3_verified_against_the_root_baseline",
+    "allowed_file_boundary_present",
+    "evidence_path_defined",
+    "graph_sync_proposal_path_defined"
+  ],
+  "required_before_coding_started": [
+    "batch_branch_created_in_storage",
+    "storage_package_repo_clean_at_launch",
+    "php_8_3_runtime_available",
+    "owner_start_signal"
+  ],
+  "stop_conditions": [
+    "a frozen table shape, identity grammar, state set or reason code would have to change",
+    "an existing schema, record or version table would have to change",
+    "the workbench would have to change",
+    "a recursive CTE or a MySQL 8 only feature would be required",
+    "a file outside the allowed boundary would have to change",
+    "an unrecorded product or architecture decision is required",
+    "the storage package repository is dirty or not initialized"
+  ],
+  "not_a_release_authorization": true,
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize push, release or deployment.",
+    "Wave B ships relations and the tree. Localized values and publication are waves C and D.",
+    "No recursive query is used anywhere, so the tree behaves the same on MySQL 5.7 as on 8.2."
+  ],
+  "amendments": []
+}

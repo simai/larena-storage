@@ -1,0 +1,200 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_4.wave_c.storage_localized_values",
+  "status": "ready_to_code",
+  "verdict": "ready_to_code",
+  "coding_started": false,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-4-storage-roles-publication",
+  "wave": "C",
+  "target_package": "larena/storage",
+  "target_repo": "simai/larena-storage",
+  "expected_repository": "simai/larena-storage",
+  "target_repository_path": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage",
+  "base_commit": "c260c8d",
+  "base_branch": "feature/minimal-cms-v1-1-batch-4-storage-record-relations",
+  "base_branch_rationale": "Wave C branches from wave B so the batch stays one line of work in one repository.",
+  "target_repository_state": {
+    "workspace_path_exists": true,
+    "is_git_repository": true,
+    "independent_repository": true,
+    "default_branch": "main",
+    "clean_at_record_time": true
+  },
+  "branch": "feature/minimal-cms-v1-1-batch-4-storage-localized-values",
+  "secondary_repositories": [],
+  "specs_commit": "698f7fbc",
+  "larena_specs_commit": "698f7fbc",
+  "target_ref": "specs/project-management/larena-minimal-cms-v1-1-owner-amendment-target-state.json",
+  "target_semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "package_repo_enforcement_ref": "specs/implementation-planning/repository-preparation/larena-storage-enforcement-kit.json",
+  "pre_codegen_freeze_ref": "specs/implementation-planning/minimal-cms-v1-1-batch-4-pre-codegen-freeze.json",
+  "implementation_tz_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-batch-4-storage-roles-publication.md",
+  "plan_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-cluster-plan.md",
+  "depends_on_batch": {
+    "batch": "batch-4-storage-roles-publication",
+    "waves": [
+      "A",
+      "B"
+    ],
+    "storage_commit": "c260c8d",
+    "state": "implemented_verified_pending_independent_review"
+  },
+  "owner_start_signal": {
+    "kind": "federation_goal",
+    "recorded_at": "2026-09-23",
+    "detail": "The owner set the goal to implement the whole cluster plan in batch order; this record bounds Batch 3 wave A."
+  },
+  "spec_refs": [
+    "specs/packages/storage/package.json",
+    "specs/packages/storage/features/localized-values/feature.json"
+  ],
+  "dna_refs": [
+    "specs/packages/storage/dna.json",
+    "specs/standards/larena-dna-standard.json"
+  ],
+  "feature_refs": [
+    "storage.localized_values"
+  ],
+  "selected_features": [
+    "storage.localized_values"
+  ],
+  "implementation_scope": {
+    "cluster": "minimal_cms_v1_1_alignment",
+    "batch": "batch-4-storage-roles-publication",
+    "wave": "C",
+    "generation_mode": "interface-first",
+    "summary": "Localized values as rows in their own immutable table keyed by schema, record, revision, locale and field; a fallback chain that marks every returned value exact or fallback and names the locale it came from; a coverage report that counts rather than parses; and the optional localized field-descriptor key, which is the only change this batch permits to the workbench."
+  },
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/2026_09_28_000001_create_larena_storage_localized_values_table.php",
+    "docs/localized-values.md",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-c-storage-localized-values.json",
+    "module.yaml",
+    "operations.yaml",
+    "phpstan.neon.dist",
+    "scripts/validate-larena-package.php",
+    "source/output/action-gates/*",
+    "src/Audit/LocalizedValueAuditEventCatalog.php",
+    "src/Contracts/LocaleCoverageReport.php",
+    "src/Contracts/LocaleFallbackChain.php",
+    "src/Contracts/LocalizedValue.php",
+    "src/Contracts/LocalizedValues.php",
+    "src/Exceptions/LocalizedValueRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseLocalizedValues.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/LocaleOperationHandlers.php",
+    "tests/Support/localized-value-schema.php",
+    "tests/Support/record-relation-schema.php",
+    "tests/Support/structure-role-schema.php",
+    "tests/Unit/LocaleCoverageTest.php",
+    "tests/Unit/LocaleFallbackTest.php",
+    "tests/Unit/LocalizedValuesFailsClosedTest.php",
+    "tests/Unit/LocalizedValuesTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php",
+    "tests/Unit/WorkbenchLocalizedFieldKeyTest.php"
+  ],
+  "forbidden_files": [
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "database/migrations/2026_07_14_*",
+    "database/migrations/2026_08_09_*",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/VersionedStorage.php",
+    "src/Http/*",
+    "routes/*",
+    "api.yaml",
+    "mcp.yaml"
+  ],
+  "forbidden_files_note": "OperationDescriptor and SyncOperationRuntime are forbidden on purpose: the freeze enforces the v2 policy at registration precisely so that neither has to change.",
+  "forbidden_behavior": [
+    "changing the existing schema, record or version tables in any way",
+    "changing the workbench beyond adding localized as an optional ninth field-descriptor key",
+    "updating or deleting a localized value row: a row belongs to its revision and is written once",
+    "storing a value for a field the schema does not declare localized",
+    "treating an absent value as an empty one: absent and empty are different answers",
+    "adding a public HTTP, REST or MCP surface",
+    "changing larena/core, larena/access or any package other than larena/storage",
+    "touching larena.test or any live environment",
+    "push, release or deployment without a separate owner request"
+  ],
+  "test_plan": "Plain-PHP package tests in the existing storage style with an in-memory SQLite capsule mirroring the frozen shapes.",
+  "required_tests": [
+    "a value is written with its revision and read back for that locale",
+    "a second write for the same revision, locale and field is refused: a revision is immutable",
+    "a value for a field the schema does not declare localized is refused",
+    "reading a locale with no row walks the fallback chain and marks the value fallback, naming the locale it came from",
+    "a value present in the requested locale is marked exact",
+    "a field with no row in any locale of the chain is absent, and absent is distinguishable from empty",
+    "coverage reports present and missing fields per locale and whether the record is complete",
+    "a required localized field missing in a secondary locale is refused unless the schema allows partial locales",
+    "the workbench accepts a field descriptor with the optional localized key and still accepts one without it"
+  ],
+  "smoke_plan": "Migration parity on sqlite and mysql, a two-locale record written and read back in separate processes with exact and fallback markers, and the coverage report on both drivers.",
+  "evidence_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/",
+  "required_evidence_files": [
+    "implementation-summary.md",
+    "tests.md",
+    "smoke.md",
+    "file-map.json",
+    "deviations.json",
+    "graph-sync-proposal.json",
+    "code-review-feedback.md"
+  ],
+  "graph_sync_proposal_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+  "dependency_revisions": {
+    "larena_specs": "698f7fbc",
+    "larena_storage": "c260c8d",
+    "larena_core": "af09e6e",
+    "larena_access": "2a91c61",
+    "larena_root": "0d328ea1"
+  },
+  "action_gate_summary": {
+    "phase": "preflight",
+    "status": "pending",
+    "note": "Re-run the action gate inside the core package repository at coding start."
+  },
+  "required_before_ready_to_code": [
+    "pre_codegen_freeze_accepted",
+    "implementation_tz_present",
+    "batch_3_verified_against_the_root_baseline",
+    "allowed_file_boundary_present",
+    "evidence_path_defined",
+    "graph_sync_proposal_path_defined"
+  ],
+  "required_before_coding_started": [
+    "batch_branch_created_in_storage",
+    "storage_package_repo_clean_at_launch",
+    "php_8_3_runtime_available",
+    "owner_start_signal"
+  ],
+  "stop_conditions": [
+    "a frozen table shape, identity grammar, state set or reason code would have to change",
+    "an existing schema, record or version table would have to change",
+    "the workbench would have to change",
+    "a recursive CTE or a MySQL 8 only feature would be required",
+    "a file outside the allowed boundary would have to change",
+    "an unrecorded product or architecture decision is required",
+    "the storage package repository is dirty or not initialized"
+  ],
+  "not_a_release_authorization": true,
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize push, release or deployment.",
+    "Wave C stores and reads locales. Publishing one locale while another stays a draft is wave D.",
+    "A localized value is content, not a secret: visibility stays a property of the field, in every locale."
+  ],
+  "amendments": [
+    {
+      "date": "2026-09-23",
+      "reason": "the path index is driver-specific because a 2048-character column cannot be indexed whole on MySQL with utf8mb4; the relation identity is rewritten on a move so the frozen grammar stays true of the row as it is"
+    }
+  ]
+}

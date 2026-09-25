@@ -1,0 +1,10 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "batch": "batch-6-content-retirement",
+  "wave": "B",
+  "package": "larena/storage",
+  "status": "in_progress",
+  "canonical_update_allowed": false,
+  "canonical_update_reason": "a package coding wave never writes the canonical graph",
+  "feature_observations": []
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "larena.batch_evidence.v1",
+  "batch": "batch-7-admin-headless",
+  "wave": "P1",
+  "package": "larena/storage",
+  "status": "evidence",
+  "files": [
+    {
+      "path": "src/Database/StorageOwnedTableShapeGuard.php",
+      "change": "normalizedDriver: a MySqlConnection to a MariaDB server is judged as mariadb"
+    },
+    {
+      "path": "src/Database/StorageSchemaMigrationTableShapeGuard.php",
+      "change": "the same"
+    },
+    {
+      "path": "tests/Unit/MariaDbDriverDetectionTest.php",
+      "change": "new"
+    }
+  ]
+}

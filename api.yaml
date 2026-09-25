@@ -1,0 +1,145 @@
+# Public read contracts of larena/storage over REST.
+#
+# Anonymous, read-only GET operations under the public site boundary, opened by
+# owner decision on 2026-09-23 for the Minimal CMS v1.1 headless criterion. What
+# they return is decided by the read contract, not by this file: the published
+# head of a record, in one scope and locale, with its public fields only. A record
+# that is unpublished, archived, unreadable or absent is the same 404.
+#
+# Record values are returned as a list of key and value pairs because the REST
+# contract schema is closed at every level and a record's fields depend on its
+# structure.
+schema: larena.api.contract.v1
+package: larena/storage
+version: 1.0.0
+operations:
+  - key: storage.read.resolve_key
+    method: GET
+    path: /api/v1/site/resolve
+    handler:
+      operation_ref: storage.read.resolve_key
+    auth:
+      channels: [anonymous_session]
+    csrf:
+      required: false
+    access:
+      mode: authentication_boundary
+      operations: []
+    request:
+      path: &empty_request_object
+        type: object
+        additionalProperties: false
+        properties: {}
+        required: []
+      query:
+        type: object
+        additionalProperties: false
+        properties:
+          target: &target {type: string, minLength: 1, maxLength: 140}
+          scope_ref: &scope_ref {type: string, pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$', maxLength: 80}
+          locale: &locale {type: string, pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$', maxLength: 16}
+          key_field: {type: string, pattern: '^[a-z][a-z0-9_]{0,63}$', maxLength: 64}
+          key_value: {type: string, minLength: 1, maxLength: 191}
+        required: [target, scope_ref, locale, key_field, key_value]
+      body: *empty_request_object
+    response:
+      status: 200
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          record: &record
+            type: object
+            additionalProperties: false
+            properties:
+              record_id: {type: string, maxLength: 39}
+              revision: {type: integer, minimum: 1}
+              fields: &fields
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    key: {type: string, maxLength: 64}
+                    value: {type: [string, integer, number, boolean, 'null']}
+                  required: [key, value]
+            required: [record_id, revision, fields]
+        required: [record]
+    execution:
+      mode: sync
+      timeout_seconds: 30
+      transactional: false
+    idempotency:
+      required: false
+      header: Idempotency-Key
+      ttl_seconds: 86400
+    rate_limit:
+      max_attempts: 240
+      decay_seconds: 60
+    audit:
+      event: storage.read.resolve_key
+      summary_fields: []
+    lifecycle:
+      state: stable
+      version: v1
+    docs:
+      summary: Resolve a published site record by key
+      description: Returns the published head of one record in a scope and locale, public fields only. Unpublished, archived, unreadable and absent records are the same 404.
+      tags: [Site]
+
+  - key: storage.read.published_projection
+    method: GET
+    path: /api/v1/site/projection
+    handler:
+      operation_ref: storage.read.published_projection
+    auth:
+      channels: [anonymous_session]
+    csrf:
+      required: false
+    access:
+      mode: authentication_boundary
+      operations: []
+    request:
+      path: *empty_request_object
+      query:
+        type: object
+        additionalProperties: false
+        properties:
+          target: *target
+          scope_ref: *scope_ref
+          locale: *locale
+        required: [target, scope_ref, locale]
+      body: *empty_request_object
+    response:
+      status: 200
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          records:
+            type: array
+            items: *record
+          returned: {type: integer, minimum: 0}
+          truncated: {type: boolean}
+        required: [records, returned, truncated]
+    execution:
+      mode: sync
+      timeout_seconds: 30
+      transactional: false
+    idempotency:
+      required: false
+      header: Idempotency-Key
+      ttl_seconds: 86400
+    rate_limit:
+      max_attempts: 120
+      decay_seconds: 60
+    audit:
+      event: storage.read.published_projection
+      summary_fields: []
+    lifecycle:
+      state: stable
+      version: v1
+    docs:
+      summary: List the published records of a site structure
+      description: Returns the published heads of every record of a role or structure in a scope and locale, public fields only, within the read contract's budget.
+      tags: [Site]

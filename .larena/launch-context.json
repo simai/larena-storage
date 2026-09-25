@@ -3,37 +3,44 @@
   "package": "larena/storage",
   "repository_class": "continuation_repository",
   "repository_contains_prior_implementation": true,
-  "launch_record_ref": "docs/project-management/launch-records/frontend-adopt-storage-field-operator-capabilities.json",
+  "launch_record_ref": "docs/project-management/launch-records/storage-field-operator-capabilities.json",
   "specs_repo": "simai/larena-specs",
-  "specs_commit": "42c099aaf73fd420a4b93634ed91bd49876d176d",
-  "target_id": "larena.target.minimal_cms_v1",
-  "semantic_digest": "sha256:2793f61ba9563839831d57e87ac5cd6399c37a3183f1a68981b6fc7f941a1ad2",
-  "base_commit": "f068586d76b7184cb501c6386509f794041e18d7",
+  "specs_commit": "3f058ff33bff9c22250d39529762eb0ad3b59bab",
+  "target_id": "larena.target.minimal_cms_v1_1",
+  "semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "base_commit": "2e88c5122aa8e1cb178501f471fdc5c685089161",
   "selected_features": [
-    "frontend.adopt_storage-field-operator-capabilities"
+    "storage.workbench_filter_operators",
+    "storage.record_list",
+    "storage.validation_pipeline"
   ],
   "allowed_files": [
     ".larena/launch-context.json",
-    "docs/project-management/launch-records/frontend-adopt-storage-field-operator-capabilities.json",
-    "docs/project-management/evidence/frontend-adopt-storage-field-operator-capabilities/**",
+    "CHANGELOG.md",
+    "README.md",
+    "module.yaml",
+    "composer.json",
     "src/Contracts/StorageWorkbench.php",
     "src/Runtime/DatabaseStorageWorkbench.php",
     "tests/Integration/StorageWorkbenchFieldPresentationTest.php",
-    "module.yaml",
-    "README.md",
-    "CHANGELOG.md",
-    "composer.json"
+    "docs/project-management/launch-records/storage-field-operator-capabilities.json",
+    "docs/project-management/launch-records/frontend-adopt-storage-field-operator-capabilities.json",
+    "docs/project-management/evidence/frontend-adopt-storage-field-operator-capabilities/*",
+    "docs/project-management/launch-records/bulk-archive-matching.json",
+    "docs/project-management/evidence/bulk-archive-matching/*",
+    "tests/Integration/StorageWorkbenchBulkArchiveLimitTest.php"
   ],
   "forbidden_files": [
-    "config/*",
     "database/*",
-    "routes/*",
-    "resources/*"
+    "src/Http/*",
+    "routes/*"
   ],
   "forbidden_behavior": [
-    "mandatory_upper_package_dependency",
-    "accepted_target_change",
-    "production_readiness_claim"
+    "touching larena.test or a live environment",
+    "working database destructive operations",
+    "raw unresolved reference disclosure",
+    "frontend or presentation file edits owned by Larena Frontend",
+    "push, release or deployment without separate owner request"
   ],
   "required_evidence_files": [
     "README.md",
@@ -45,13 +52,13 @@
     "deviations.json",
     "graph-sync-proposal.json"
   ],
-  "evidence_path": "docs/project-management/evidence/frontend-adopt-storage-field-operator-capabilities",
-  "graph_sync_proposal_path": "docs/project-management/evidence/frontend-adopt-storage-field-operator-capabilities/graph-sync-proposal.json",
+  "evidence_path": "docs/project-management/evidence/storage-field-operator-capabilities",
+  "graph_sync_proposal_path": "docs/project-management/evidence/storage-field-operator-capabilities/graph-sync-proposal.json",
   "status": "coding_started",
   "coding_allowed": true,
   "coding_started": true,
   "repository_enforcement_installed": true,
   "review_completed": false,
   "next_transition": "independent_review",
-  "coding_branch": "codex/table-bulk-all"
+  "coding_branch": "main"
 }

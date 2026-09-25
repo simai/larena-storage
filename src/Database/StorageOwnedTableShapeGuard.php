@@ -592,8 +592,20 @@ final readonly class StorageOwnedTableShapeGuard
         }
     }
 
+    /**
+     * A MariaDB server is often reached through Laravel's mysql driver; its
+     * catalogue still reports MariaDB's types (a JSON column is LONGTEXT with a
+     * json_valid check), so the guard judges it as MariaDB.
+     */
     private function normalizedDriver(): string
     {
-        return strtolower($this->connection->getDriverName());
+        $driver = strtolower($this->connection->getDriverName());
+        if ($driver === 'mysql'
+            && $this->connection instanceof \Illuminate\Database\MySqlConnection
+            && $this->connection->isMaria()) {
+            return 'mariadb';
+        }
+
+        return $driver;
     }
 }

@@ -1,0 +1,203 @@
+{
+  "schema": "larena.pre_coding_launch_record.v1",
+  "id": "larena.launch.minimal_cms_v1_1.batch_4.wave_a.storage_structure_roles",
+  "status": "ready_to_code",
+  "verdict": "ready_to_code",
+  "coding_started": false,
+  "created_at": "2026-09-23",
+  "cluster": "minimal_cms_v1_1_alignment",
+  "batch": "batch-4-storage-roles-publication",
+  "wave": "A",
+  "target_package": "larena/storage",
+  "target_repo": "simai/larena-storage",
+  "expected_repository": "simai/larena-storage",
+  "target_repository_path": "/Users/rim/Documents/GitHub/larena-workspace/packages/storage",
+  "base_commit": "e459770",
+  "base_branch": "main",
+  "base_branch_rationale": "Storage has no open batch branch; wave A branches from main and later waves branch from the wave before them.",
+  "target_repository_state": {
+    "workspace_path_exists": true,
+    "is_git_repository": true,
+    "independent_repository": true,
+    "default_branch": "main",
+    "clean_at_record_time": true
+  },
+  "branch": "feature/minimal-cms-v1-1-batch-4-storage-structure-roles",
+  "secondary_repositories": [],
+  "specs_commit": "1ca16ecc",
+  "larena_specs_commit": "1ca16ecc",
+  "target_ref": "specs/project-management/larena-minimal-cms-v1-1-owner-amendment-target-state.json",
+  "target_semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "package_repo_enforcement_ref": "specs/implementation-planning/repository-preparation/larena-storage-enforcement-kit.json",
+  "pre_codegen_freeze_ref": "specs/implementation-planning/minimal-cms-v1-1-batch-4-pre-codegen-freeze.json",
+  "implementation_tz_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-batch-4-storage-roles-publication.md",
+  "plan_ref": "docs/implementation-planning/minimal-cms-v1-1-alignment-cluster-plan.md",
+  "depends_on_batch": {
+    "batch": "batch-3-operation-registry",
+    "waves": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "commits": {
+      "larena_core": "af09e6e",
+      "larena_rest": "b05c5b2",
+      "larena_mcp": "4d65096",
+      "larena_root": "0d328ea1"
+    },
+    "state": "implemented_verified_pending_independent_review"
+  },
+  "owner_start_signal": {
+    "kind": "federation_goal",
+    "recorded_at": "2026-09-23",
+    "detail": "The owner set the goal to implement the whole cluster plan in batch order; this record bounds Batch 3 wave A."
+  },
+  "spec_refs": [
+    "specs/packages/storage/package.json",
+    "specs/packages/storage/features.json",
+    "specs/packages/storage/features/structure-roles/feature.json"
+  ],
+  "dna_refs": [
+    "specs/packages/storage/dna.json",
+    "specs/standards/larena-dna-standard.json"
+  ],
+  "feature_refs": [
+    "storage.structure_roles"
+  ],
+  "selected_features": [
+    "storage.structure_roles"
+  ],
+  "implementation_scope": {
+    "cluster": "minimal_cms_v1_1_alignment",
+    "batch": "batch-4-storage-roles-publication",
+    "wave": "A",
+    "generation_mode": "interface-first",
+    "summary": "Versioned structure roles as table-less contracts, bindings per schema and scope, a conformance report that names every missing field and relation, the five starter roles installed idempotently, and five declared operations registered through the core operation registry."
+  },
+  "allowed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "access.yaml",
+    "audit.yaml",
+    "composer.json",
+    "database/migrations/platform/2026_09_26_000001_create_larena_storage_structure_role_tables.php",
+    "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/*",
+    "docs/project-management/launch-records/minimal-cms-v1-1-batch-4-wave-a-storage-structure-roles.json",
+    "docs/structure-roles.md",
+    "module.yaml",
+    "operations.yaml",
+    "phpstan.neon.dist",
+    "scripts/validate-larena-package.php",
+    "source/output/action-gates/*",
+    "src/Audit/StructureRoleAuditEventCatalog.php",
+    "src/Contracts/StructureRole.php",
+    "src/Contracts/StructureRoleBinding.php",
+    "src/Contracts/StructureRoleConformanceReport.php",
+    "src/Contracts/StructureRoleRegistry.php",
+    "src/Enums/RoleBindingStatus.php",
+    "src/Enums/RoleLifecycle.php",
+    "src/Enums/RoleStatus.php",
+    "src/Exceptions/StructureRoleRejected.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Registry/StorageOperationProvider.php",
+    "src/Runtime/DatabaseStructureRoleRegistry.php",
+    "src/Runtime/StarterStructureRoles.php",
+    "src/Runtime/StructureRoleOperationHandlers.php",
+    "tests/Unit/StarterStructureRolesIdempotencyTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php",
+    "tests/Unit/StructureRoleConformanceTest.php",
+    "tests/Unit/StructureRoleFailsClosedTest.php",
+    "tests/Unit/StructureRoleRegistryTest.php",
+    "tests/support/structure-role-schema.php"
+  ],
+  "forbidden_files": [
+    "database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php",
+    "database/migrations/2026_07_14_*",
+    "database/migrations/2026_08_09_*",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/VersionedStorage.php",
+    "src/Http/*",
+    "routes/*",
+    "api.yaml",
+    "mcp.yaml"
+  ],
+  "forbidden_files_note": "OperationDescriptor and SyncOperationRuntime are forbidden on purpose: the freeze enforces the v2 policy at registration precisely so that neither has to change.",
+  "forbidden_behavior": [
+    "changing the existing schema, record or version tables in any way",
+    "changing the workbench: the optional localized field key belongs to wave C",
+    "adding role-specific business code: a role adds validation, listing and explanation and nothing else",
+    "editing an existing role row on a starter-role re-run; a changed starter role is a new role_version",
+    "binding a non-conforming schema",
+    "adding a public HTTP, REST or MCP surface",
+    "changing larena/core, larena/access or any package other than larena/storage",
+    "touching larena.test or any live environment",
+    "push, release or deployment without a separate owner request"
+  ],
+  "test_plan": "Plain-PHP package tests in the existing storage style with an in-memory SQLite capsule mirroring the frozen shapes.",
+  "required_tests": [
+    "a role is registered, listed and explained, and a second registration of the same code and version is rejected",
+    "a conforming schema binds, and the binding is unique per role, schema and scope",
+    "conformance names every missing required field, every type mismatch with both types, every missing required relation and a lifecycle mismatch",
+    "a publishable role rejects a schema whose lifecycle is not publishable",
+    "a conforming schema with extra fields still conforms: a role is a floor, not a ceiling",
+    "binding a non-conforming schema writes no row",
+    "an unknown scope and an unknown role each fail closed with their own reason code",
+    "the five starter roles install idempotently and a re-run edits nothing",
+    "the five declared operations load from operations.yaml and register against the core registry with no descriptor mismatch"
+  ],
+  "smoke_plan": "Migration parity on sqlite and mysql with restart readback of the registered roles and bindings, plus the core:operations:coverage report showing the storage role codes as covered.",
+  "evidence_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/",
+  "required_evidence_files": [
+    "implementation-summary.md",
+    "tests.md",
+    "smoke.md",
+    "file-map.json",
+    "deviations.json",
+    "graph-sync-proposal.json",
+    "code-review-feedback.md"
+  ],
+  "graph_sync_proposal_path": "docs/project-management/evidence/minimal-cms-v1-1-batch-4-storage-roles-publication/graph-sync-proposal.json",
+  "dependency_revisions": {
+    "larena_specs": "1ca16ecc",
+    "larena_storage": "e459770",
+    "larena_core": "af09e6e",
+    "larena_access": "2a91c61",
+    "larena_root": "0d328ea1"
+  },
+  "action_gate_summary": {
+    "phase": "preflight",
+    "status": "pending",
+    "note": "Re-run the action gate inside the core package repository at coding start."
+  },
+  "required_before_ready_to_code": [
+    "pre_codegen_freeze_accepted",
+    "implementation_tz_present",
+    "batch_3_verified_against_the_root_baseline",
+    "allowed_file_boundary_present",
+    "evidence_path_defined",
+    "graph_sync_proposal_path_defined"
+  ],
+  "required_before_coding_started": [
+    "batch_branch_created_in_storage",
+    "storage_package_repo_clean_at_launch",
+    "php_8_3_runtime_available",
+    "owner_start_signal"
+  ],
+  "stop_conditions": [
+    "a frozen table shape, identity grammar, state set or reason code would have to change",
+    "an existing schema, record or version table would have to change",
+    "the workbench would have to change",
+    "a recursive CTE or a MySQL 8 only feature would be required",
+    "a file outside the allowed boundary would have to change",
+    "an unrecorded product or architecture decision is required",
+    "the storage package repository is dirty or not initialized"
+  ],
+  "not_a_release_authorization": true,
+  "nonclaims": [
+    "A launch record authorizes a bounded coding wave; it does not authorize push, release or deployment.",
+    "Wave A ships roles and bindings only. A role-bound site tree needs waves B, C and D as well.",
+    "Registering the storage operations closes 9 of the 23 access operation codes the Batch 3 coverage report reported as unscheduled; the rest stay open."
+  ],
+  "amendments": []
+}

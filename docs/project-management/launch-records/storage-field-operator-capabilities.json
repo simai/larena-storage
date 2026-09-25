@@ -1,0 +1,16 @@
+{
+  "schema": "larena.package_launch_record.v1",
+  "id": "storage-field-operator-capabilities",
+  "goal": "property-storage-value-presentation",
+  "package": "larena/storage",
+  "branch": "main",
+  "base_commit": "e129517d9ae61091ba49731b2df1bca7fa51840b",
+  "scope": "Expose the existing StorageWorkbench executable filter operators by Property field type from the runtime's single rule table, without changing filtering behavior; prove a real disposable Storage structure with all built-in Property types and the read-only Property projection.",
+  "runtime_boundary": "local package source and disposable SQLite tests only",
+  "target_id": "larena.target.minimal_cms_v1_1",
+  "semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "owner_decision": "Owner authorized autonomous completion of universal Storage fields and reserved frontend/presentation files for Larena Frontend on 2026-09-25.",
+  "production_ready": false,
+  "status": "coding_started",
+  "rollback": "Revert the package commit; this batch has no migration or data mutation."
+}

@@ -28,3 +28,51 @@ operations:
   - code: storage.record.update
     risk: high
     audit: always
+  - code: storage.role.manage
+    risk: critical
+    audit: always
+  - code: storage.role.read
+    risk: high
+    audit: denial
+  - code: storage.relation.manage
+    risk: critical
+    audit: always
+  - code: storage.relation.read
+    risk: high
+    audit: denial
+  - code: storage.locale.read
+    risk: high
+    audit: denial
+  - code: storage.locale.write
+    risk: high
+    audit: always
+  - code: storage.publication.publish
+    risk: critical
+    audit: always
+  - code: storage.publication.unpublish
+    risk: critical
+    audit: always
+  - code: storage.publication.schedule
+    risk: critical
+    audit: always
+  - code: storage.publication.archive
+    risk: critical
+    audit: always
+  - code: storage.publication.read
+    risk: high
+    audit: denial
+  - code: storage.read.public
+    risk: medium
+    audit: denial
+  - code: content.item.list
+    risk: high
+    audit: denial
+  - code: content.item.read
+    risk: high
+    audit: denial
+  - code: content.item.create
+    risk: high
+    audit: always
+  - code: content.item.update
+    risk: high
+    audit: always

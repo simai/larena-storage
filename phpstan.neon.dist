@@ -8,3 +8,8 @@ parameters:
   scanDirectories:
     - ../access/src
     - ../audit/src
+    # larena/core and the YAML parser are declared requirements, but this
+    # workspace's dev path repositories cannot be resolved into the package vendor
+    # tree, so the analyser reads them where they live.
+    - ../core/src
+    - ../../app/vendor/symfony/yaml

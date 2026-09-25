@@ -2,7 +2,7 @@ package: larena/storage
 title: Larena Storage
 status: coding_started
 cluster: data-content
-batch: frontend-adopt-storage-field-operator-capabilities
+batch: storage-field-operator-capabilities
 features:
   - storage.owned_table_shape_guard
   - storage.encryption_key_policy
@@ -41,8 +41,13 @@ features:
   - storage.workbench_filter_operators
   - storage.workbench_scan_limit_5000
   - storage.workbench_bulk_archive_1000
+  - storage.structure_roles
+  - storage.record_relations
+  - storage.localized_values
+  - storage.publication_lifecycle
+  - storage.read_contracts
 runtime:
   php: "^8.3"
   laravel: "^13.0"
 evidence:
-  path: docs/project-management/evidence/frontend-adopt-storage-field-operator-capabilities
+  path: docs/project-management/evidence/storage-field-operator-capabilities

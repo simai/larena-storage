@@ -2,9 +2,8 @@
 
 ## Unreleased
 
-- Expose the executable workbench filter operators by Property field type and verify typed readback with Property's display projection in disposable SQLite.
-- Archive up to 1000 workbench records in one bulk transaction (was 100).
-
+- Expose the workbench's executable filter operators by field type through its public contract; verify a complete typed structure and Property display projection across a disposable SQLite restart.
+- Archive up to 1000 workbench records in one bulk transaction (previous limit: 100).
 - Accept a declared `options` list (objects with scalar values) as the only non-scalar field constraint, for `choice` and `choices` fields; Property validates the list and schema digests stay canonical.
 - Store `choices` record values as JSON arrays in declared option order; a required `choices` field rejects an empty list with `storage_record_required_field_missing`.
 - Add workbench record filter operators `in`, `contains`, `starts_with`, `gt`, `gte`, `lt`, `lte` and `between` next to `eq`, with a per-type operator matrix and `storage_query_filter_operator_unsupported` for unsupported combinations.

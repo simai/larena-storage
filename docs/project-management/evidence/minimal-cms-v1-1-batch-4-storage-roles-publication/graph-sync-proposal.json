@@ -1,0 +1,162 @@
+{
+  "schema": "larena.graph_sync_proposal.v1",
+  "batch": "minimal-cms-v1-1-batch-4-storage-roles-publication",
+  "wave": "A",
+  "package": "larena/storage",
+  "canonical_update_allowed": false,
+  "canonical_update_reason": "a package coding wave never writes the canonical graph; larena-specs applies a graph cycle after the batch is accepted",
+  "target_semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "feature_observations": [
+    {
+      "feature": "storage.structure_roles",
+      "observed_state": "implemented",
+      "implemented": [
+        "a versioned role as a table-less contract",
+        "bindings per schema and scope",
+        "conformance naming every missing field, type mismatch, missing relation and lifecycle mismatch",
+        "the five starter roles installed idempotently",
+        "five operations registered in the core registry"
+      ],
+      "not_implemented": [
+        "a SitePack example per role",
+        "role registration by a solution"
+      ],
+      "acceptance_covered": [
+        "a role is a contract with required fields, relations and lifecycle and owns no tables; a structure gains a role by conformance",
+        "the starter role set covers site_node, redirect, doc_space, doc_page and org_chart, each with a validation fixture",
+        "org_chart is an overlay role that references a core plane node by identifier and never duplicates membership or hierarchy",
+        "a consumer package receives the bound structures of a scope through storage.role.list_structures",
+        "binding a non-conforming structure fails closed with a diagnostic listing the missing fields, relations or lifecycle",
+        "a role registered by a solution is versioned; a breaking change requires a new role version",
+        "Storage contains no role-specific business code"
+      ],
+      "acceptance_not_covered": [
+        "each role ships with a SitePack example: SitePack portability is its own feature and its own wave",
+        "site_node requires the publishable lifecycle and a parent relation: declared and validated here, but the tree itself is wave B"
+      ]
+    },
+    {
+      "feature": "storage.record_relations",
+      "observed_state": "implemented",
+      "implemented": [
+        "reference and tree relations on one table",
+        "a portable single-parent guarantee enforced by a unique index",
+        "adjacency plus materialized path traversal with no recursive query",
+        "the three delete policies",
+        "a subtree move in one transaction preserving sibling order",
+        "scoped traversal that counts filtered records and masks their identifiers",
+        "a declared traversal budget that reports truncation"
+      ],
+      "not_implemented": [
+        "SitePack export and import of relations by logical identifier",
+        "relation cardinality constraints beyond single parent"
+      ],
+      "acceptance_covered": [
+        "a tree relation stores parent and order and rejects cycles and cross-scope parents at mutation time",
+        "storage.tree.children and storage.tree.ancestors return only records visible through the caller's query scope, and a hidden ancestor is reported as filtered rather than absent",
+        "delete behavior per relation is explicit: restrict, cascade to descendants or detach, and the choice is part of the versioned schema",
+        "moving a subtree preserves order among siblings and emits one audit event with the moved record set",
+        "tree traversal declares a query budget and reports when a slice is truncated"
+      ],
+      "acceptance_not_covered": [
+        "a reference relation validates its target before the record is written: target validation needs the record mutation path, which this wave does not touch",
+        "SitePack export and import preserve relations by logical identifier: its own feature and its own wave"
+      ]
+    },
+    {
+      "feature": "storage.localized_values",
+      "observed_state": "implemented",
+      "implemented": [
+        "a localized value as a row in its own immutable table keyed by revision, locale and field",
+        "a field declared localizable through the workbench structure descriptor",
+        "a fallback chain that marks every value exact or fallback and names its source locale",
+        "coverage as a count per locale with the gaps named",
+        "a required field missing in a locale refused unless the schema allows partial locales"
+      ],
+      "not_implemented": [
+        "per-locale validation through the Property pipeline",
+        "publication state per locale",
+        "SitePack export of every locale"
+      ],
+      "acceptance_covered": [
+        "a field is declared localizable in the schema; non-localizable fields have one value shared by all locales",
+        "reading a record for a locale applies the fallback chain and marks each returned value as exact or fallback",
+        "a required field may be missing in a secondary locale only when the schema allows partial locales"
+      ],
+      "acceptance_not_covered": [
+        "per-locale validation uses the same Property validation pipeline: the writer stores values and does not validate them, because the validation pipeline runs in the record mutation path this wave does not touch",
+        "publication state is tracked per record and locale: wave D",
+        "SitePack export carries every locale and import rejects an undeclared locale: its own feature",
+        "a site tree with localized values renders in two locales from one set of site_node records: needs the read contracts in wave E"
+      ]
+    },
+    {
+      "feature": "storage.publication_lifecycle",
+      "observed_state": "implemented",
+      "implemented": [
+        "publication state per record, scope and locale with the published head as a column",
+        "an append-only transition log that answers history and names the head a withdrawal replaced",
+        "publish, unpublish, schedule and archive as four separate access operations",
+        "a sweep that publishes due schedules, is idempotent and distinguishes itself in the log",
+        "a read that never publishes",
+        "publishing that changes no revision and no localized value, asserted byte for byte",
+        "an injected revision check bound in the composed application"
+      ],
+      "not_implemented": [
+        "a queue worker calling the sweep",
+        "a domain event for automation"
+      ],
+      "acceptance_covered": [
+        "every schema with the publishable lifecycle keeps an immutable revision per saved version and one published head per scope and locale",
+        "publish, unpublish, schedule and archive are separate access operations, so an editor may save drafts without the right to publish",
+        "unpublishing keeps the revision history and returns the previous published head when one exists",
+        "publication changes emit audit-safe events with actor, scope, locale and correlation",
+        "restart readback returns the same published head and revision history on sqlite and mysql"
+      ],
+      "acceptance_not_covered": [
+        "a scheduled publication executes through the queue when a worker exists: this batch ships the sweep operation a worker would call, and wiring the worker belongs to the queue batch",
+        "the published head is the only version visible to public readers and to the published safe projection: wave E",
+        "a domain event for automation: no automation consumer exists yet"
+      ]
+    },
+    {
+      "feature": "storage.read_contracts",
+      "observed_state": "implemented",
+      "implemented": [
+        "resolve_key returning at most one published record per structure, scope and locale",
+        "ambiguous_key failing closed rather than returning the first candidate",
+        "a published projection carrying only the published head, only public fields and only records the caller may read",
+        "filtered records reported as a count and never as identifiers",
+        "slug uniqueness per structure, scope and locale enforced by a guard",
+        "a role reference resolved through its active binding"
+      ],
+      "not_implemented": [
+        "a REST endpoint over either read model",
+        "a cached or materialized copy of the projection"
+      ],
+      "acceptance_covered": [
+        "a key field declares its uniqueness scope as structure plus scope plus locale, and storage.read.resolve_key returns at most one published record for that tuple",
+        "the published safe projection contains only the published head, only fields marked public in the schema and only records that pass the caller's query scope",
+        "the projection is rebuildable from Storage at any time and no consumer may treat its copy as a source of truth",
+        "projection diagnostics report filtered records as counts, never as identifiers"
+      ],
+      "acceptance_not_covered": [
+        "resolve_key is a read model and turning a resolved record into an HTTP route is a stateless adapter: no adapter exists yet",
+        "a headless installation can serve a site through REST alone: proven through the contracts in this wave, not through a route"
+      ]
+    }
+  ],
+  "nonclaims": [
+    "A conforming binding is not a site tree. Relations, locales and publication are waves B, C and D."
+  ],
+  "waves": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E"
+  ],
+  "acceptance_criteria_proven": [
+    "larena.acceptance.minimal_cms.role_bound_site_tree_two_locales"
+  ]
+}

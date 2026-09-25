@@ -1,0 +1,2328 @@
+# Operation declarations for larena/storage.
+#
+# One operation is declared once, here, with its gates, risk, reversibility and
+# schemas. The PHP descriptor binds the same operation to a handler, and the core
+# registry refuses to register the two when they disagree on any shared field.
+schema: larena.operations.contract.v1
+package: larena/storage
+version: 1.0.0
+operations:
+  - name: 'storage.role.register'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.role.manage'
+    audit_event: 'storage.role.registered'
+    idempotency_key: 'role_ref'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_code:
+          type: 'string'
+          maxLength: 120
+        role_version:
+          type: 'integer'
+        title:
+          type: 'string'
+          maxLength: 191
+        required_fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        optional_fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        required_relations:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              relation_key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              target_role_code:
+                type: 'string'
+                minLength: 1
+                maxLength: 120
+            required:
+              - 'relation_key'
+              - 'kind'
+              - 'target_role_code'
+        lifecycle:
+          type: 'string'
+          enum:
+            - 'plain'
+            - 'publishable'
+        owner_package:
+          type: 'string'
+          maxLength: 120
+      required:
+        - 'role_code'
+        - 'role_version'
+        - 'title'
+        - 'lifecycle'
+        - 'owner_package'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            role_ref:
+              type: 'string'
+              minLength: 1
+              maxLength: 140
+            role_code:
+              type: 'string'
+              maxLength: 120
+            role_version:
+              type: 'integer'
+            title:
+              type: 'string'
+              maxLength: 191
+            lifecycle:
+              type: 'string'
+              enum:
+                - 'plain'
+                - 'publishable'
+            owner_package:
+              type: 'string'
+              maxLength: 120
+            status:
+              type: 'string'
+              enum:
+                - 'active'
+                - 'superseded'
+          required: []
+      required:
+        - 'role'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.role.validate_structure'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.role.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        declared_relation_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 64
+        schema_lifecycle:
+          type: 'string'
+          enum:
+            - 'plain'
+            - 'publishable'
+      required:
+        - 'role_ref'
+        - 'schema_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        report:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            role_ref:
+              type: 'string'
+              minLength: 1
+              maxLength: 140
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            conforms:
+              type: 'boolean'
+            missing_fields:
+              type: 'array'
+              items:
+                type: 'string'
+                maxLength: 64
+            missing_relations:
+              type: 'array'
+              items:
+                type: 'string'
+                maxLength: 64
+          required: []
+      required:
+        - 'report'
+  - name: 'storage.role.bind_structure'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.role.manage'
+    audit_event: 'storage.role.bound'
+    idempotency_key: 'binding_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        fields:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              key:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+              type:
+                type: 'string'
+                minLength: 1
+                maxLength: 64
+            required:
+              - 'key'
+              - 'type'
+        declared_relation_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 64
+        schema_lifecycle:
+          type: 'string'
+          enum:
+            - 'plain'
+            - 'publishable'
+      required:
+        - 'role_ref'
+        - 'schema_id'
+        - 'scope_ref'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        binding:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            binding_id:
+              type: 'string'
+              maxLength: 190
+            role_ref:
+              type: 'string'
+              minLength: 1
+              maxLength: 140
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            status:
+              type: 'string'
+              enum:
+                - 'active'
+                - 'revoked'
+          required: []
+      required:
+        - 'binding'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.role.list_structures'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.role.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+      required:
+        - 'scope_ref'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        bindings:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              binding_id:
+                type: 'string'
+                maxLength: 190
+              role_ref:
+                type: 'string'
+                minLength: 1
+                maxLength: 140
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              scope_ref:
+                type: 'string'
+                pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+                maxLength: 80
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'revoked'
+            required: []
+      required:
+        - 'bindings'
+  - name: 'storage.role.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.role.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+      required:
+        - 'role_ref'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        role_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        exists:
+          type: 'boolean'
+      required: []
+  - name: 'storage.relation.define'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.relation.manage'
+    audit_event: 'storage.relation.defined'
+    idempotency_key: 'relation_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        kind:
+          type: 'string'
+          enum:
+            - 'reference'
+            - 'tree_parent'
+        delete_policy:
+          type: 'string'
+          enum:
+            - 'restrict'
+            - 'cascade'
+            - 'detach'
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        from_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        to_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        order_index:
+          type: 'integer'
+        target_role_code:
+          type: 'string'
+          maxLength: 120
+      required:
+        - 'relation_key'
+        - 'kind'
+        - 'delete_policy'
+        - 'schema_id'
+        - 'from_record_id'
+        - 'to_record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            relation_id:
+              type: 'string'
+              maxLength: 190
+            relation_key:
+              type: 'string'
+              pattern: '^[a-z][a-z0-9_]{0,63}$'
+              maxLength: 64
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            from_record_id:
+              type: 'string'
+              minLength: 1
+              maxLength: 39
+            to_record_id:
+              type: 'string'
+              maxLength: 39
+            kind:
+              type: 'string'
+              enum:
+                - 'reference'
+                - 'tree_parent'
+            delete_policy:
+              type: 'string'
+              enum:
+                - 'restrict'
+                - 'cascade'
+                - 'detach'
+            status:
+              type: 'string'
+              enum:
+                - 'active'
+                - 'detached'
+            path:
+              type: 'string'
+              maxLength: 2048
+            depth:
+              type: 'integer'
+            order_index:
+              type: 'integer'
+          required: []
+      required:
+        - 'relation'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.relation.resolve'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        from_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+      required:
+        - 'relation_key'
+        - 'from_record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relations:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+      required:
+        - 'relations'
+  - name: 'storage.tree.children'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        parent_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        budget:
+          type: 'integer'
+      required:
+        - 'relation_key'
+        - 'parent_record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        records:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+        returned:
+          type: 'integer'
+        truncated:
+          type: 'boolean'
+        filtered_count:
+          type: 'integer'
+        budget:
+          type: 'integer'
+      required:
+        - 'records'
+        - 'returned'
+        - 'truncated'
+        - 'filtered_count'
+  - name: 'storage.tree.ancestors'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        budget:
+          type: 'integer'
+      required:
+        - 'relation_key'
+        - 'record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        records:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+        returned:
+          type: 'integer'
+        truncated:
+          type: 'boolean'
+        filtered_count:
+          type: 'integer'
+        budget:
+          type: 'integer'
+      required:
+        - 'records'
+        - 'returned'
+        - 'truncated'
+        - 'filtered_count'
+  - name: 'storage.tree.move'
+    execution_mode: 'sync'
+    risk: 'bulk'
+    reversible: true
+    access_scope: 'storage.relation.manage'
+    audit_event: 'storage.tree.moved'
+    idempotency_key: 'relation_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        new_parent_record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        order_index:
+          type: 'integer'
+      required:
+        - 'relation_key'
+        - 'record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        records:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              relation_id:
+                type: 'string'
+                maxLength: 190
+              relation_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              schema_id:
+                type: 'string'
+                maxLength: 120
+              from_record_id:
+                type: 'string'
+                minLength: 1
+                maxLength: 39
+              to_record_id:
+                type: 'string'
+                maxLength: 39
+              kind:
+                type: 'string'
+                enum:
+                  - 'reference'
+                  - 'tree_parent'
+              delete_policy:
+                type: 'string'
+                enum:
+                  - 'restrict'
+                  - 'cascade'
+                  - 'detach'
+              status:
+                type: 'string'
+                enum:
+                  - 'active'
+                  - 'detached'
+              path:
+                type: 'string'
+                maxLength: 2048
+              depth:
+                type: 'integer'
+              order_index:
+                type: 'integer'
+            required: []
+        returned:
+          type: 'integer'
+        truncated:
+          type: 'boolean'
+        filtered_count:
+          type: 'integer'
+        budget:
+          type: 'integer'
+      required:
+        - 'records'
+        - 'returned'
+        - 'truncated'
+        - 'filtered_count'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.relation.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.relation.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+      required:
+        - 'relation_key'
+        - 'record_id'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+        has_tree_edge:
+          type: 'boolean'
+        depth:
+          type: 'integer'
+      required: []
+  - name: 'storage.locale.read'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        values:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              field_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              requested_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              source_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              value:
+                type: 'string'
+              exact:
+                type: 'boolean'
+              resolution:
+                type: 'string'
+                enum:
+                  - 'exact'
+                  - 'fallback'
+            required:
+              - 'field_key'
+              - 'requested_locale'
+              - 'source_locale'
+              - 'exact'
+              - 'resolution'
+      required:
+        - 'values'
+  - name: 'storage.locale.write'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.locale.write'
+    audit_event: 'storage.locale.written'
+    idempotency_key: 'content_hash'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        values:
+          type: 'object'
+          additionalProperties: true
+          properties: {}
+          required: []
+        localized_field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+        required_field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+        partial_locales_allowed:
+          type: 'boolean'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'locale'
+        - 'values'
+        - 'localized_field_keys'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        written:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+      required:
+        - 'written'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.locale.fallback_resolve'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'locales'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        values:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              field_key:
+                type: 'string'
+                pattern: '^[a-z][a-z0-9_]{0,63}$'
+                maxLength: 64
+              requested_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              source_locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              value:
+                type: 'string'
+              exact:
+                type: 'boolean'
+              resolution:
+                type: 'string'
+                enum:
+                  - 'exact'
+                  - 'fallback'
+            required:
+              - 'field_key'
+              - 'requested_locale'
+              - 'source_locale'
+              - 'exact'
+              - 'resolution'
+      required:
+        - 'values'
+  - name: 'storage.locale.coverage'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        declared_locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        localized_field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'declared_locales'
+        - 'localized_field_keys'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        declared_locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        localized_fields:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+            maxLength: 64
+        per_locale:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              present:
+                type: 'array'
+                items:
+                  type: 'string'
+                  pattern: '^[a-z][a-z0-9_]{0,63}$'
+                  maxLength: 64
+              missing:
+                type: 'array'
+                items:
+                  type: 'string'
+                  pattern: '^[a-z][a-z0-9_]{0,63}$'
+                  maxLength: 64
+              complete:
+                type: 'boolean'
+            required:
+              - 'locale'
+              - 'present'
+              - 'missing'
+              - 'complete'
+        complete:
+          type: 'boolean'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'per_locale'
+        - 'complete'
+  - name: 'storage.locale.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.locale.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        revision:
+          type: 'integer'
+        stored_locales:
+          type: 'array'
+          items:
+            type: 'string'
+            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+            maxLength: 16
+        value_count:
+          type: 'integer'
+        immutable:
+          type: 'boolean'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'revision'
+        - 'stored_locales'
+        - 'value_count'
+        - 'immutable'
+  - name: 'storage.publication.publish'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.publication.publish'
+    audit_event: 'storage.publication.published'
+    idempotency_key: 'publication_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        revision:
+          type: 'integer'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'scope_ref'
+        - 'locale'
+        - 'revision'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        state:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            publication_id:
+              type: 'string'
+              maxLength: 190
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            locale:
+              type: 'string'
+              pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+              maxLength: 16
+            state:
+              type: 'string'
+              enum:
+                - 'draft'
+                - 'scheduled'
+                - 'published'
+                - 'archived'
+            published_revision:
+              type: 'integer'
+            previous_published_revision:
+              type: 'integer'
+            is_published:
+              type: 'boolean'
+          required:
+            - 'publication_id'
+            - 'state'
+            - 'is_published'
+      required:
+        - 'state'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.publication.unpublish'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.publication.unpublish'
+    audit_event: 'storage.publication.unpublished'
+    idempotency_key: 'publication_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'scope_ref'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        state:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            publication_id:
+              type: 'string'
+              maxLength: 190
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            locale:
+              type: 'string'
+              pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+              maxLength: 16
+            state:
+              type: 'string'
+              enum:
+                - 'draft'
+                - 'scheduled'
+                - 'published'
+                - 'archived'
+            published_revision:
+              type: 'integer'
+            previous_published_revision:
+              type: 'integer'
+            is_published:
+              type: 'boolean'
+          required:
+            - 'publication_id'
+            - 'state'
+            - 'is_published'
+      required:
+        - 'state'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.publication.schedule'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.publication.schedule'
+    audit_event: 'storage.publication.scheduled'
+    idempotency_key: 'publication_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        revision:
+          type: 'integer'
+        scheduled_at:
+          type: 'string'
+          maxLength: 32
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'scope_ref'
+        - 'locale'
+        - 'revision'
+        - 'scheduled_at'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        state:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            publication_id:
+              type: 'string'
+              maxLength: 190
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            locale:
+              type: 'string'
+              pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+              maxLength: 16
+            state:
+              type: 'string'
+              enum:
+                - 'draft'
+                - 'scheduled'
+                - 'published'
+                - 'archived'
+            published_revision:
+              type: 'integer'
+            previous_published_revision:
+              type: 'integer'
+            is_published:
+              type: 'boolean'
+          required:
+            - 'publication_id'
+            - 'state'
+            - 'is_published'
+      required:
+        - 'state'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.publication.archive'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.publication.archive'
+    audit_event: 'storage.publication.archived'
+    idempotency_key: 'publication_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'scope_ref'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        state:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            publication_id:
+              type: 'string'
+              maxLength: 190
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            locale:
+              type: 'string'
+              pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+              maxLength: 16
+            state:
+              type: 'string'
+              enum:
+                - 'draft'
+                - 'scheduled'
+                - 'published'
+                - 'archived'
+            published_revision:
+              type: 'integer'
+            previous_published_revision:
+              type: 'integer'
+            is_published:
+              type: 'boolean'
+          required:
+            - 'publication_id'
+            - 'state'
+            - 'is_published'
+      required:
+        - 'state'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.publication.sweep'
+    execution_mode: 'sync'
+    risk: 'bulk'
+    reversible: true
+    access_scope: 'storage.publication.publish'
+    audit_event: 'storage.publication.swept'
+    idempotency_key: 'correlation_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        now:
+          type: 'string'
+          maxLength: 32
+        limit:
+          type: 'integer'
+      required: []
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        swept_at:
+          type: 'string'
+          maxLength: 32
+        published:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              publication_id:
+                type: 'string'
+                maxLength: 190
+              revision:
+                type: 'integer'
+            required:
+              - 'publication_id'
+              - 'revision'
+        published_count:
+          type: 'integer'
+        limit:
+          type: 'integer'
+      required:
+        - 'swept_at'
+        - 'published'
+        - 'published_count'
+        - 'limit'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.publication.head'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.publication.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'scope_ref'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        state:
+          type: 'object'
+          additionalProperties: true
+          properties:
+            publication_id:
+              type: 'string'
+              maxLength: 190
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            locale:
+              type: 'string'
+              pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+              maxLength: 16
+            state:
+              type: 'string'
+              enum:
+                - 'draft'
+                - 'scheduled'
+                - 'published'
+                - 'archived'
+            published_revision:
+              type: 'integer'
+            previous_published_revision:
+              type: 'integer'
+            is_published:
+              type: 'boolean'
+          required:
+            - 'publication_id'
+            - 'state'
+            - 'is_published'
+      required: []
+  - name: 'storage.publication.history'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.publication.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        limit:
+          type: 'integer'
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'scope_ref'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        transitions:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+            properties:
+              publication_id:
+                type: 'string'
+                maxLength: 190
+              transition:
+                type: 'string'
+                enum:
+                  - 'publish'
+                  - 'unpublish'
+                  - 'schedule'
+                  - 'archive'
+                  - 'sweep_publish'
+              from_state:
+                type: 'string'
+                enum:
+                  - 'draft'
+                  - 'scheduled'
+                  - 'published'
+                  - 'archived'
+              to_state:
+                type: 'string'
+                enum:
+                  - 'draft'
+                  - 'scheduled'
+                  - 'published'
+                  - 'archived'
+              revision:
+                type: 'integer'
+              actor_id:
+                type: 'string'
+                maxLength: 191
+              created_at:
+                type: 'string'
+                maxLength: 32
+            required:
+              - 'publication_id'
+              - 'transition'
+              - 'from_state'
+              - 'to_state'
+              - 'actor_id'
+              - 'created_at'
+      required:
+        - 'transitions'
+  - name: 'storage.publication.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.publication.read'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        record_id:
+          type: 'string'
+          maxLength: 39
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+      required:
+        - 'schema_id'
+        - 'record_id'
+        - 'scope_ref'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        publication_id:
+          type: 'string'
+          maxLength: 190
+        exists:
+          type: 'boolean'
+        allowed_transitions:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 24
+      required:
+        - 'publication_id'
+        - 'exists'
+        - 'allowed_transitions'
+  - name: 'storage.read.resolve_key'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        target:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        key_field:
+          type: 'string'
+          maxLength: 64
+        key_value:
+          type: 'string'
+          maxLength: 191
+      required:
+        - 'target'
+        - 'scope_ref'
+        - 'locale'
+        - 'key_field'
+        - 'key_value'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        resolved:
+          type: 'object'
+          additionalProperties: false
+          properties:
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            scope_ref:
+              type: 'string'
+              pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+              maxLength: 80
+            locale:
+              type: 'string'
+              pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+              maxLength: 16
+            revision:
+              type: 'integer'
+            key_field:
+              type: 'string'
+              maxLength: 64
+            key_value:
+              type: 'string'
+              maxLength: 191
+            values:
+              type: 'object'
+              additionalProperties: true
+              properties: {}
+              required: []
+          required:
+            - 'schema_id'
+            - 'record_id'
+            - 'revision'
+            - 'key_field'
+            - 'key_value'
+            - 'values'
+      required: []
+  - name: 'storage.read.published_projection'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        target:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        budget:
+          type: 'integer'
+      required:
+        - 'target'
+        - 'scope_ref'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        records:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: false
+            properties:
+              record_id:
+                type: 'string'
+                maxLength: 39
+              revision:
+                type: 'integer'
+              locale:
+                type: 'string'
+                pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+                maxLength: 16
+              values:
+                type: 'object'
+                additionalProperties: true
+                properties: {}
+                required: []
+            required:
+              - 'record_id'
+              - 'revision'
+              - 'locale'
+              - 'values'
+        returned:
+          type: 'integer'
+        filtered_count:
+          type: 'integer'
+        truncated:
+          type: 'boolean'
+        budget:
+          type: 'integer'
+      required:
+        - 'records'
+        - 'returned'
+        - 'filtered_count'
+        - 'truncated'
+  - name: 'storage.read.projection_explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.read.public'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        target:
+          type: 'string'
+          minLength: 1
+          maxLength: 140
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+      required:
+        - 'target'
+        - 'scope_ref'
+        - 'locale'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        scope_ref:
+          type: 'string'
+          pattern: '^(site|organization):[a-z0-9][a-z0-9_-]{0,62}$'
+          maxLength: 80
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
+        public_field_keys:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 64
+        published_record_count:
+          type: 'integer'
+        derived:
+          type: 'boolean'
+      required:
+        - 'schema_id'
+        - 'public_field_keys'
+        - 'published_record_count'
+        - 'derived'
+  - name: 'storage.record.create'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.record.create'
+    audit_event: 'storage.record.created'
+    idempotency_key: 'owner_ref'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        schema_version:
+          type: 'integer'
+        owner_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 190
+        values:
+          type: 'object'
+          additionalProperties: true
+      required:
+        - 'schema_id'
+        - 'schema_version'
+        - 'owner_ref'
+        - 'values'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        record:
+          type: 'object'
+          additionalProperties: false
+          properties:
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            revision:
+              type: 'integer'
+            owner_ref:
+              type: 'string'
+              maxLength: 190
+          required:
+            - 'schema_id'
+            - 'record_id'
+            - 'revision'
+            - 'owner_ref'
+      required:
+        - 'record'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.record.update'
+    execution_mode: 'sync'
+    risk: 'change'
+    reversible: true
+    access_scope: 'storage.record.update'
+    audit_event: 'storage.record.updated'
+    idempotency_key: 'record_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        schema_version:
+          type: 'integer'
+        owner_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 190
+        record_id:
+          type: 'string'
+          maxLength: 39
+        expected_revision:
+          type: 'integer'
+        values:
+          type: 'object'
+          additionalProperties: true
+      required:
+        - 'schema_id'
+        - 'schema_version'
+        - 'owner_ref'
+        - 'record_id'
+        - 'expected_revision'
+        - 'values'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        record:
+          type: 'object'
+          additionalProperties: false
+          properties:
+            schema_id:
+              type: 'string'
+              maxLength: 120
+            record_id:
+              type: 'string'
+              maxLength: 39
+            revision:
+              type: 'integer'
+            owner_ref:
+              type: 'string'
+              maxLength: 190
+          required:
+            - 'schema_id'
+            - 'record_id'
+            - 'revision'
+            - 'owner_ref'
+      required:
+        - 'record'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
