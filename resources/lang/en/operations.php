@@ -35,4 +35,5 @@ return [
     'workbench_structure_restore' => 'Restore storage structure',
     'workbench_structure_purge' => 'Delete storage structure permanently',
     'workbench_record_purge' => 'Delete storage record permanently from the workbench',
+    'workbench_structure_migrate' => 'Change storage structure fields and rewrite records',
 ];

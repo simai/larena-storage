@@ -36,7 +36,13 @@
     "tests/Integration/StorageWorkbenchTest.php",
     "tests/Unit/WorkbenchLocalizedFieldKeyTest.php",
     "docs/project-management/launch-records/storage-admin-section-lifecycle.json",
-    "docs/project-management/evidence/storage-admin-section-lifecycle/*"
+    "docs/project-management/evidence/storage-admin-section-lifecycle/*",
+    "src/SchemaEvolution/DeclaredFieldValueTransform.php",
+    "src/SchemaEvolution/OptionalFieldCompatibilityAnalyzer.php",
+    "src/SchemaEvolution/DatabaseStorageSchemaEvolution.php",
+    "src/Contracts/StorageSchemaEvolution.php",
+    "tests/Integration/StorageWorkbenchMigrationTest.php",
+    "docs/developer/schema-evolution.md"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

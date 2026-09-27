@@ -19,6 +19,7 @@ interface StorageSchemaEvolution
         string $actor,
         ?string $correlationId = null,
         bool $forUpdate = false,
+        bool $declaredTransform = false,
     ): StorageSchemaCompatibilityReport;
 
     /** @param array<string, mixed> $candidateDefinition */
@@ -29,6 +30,7 @@ interface StorageSchemaEvolution
         ?string $correlationId = null,
         ?StorageSchemaEvolutionTransactionScope $transactionScope = null,
         ?object $orchestrationCapability = null,
+        bool $declaredTransform = false,
     ): StorageSchemaMigrationPlan;
 
     public function explain(string $planRef, string $actor): StorageSchemaMigrationPlan;

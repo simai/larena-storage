@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Declared schema transforms: remove fields, change their type or make them required, rewriting every record in one transaction with fixed conversion rules; the workbench exposes it as `migrateStructure()`.
 - Archive and restore workbench structures; delete archived structures and archived records permanently with relation and role-binding refusals and identifier-only audit; hide a field without touching its values.
 - Expose the workbench's executable filter operators by field type through its public contract; verify a complete typed structure and Property display projection across a disposable SQLite restart.
 - Archive up to 1000 workbench records in one bulk transaction (previous limit: 100).

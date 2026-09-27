@@ -300,6 +300,143 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
     }
 
+    /**
+     * Changes a structure in ways that rewrite its records: removed fields lose
+     * their values, retyped fields are converted, fields may become required.
+     * Every record is rewritten in one transaction or none is; history keeps
+     * the earlier revisions.
+     */
+    public function migrateStructure(
+        string $scopeRef,
+        string $structureId,
+        int $expectedVersion,
+        array $descriptor,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure {
+        $this->assertStructureId($structureId);
+        if ($expectedVersion < 1) {
+            throw new InvalidArgumentException('storage_workbench_structure_version_invalid');
+        }
+        $this->assertScope($actor, 'storage.workbench.structure.migrate', $scopeRef, self::STRUCTURE_RESOURCE);
+        $normalized = $this->normalizeDescriptor($descriptor);
+        if ($normalized['structure_id'] !== $structureId) {
+            throw new StorageRejected('storage_workbench_structure_identity_changed');
+        }
+        $correlationId = $this->correlationId($correlationId);
+
+        try {
+            return $this->database->transaction(function () use (
+                $scopeRef,
+                $structureId,
+                $expectedVersion,
+                $normalized,
+                $actor,
+                $correlationId,
+            ): StorageWorkbenchStructure {
+                $head = $this->structureHead($scopeRef, $structureId, true);
+                if ((int) $head->current_version !== $expectedVersion) {
+                    throw new StorageConflict('storage_workbench_structure_version_conflict');
+                }
+                if ($this->headArchivedAt($head) !== null) {
+                    throw new StorageRejected('storage_workbench_structure_archived');
+                }
+                $current = $this->hydrateStructureVersion($head, true);
+                $currentSchema = $this->storage->schemaVersion($current->schema, true);
+                $candidateDefinition = $this->schemaDefinition($current->schema->schemaId, $normalized['fields']);
+                $schemaVersion = $current->schema->version;
+                if ($this->canonicalJson($candidateDefinition) !== $this->canonicalJson(
+                    $this->schemaDefinitionFromVersion($currentSchema),
+                )) {
+                    $result = $this->ownerPolicies->withinTransaction(
+                        $this->database,
+                        function ($transactionScope) use ($current, $candidateDefinition, $actor, $correlationId) {
+                            $plan = $this->schemaEvolution->plan(
+                                $current->schema,
+                                $candidateDefinition,
+                                $actor,
+                                $correlationId,
+                                $transactionScope,
+                                $this,
+                                true,
+                            );
+
+                            return $this->schemaEvolution->apply(
+                                $plan->planRef,
+                                $plan->planHash,
+                                $actor,
+                                $correlationId,
+                                $transactionScope,
+                                $this,
+                            );
+                        },
+                    );
+                    $schemaVersion = $result->target->version;
+                }
+
+                $nextVersion = $expectedVersion + 1;
+                $now = $this->timestamp();
+                $hash = $this->descriptorHash(
+                    $structureId,
+                    $scopeRef,
+                    $nextVersion,
+                    $schemaVersion,
+                    $normalized['label'],
+                    $normalized['fields'],
+                );
+                $updated = $this->database->table('larena_storage_workbench_structures')
+                    ->where('structure_id', $structureId)
+                    ->where('scope_ref', $scopeRef)
+                    ->where('current_version', $expectedVersion)
+                    ->update([
+                        'current_version' => $nextVersion,
+                        'current_schema_version' => $schemaVersion,
+                        'current_hash' => $hash,
+                        'updated_at' => $now,
+                    ]);
+                if ($updated !== 1) {
+                    throw new StorageConflict('storage_workbench_structure_version_conflict');
+                }
+                $this->insertStructureVersion(
+                    $structureId,
+                    $nextVersion,
+                    $scopeRef,
+                    (string) $head->storage_schema_id,
+                    $normalized['label'],
+                    $normalized['fields'],
+                    $schemaVersion,
+                    $hash,
+                    $actor,
+                    $correlationId,
+                    $now,
+                );
+
+                return new StorageWorkbenchStructure(
+                    $structureId,
+                    $scopeRef,
+                    $nextVersion,
+                    new StorageSchemaVersionRef((string) $head->storage_schema_id, $schemaVersion),
+                    $normalized['label'],
+                    $normalized['fields'],
+                    $hash,
+                    $now,
+                    'migrate',
+                    $actor,
+                    $correlationId,
+                );
+            });
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isConstraintConflict($exception) || $this->isLockConflict($exception)) {
+                throw new StorageConflict('storage_workbench_structure_version_conflict');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
     public function readStructure(string $scopeRef, string $structureId, string $actor): StorageWorkbenchStructure
     {
         $this->assertStructureId($structureId);

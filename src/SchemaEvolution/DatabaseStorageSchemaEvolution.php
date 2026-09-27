@@ -33,6 +33,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
 {
     private SchemaDefinitionNormalizer $normalizer;
     private OptionalFieldCompatibilityAnalyzer $compatibility;
+    private DeclaredFieldValueTransform $transform;
     private StorageSecurityEventSink $securityEvents;
 
     public function __construct(
@@ -44,6 +45,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->compatibility = new OptionalFieldCompatibilityAnalyzer($this->normalizer);
+        $this->transform = new DeclaredFieldValueTransform();
         $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
             ? $securityEvents
             : AuditStorageSecurityEventSink::fromObject($securityEvents);
@@ -60,13 +62,14 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
         string $actor,
         ?string $correlationId = null,
         bool $forUpdate = false,
+        bool $declaredTransform = false,
     ): StorageSchemaCompatibilityReport {
         $this->assertActor($actor);
         $this->authorizer->assertAllowed($actor, 'storage.schema_migration.diff');
         $correlationId = $this->correlationId($correlationId);
 
         try {
-            $snapshot = $this->snapshot($source, $candidateDefinition, $forUpdate);
+            $snapshot = $this->snapshot($source, $candidateDefinition, $forUpdate, $declaredTransform);
             $eventType = $snapshot['report']->compatible
                 ? 'storage.schema_migration.analyzed'
                 : 'storage.schema_migration.rejected';
@@ -97,6 +100,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
         ?string $correlationId = null,
         ?StorageSchemaEvolutionTransactionScope $transactionScope = null,
         ?object $orchestrationCapability = null,
+        bool $declaredTransform = false,
     ): StorageSchemaMigrationPlan {
         $this->assertActor($actor);
         $this->authorizer->assertAllowed($actor, 'storage.schema_migration.plan');
@@ -110,8 +114,8 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                 $transactionScope,
                 $orchestrationCapability,
             );
-            return $this->database->transaction(function () use ($source, $candidateDefinition, $actor, $correlationId): StorageSchemaMigrationPlan {
-                $snapshot = $this->snapshot($source, $candidateDefinition, true);
+            return $this->database->transaction(function () use ($source, $candidateDefinition, $actor, $correlationId, $declaredTransform): StorageSchemaMigrationPlan {
+                $snapshot = $this->snapshot($source, $candidateDefinition, true, $declaredTransform);
                 $report = $snapshot['report'];
                 if (!$report->compatible) {
                     throw new StorageRejected($report->reasonCodes[0] ?? 'storage_schema_migration_plan_incompatible');
@@ -266,8 +270,11 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                 )) {
                     throw new StorageRejected('storage_schema_migration_plan_tampered');
                 }
-                $compatibility = $this->compatibility->analyze($sourceDefinition, $targetDefinition);
-                if (!$compatibility['compatible']) {
+                $declared = $plan->compatibilityClass === 'declared_transform';
+                $compatibility = $declared
+                    ? $this->compatibility->analyzeDeclared($sourceDefinition, $targetDefinition)
+                    : $this->compatibility->analyze($sourceDefinition, $targetDefinition);
+                if (!$compatibility['compatible'] || $compatibility['compatibility_class'] !== $plan->compatibilityClass) {
                     throw new StorageRejected('storage_schema_migration_plan_tampered');
                 }
 
@@ -319,11 +326,23 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                     if (!hash_equals(hash('sha256', $this->normalizer->canonicalJson($values)), $expected->contentHash)) {
                         throw new StorageRejected('storage_schema_migration_record_incompatible');
                     }
-                    $normalized = $this->normalizer->normalizeValues($targetSchema, $values);
-                    if ($this->normalizer->canonicalJson($normalized) !== $this->normalizer->canonicalJson($values)) {
-                        throw new StorageRejected('storage_schema_migration_record_incompatible');
+                    if ($declared) {
+                        $normalized = $this->normalizer->normalizeValues(
+                            $targetSchema,
+                            $this->transform->apply($sourceDefinition['fields'], $targetDefinition['fields'], $values),
+                        );
+                    } else {
+                        $normalized = $this->normalizer->normalizeValues($targetSchema, $values);
+                        if ($this->normalizer->canonicalJson($normalized) !== $this->normalizer->canonicalJson($values)) {
+                            throw new StorageRejected('storage_schema_migration_record_incompatible');
+                        }
                     }
-                    $versionRows[$expected->before->recordId] = ['head' => $head, 'values_json' => $this->normalizer->canonicalJson($values)];
+                    $valuesJson = $this->normalizer->canonicalJson($normalized);
+                    $versionRows[$expected->before->recordId] = [
+                        'head' => $head,
+                        'values_json' => $valuesJson,
+                        'content_hash' => hash('sha256', $valuesJson),
+                    ];
                 }
 
                 $now = $this->timestamp();
@@ -361,7 +380,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                         ->update([
                             'current_revision' => $nextRevision,
                             'current_schema_version' => $plan->target->version,
-                            'current_hash' => $expected->contentHash,
+                            'current_hash' => $stored['content_hash'],
                             'updated_at' => $now,
                         ]);
                     if ($updatedRecord !== 1) {
@@ -374,21 +393,21 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                         'owner_ref' => $expected->ownerRef,
                         'schema_version' => $plan->target->version,
                         'values_json' => $stored['values_json'],
-                        'content_hash' => $expected->contentHash,
+                        'content_hash' => $stored['content_hash'],
                         'operation' => 'schema_migration',
                         'created_by' => $actor,
                         'correlation_id' => $correlationId,
                         'created_at' => $now,
                     ]);
                     $after = new StorageRecordVersionRef($expected->before->schemaId, $expected->before->recordId, $nextRevision);
-                    $resultRecords[] = new StorageSchemaMigrationRecordResult($expected->ownerRef, $expected->before, $after, $expected->contentHash);
+                    $resultRecords[] = new StorageSchemaMigrationRecordResult($expected->ownerRef, $expected->before, $after, $stored['content_hash']);
                     $resultMaterial[] = [
                         'record_id' => $expected->before->recordId,
                         'owner_ref' => $expected->ownerRef,
                         'from_revision' => $expected->before->revision,
                         'to_revision' => $nextRevision,
                         'target_schema_version' => $plan->target->version,
-                        'content_hash' => $expected->contentHash,
+                        'content_hash' => $stored['content_hash'],
                     ];
                 }
 
@@ -460,7 +479,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
      * @param array<string, mixed> $candidateDefinition
      * @return array{report:StorageSchemaCompatibilityReport,target_definition:array{schema_id:string,owner_package:string,fields:list<array<string,mixed>>},records:list<array<string,mixed>>}
      */
-    private function snapshot(StorageSchemaVersionRef $source, array $candidateDefinition, bool $lock): array
+    private function snapshot(StorageSchemaVersionRef $source, array $candidateDefinition, bool $lock, bool $declared = false): array
     {
         $headQuery = $this->database->table('larena_storage_schemas')->where('schema_id', $source->schemaId);
         if ($lock) {
@@ -478,7 +497,9 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
         }
         $targetDefinition = $this->normalizer->normalize($candidateDefinition);
         $targetHash = hash('sha256', $this->normalizer->canonicalJson($targetDefinition));
-        $compatibility = $this->compatibility->analyze($sourceDefinition, $targetDefinition);
+        $compatibility = $declared
+            ? $this->compatibility->analyzeDeclared($sourceDefinition, $targetDefinition)
+            : $this->compatibility->analyze($sourceDefinition, $targetDefinition);
 
         $recordsQuery = $this->database->table('larena_storage_records')
             ->where('schema_id', $source->schemaId)
@@ -518,14 +539,21 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                     $this->timestamp(),
                 );
                 try {
-                    $normalized = $this->normalizer->normalizeValues($targetSchema, $values);
+                    $normalized = $this->normalizer->normalizeValues(
+                        $targetSchema,
+                        $declared
+                            ? $this->transform->apply($sourceDefinition['fields'], $targetDefinition['fields'], $values)
+                            : $values,
+                    );
                 } catch (StorageRejected) {
                     $compatibility['compatible'] = false;
                     $compatibility['compatibility_class'] = 'incompatible';
-                    $compatibility['reason_codes'][] = 'storage_schema_migration_record_incompatible';
+                    $compatibility['reason_codes'][] = $declared
+                        ? 'storage_schema_migration_record_unconvertible'
+                        : 'storage_schema_migration_record_incompatible';
                     $normalized = [];
                 }
-                if ($compatibility['compatible']
+                if ($compatibility['compatible'] && !$declared
                     && $this->normalizer->canonicalJson($normalized) !== $this->normalizer->canonicalJson($values)) {
                     $compatibility['compatible'] = false;
                     $compatibility['compatibility_class'] = 'incompatible';

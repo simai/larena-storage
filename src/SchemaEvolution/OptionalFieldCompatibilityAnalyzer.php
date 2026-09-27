@@ -75,4 +75,34 @@ final readonly class OptionalFieldCompatibilityAnalyzer
             'reason_codes' => $reasons,
         ];
     }
+
+    /**
+     * An owner-declared transform: fields may be removed, retyped, made
+     * required or optional, reordered and added. Only the schema identity is
+     * fixed; whether every existing record survives the rewrite is decided per
+     * record by DeclaredFieldValueTransform and the target types.
+     *
+     * @param array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>} $source
+     * @param array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>} $target
+     * @return array{compatible: bool, compatibility_class: string, added_optional_count: int, reason_codes: list<string>}
+     */
+    public function analyzeDeclared(array $source, array $target): array
+    {
+        $reasons = [];
+        if ($source['schema_id'] !== $target['schema_id'] || $source['owner_package'] !== $target['owner_package']) {
+            $reasons[] = 'storage_schema_migration_identity_changed';
+        }
+        $sourceKeys = array_map(static fn (array $field): string => (string) $field['key'], $source['fields']);
+        $added = array_filter($target['fields'], static fn (array $field): bool => !in_array((string) $field['key'], $sourceKeys, true));
+        if ($this->normalizer->canonicalJson($source['fields']) === $this->normalizer->canonicalJson($target['fields'])) {
+            $reasons[] = 'storage_schema_migration_no_changes';
+        }
+
+        return [
+            'compatible' => $reasons === [],
+            'compatibility_class' => $reasons === [] ? 'declared_transform' : 'incompatible',
+            'added_optional_count' => count(array_filter($added, static fn (array $field): bool => ($field['required'] ?? false) === false)),
+            'reason_codes' => $reasons,
+        ];
+    }
 }

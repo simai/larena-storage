@@ -125,6 +125,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchFieldPresentationTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchBulkArchiveLimitTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchLifecycleTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchMigrationTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/MinimalCmsHierarchyFixtureTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchProviderBindingTest.php",
             "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",

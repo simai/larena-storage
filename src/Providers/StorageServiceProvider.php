@@ -326,6 +326,7 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.workbench.structure.read', 'workbench_structure_read', 'read', 'high'],
             ['storage.workbench.structure.list', 'workbench_structure_list', 'read', 'high'],
             ['storage.workbench.structure.update', 'workbench_structure_update', 'update', 'critical'],
+            ['storage.workbench.structure.migrate', 'workbench_structure_migrate', 'update', 'critical'],
             ['storage.workbench.structure.archive', 'workbench_structure_archive', 'delete', 'critical'],
             ['storage.workbench.structure.restore', 'workbench_structure_restore', 'restore', 'critical'],
             ['storage.workbench.structure.purge', 'workbench_structure_purge', 'delete', 'critical'],

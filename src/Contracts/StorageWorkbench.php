@@ -27,6 +27,22 @@ interface StorageWorkbench
         ?string $correlationId = null,
     ): StorageWorkbenchStructure;
 
+    /**
+     * Rewrites every record to a changed structure: removed fields lose their
+     * values, retyped fields are converted by fixed rules, fields may become
+     * required. All or nothing; refused while any record cannot be converted.
+     *
+     * @param array<string, mixed> $descriptor
+     */
+    public function migrateStructure(
+        string $scopeRef,
+        string $structureId,
+        int $expectedVersion,
+        array $descriptor,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure;
+
     public function readStructure(string $scopeRef, string $structureId, string $actor): StorageWorkbenchStructure;
 
     /** @return list<StorageWorkbenchStructure> Active structures; archived ones only when asked for. */

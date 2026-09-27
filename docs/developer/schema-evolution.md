@@ -24,6 +24,28 @@ evolution fail with stable codes if the historical constraints cannot validate
 new values. Such a schema must be superseded through a future explicit,
 non-destructive owner migration; silent repair is forbidden.
 
+## Declared Transform
+
+An owner may opt in to a second class, `declared_transform`, by passing
+`declaredTransform: true` to `analyze()` and `plan()`. Only the schema identity
+is fixed: fields may be removed, retyped, made required or optional, reordered
+and added. Apply rewrites every record in the same transaction with
+`DeclaredFieldValueTransform`:
+
+- a removed field loses its value in the new revision; earlier revisions keep it;
+- a retyped field is converted by fixed rules: text from scalars, integers from
+  whole numbers and integer strings, numbers from numeric strings, booleans from
+  `true/false/1/0/yes/no/да/нет`; nothing else is guessed;
+- the target Property type then validates every value, including required fields.
+
+If any record cannot be converted, planning fails with
+`storage_schema_migration_record_unconvertible` and nothing is written. The
+plan stores the class, so apply re-derives the same rewrite and refuses a plan
+whose class no longer matches. Without the opt-in the behaviour below is
+unchanged. The Storage workbench uses this class through
+`StorageWorkbench::migrateStructure()` under
+`storage.workbench.structure.migrate`.
+
 ## Public Flow
 
 ```php
