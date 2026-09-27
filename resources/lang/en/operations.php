@@ -30,4 +30,9 @@ return [
     'publication_archive' => 'Archive publication',
     'publication_read' => 'Read publication state',
     'read_public' => 'Read the published site',
+    'record_purge' => 'Delete storage record permanently',
+    'workbench_structure_archive' => 'Archive storage structure',
+    'workbench_structure_restore' => 'Restore storage structure',
+    'workbench_structure_purge' => 'Delete storage structure permanently',
+    'workbench_record_purge' => 'Delete storage record permanently from the workbench',
 ];

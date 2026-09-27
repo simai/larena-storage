@@ -1,0 +1,16 @@
+{
+  "schema": "larena.package_launch_record.v1",
+  "id": "storage-admin-section-lifecycle",
+  "goal": "storage-admin-section",
+  "package": "larena/storage",
+  "branch": "claude/storage-section-lifecycle",
+  "base_commit": "a3d0d19bcf7664d62ed7add37c3b82e33b62cbbb",
+  "scope": "Stage 1 of the Storage admin section (larena-specs docs/architecture/storage-admin-section.md): structure archive and restore, permanent deletion of archived structures and archived records with relation and role-binding refusals and audit, and an optional hidden field flag kept in the workbench descriptor.",
+  "runtime_boundary": "local package source and disposable SQLite tests only",
+  "target_id": "larena.target.minimal_cms_v1_1",
+  "semantic_digest": "sha256:cbbfa628327f11f1f2c958c9b24cc10334fba965b9cce232e40884a6f37a1d3f",
+  "owner_decision": "Owner approved the Storage admin section plan on 2026-09-27: a Storage menu group, archive with restore plus permanent deletion for records and storages, safe field changes only.",
+  "production_ready": false,
+  "status": "coding_started",
+  "rollback": "Revert the package commit and roll back migration 2026_09_30_000001 (drops archived_at and archived_by). Permanently deleted records cannot be restored by a rollback."
+}

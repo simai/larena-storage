@@ -281,6 +281,7 @@ final class StorageServiceProvider extends ServiceProvider
                 is_string($app->make('config')->get('app.key'))
                     ? $app->make('config')->get('app.key')
                     : '',
+                $app->make(StorageSecurityEventSink::class),
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
@@ -320,10 +321,14 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.record.update', 'record_update', 'update', 'high'],
             ['storage.record.delete', 'record_delete', 'delete', 'critical'],
             ['storage.record.restore', 'record_restore', 'restore', 'critical'],
+            ['storage.record.purge', 'record_purge', 'delete', 'critical'],
             ['storage.workbench.structure.create', 'workbench_structure_create', 'create', 'critical'],
             ['storage.workbench.structure.read', 'workbench_structure_read', 'read', 'high'],
             ['storage.workbench.structure.list', 'workbench_structure_list', 'read', 'high'],
             ['storage.workbench.structure.update', 'workbench_structure_update', 'update', 'critical'],
+            ['storage.workbench.structure.archive', 'workbench_structure_archive', 'delete', 'critical'],
+            ['storage.workbench.structure.restore', 'workbench_structure_restore', 'restore', 'critical'],
+            ['storage.workbench.structure.purge', 'workbench_structure_purge', 'delete', 'critical'],
             ['storage.workbench.record.create', 'workbench_record_create', 'create', 'high'],
             ['storage.workbench.record.read', 'workbench_record_read', 'read', 'high'],
             ['storage.workbench.record.list', 'workbench_record_list', 'read', 'high'],
@@ -332,6 +337,7 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.workbench.record.restore', 'workbench_record_restore', 'restore', 'critical'],
             ['storage.workbench.record.bulk_archive', 'workbench_record_bulk_archive', 'delete', 'critical'],
             ['storage.workbench.record.history', 'workbench_record_history', 'read', 'high'],
+            ['storage.workbench.record.purge', 'workbench_record_purge', 'delete', 'critical'],
             // Block document codes. They keep the content.item spelling because
             // system role presets and every existing role grant name them;
             // renaming them would change an accepted access contract.

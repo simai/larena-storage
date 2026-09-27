@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0.0",
+  "proposal": "Record structure archive, restore and permanent deletion under storage.workbench_structure_catalog and record permanent deletion under storage.workbench_scoped_record_lifecycle after admin section and browser evidence.",
+  "canonical_update_allowed": false,
+  "proposals": [
+    "storage.workbench_structure_catalog: archive, restore, purge",
+    "storage.workbench_scoped_record_lifecycle: purge of archived records"
+  ]
+}

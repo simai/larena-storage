@@ -1,0 +1,8 @@
+# Implementation
+
+- `VersionedStorage::purge()` removes records permanently in one transaction: versions, head, localized values, publication rows and relation edges. Each ref must name the current revision. It is refused while a record outside the set references one inside it (`storage_record_purge_referenced`). Permission `storage.record.purge`; one `storage.record.purged` audit event per record with identifiers only.
+- `StorageWorkbench::archiveStructure()`, `restoreStructure()`: state on the structure head (`archived_at`, `archived_by`, additive migration `2026_09_30_000001`), outside the versioned descriptor and its hash. Record writes and structure edits on an archived structure are refused with `storage_workbench_structure_archived`. `listStructures()` returns active structures unless `includeArchived` is true.
+- `StorageWorkbench::purgeStructure()`: only an archived structure at the expected version; refused while a structure role is bound to it or an outside record references its records; removes records, structure versions and head. The storage schema identity stays, so the structure id cannot be used again (`storage_schema_already_exists`).
+- `StorageWorkbench::purgeRecords()`: archived records only, expected revisions, up to 1000 in one transaction.
+- Optional `hidden` boolean on a workbench field, validated like `localized`; it is kept only when true and never reaches the storage schema.
+- New access codes: `storage.record.purge`, `storage.workbench.structure.archive`, `.restore`, `.purge`, `storage.workbench.record.purge`. New audit events: `storage.record.purged`, `storage.workbench.structure.archived`, `.restored`, `.purged` (category `storage_structure`).

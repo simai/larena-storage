@@ -29,8 +29,38 @@ interface StorageWorkbench
 
     public function readStructure(string $scopeRef, string $structureId, string $actor): StorageWorkbenchStructure;
 
-    /** @return list<StorageWorkbenchStructure> */
-    public function listStructures(string $scopeRef, string $actor): array;
+    /** @return list<StorageWorkbenchStructure> Active structures; archived ones only when asked for. */
+    public function listStructures(string $scopeRef, string $actor, bool $includeArchived = false): array;
+
+    /** An archived structure keeps its records and accepts no record writes until it is restored. */
+    public function archiveStructure(
+        string $scopeRef,
+        string $structureId,
+        int $expectedVersion,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure;
+
+    public function restoreStructure(
+        string $scopeRef,
+        string $structureId,
+        int $expectedVersion,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure;
+
+    /**
+     * Removes an archived structure permanently with all of its records. Refused
+     * while a record of another structure references one of its records or a
+     * structure role is bound to it. The structure id cannot be used again.
+     */
+    public function purgeStructure(
+        string $scopeRef,
+        string $structureId,
+        int $expectedVersion,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchPurgeReceipt;
 
     /** @param array<string, mixed> $values */
     public function createRecord(
@@ -81,6 +111,19 @@ interface StorageWorkbench
         string $actor,
         ?string $correlationId = null,
     ): array;
+
+    /**
+     * Removes archived records permanently, one or many in one transaction.
+     *
+     * @param array<array-key, mixed> $expectedRevisions record id => expected revision
+     */
+    public function purgeRecords(
+        string $scopeRef,
+        string $structureId,
+        array $expectedRevisions,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchPurgeReceipt;
 
     public function readRecord(
         string $scopeRef,

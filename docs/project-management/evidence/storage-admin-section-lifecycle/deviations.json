@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "deviations": [
+    {
+      "id": "structure_id_not_reusable",
+      "status": "accepted_limitation",
+      "detail": "A permanently deleted structure keeps its storage schema identity as a tombstone, so its id cannot be used again."
+    },
+    {
+      "id": "relation_field_values_unchecked",
+      "status": "consumer_boundary",
+      "detail": "relation and file field values are opaque UUIDs without an existence check; purge restricts only recorded relation edges."
+    }
+  ]
+}

@@ -30,4 +30,9 @@ return [
     'publication_archive' => 'Архивировать публикацию',
     'publication_read' => 'Просматривать состояние публикации',
     'read_public' => 'Читать опубликованный сайт',
+    'record_purge' => 'Удаление записи хранения навсегда',
+    'workbench_structure_archive' => 'Архивирование структуры хранения',
+    'workbench_structure_restore' => 'Восстановление структуры хранения',
+    'workbench_structure_purge' => 'Удаление структуры хранения навсегда',
+    'workbench_record_purge' => 'Удаление записи рабочей области навсегда',
 ];

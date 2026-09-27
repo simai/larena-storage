@@ -125,6 +125,16 @@ workbench identity migration preserves an existing single-scope model and
 refuses rollback once scoped workbench data exists, because flattening multiple
 scopes back to one global schema identity could lose or merge data.
 
+A workbench structure can be archived and restored. An archived structure keeps
+its records and history, is listed only on request and accepts no record writes
+or structure edits. Permanent deletion is explicit and takes archived data only:
+`purgeRecords()` removes archived records, `purgeStructure()` removes an archived
+structure with all of its records. Both remove every version, localized value,
+publication row and relation edge in one transaction, are refused while a record
+outside the set references one inside it, and audit identifiers and counts only.
+A deleted structure's id cannot be used again. A field can be marked `hidden`;
+that is presentation only and keeps the field and its values.
+
 See `docs/developer/schema-evolution.md` for the bounded evolution contract and
 `docs/developer/owned-table-shape-guard.md` for the exact install, upgrade,
 diagnostic and rollback contracts.

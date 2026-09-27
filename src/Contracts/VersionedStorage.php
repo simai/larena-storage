@@ -55,6 +55,17 @@ interface VersionedStorage
     ): StorageWriteResult;
 
     /**
+     * Removes records permanently: every version, the head, localized values,
+     * publication rows and relation edges. Each ref must name the current
+     * revision of one record of one schema. Refused while a record outside the
+     * set references a record inside it. One audit event per record.
+     *
+     * @param array<array-key, mixed> $current a list of StorageRecordVersionRef, validated
+     * @return int record versions removed
+     */
+    public function purge(array $current, string $actor, ?string $correlationId = null): int;
+
+    /**
      * A locking read is effective only inside an ambient database transaction.
      */
     public function schemaVersion(

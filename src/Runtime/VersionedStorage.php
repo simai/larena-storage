@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Runtime;
 
+use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
@@ -33,6 +34,9 @@ use Throwable;
 final readonly class VersionedStorage implements VersionedStorageContract
 {
     private const RECORD_LIST_RESOURCE_TYPE = 'storage.record';
+    // One purge runs in a single transaction; it matches the workbench scan limit.
+    private const PURGE_LIMIT = 5000;
+    private const PURGE_CHUNK = 500;
 
     private SchemaDefinitionNormalizer $normalizer;
     private StorageSecurityEventSink $securityEvents;
@@ -287,6 +291,114 @@ final readonly class VersionedStorage implements VersionedStorageContract
             correlationId: $this->correlationId($correlationId, 'storage-record'),
             operation: $operation,
         );
+    }
+
+    public function purge(array $current, string $actor, ?string $correlationId = null): int
+    {
+        $this->assertActor($actor);
+        if ($current === [] || !array_is_list($current) || count($current) > self::PURGE_LIMIT) {
+            throw new StorageRejected('storage_record_purge_invalid');
+        }
+        $schemaId = null;
+        $expected = [];
+        foreach ($current as $ref) {
+            if (!$ref instanceof StorageRecordVersionRef || isset($expected[$ref->recordId])
+                || ($schemaId !== null && $ref->schemaId !== $schemaId)) {
+                throw new StorageRejected('storage_record_purge_invalid');
+            }
+            $schemaId = $ref->schemaId;
+            $expected[$ref->recordId] = $ref->revision;
+        }
+        $this->authorizer->assertAllowed($actor, 'storage.record.purge');
+        $correlationId = $this->correlationId($correlationId, 'storage-record');
+        $recordIds = array_keys($expected);
+        sort($recordIds, SORT_STRING);
+
+        try {
+            return $this->database->transaction(function () use ($schemaId, $expected, $recordIds, $actor, $correlationId): int {
+                $heads = [];
+                foreach (array_chunk($recordIds, self::PURGE_CHUNK) as $chunk) {
+                    foreach ($this->database->table('larena_storage_records')
+                        ->where('schema_id', $schemaId)
+                        ->whereIn('record_id', $chunk)
+                        ->lockForUpdate()
+                        ->get(['record_id', 'current_revision']) as $row) {
+                        $heads[(string) $row->record_id] = (int) $row->current_revision;
+                    }
+                }
+                foreach ($expected as $recordId => $revision) {
+                    if (!array_key_exists($recordId, $heads)) {
+                        throw new StorageRejected('storage_record_unknown');
+                    }
+                    if ($heads[$recordId] !== $revision) {
+                        throw new StorageConflict('storage_record_revision_conflict');
+                    }
+                }
+
+                if ($this->tableExists('larena_storage_record_relations')) {
+                    foreach (array_chunk($recordIds, self::PURGE_CHUNK) as $chunk) {
+                        $external = $this->database->table('larena_storage_record_relations')
+                            ->whereIn('to_record_id', $chunk)
+                            ->whereNotIn('from_record_id', $recordIds)
+                            ->exists();
+                        if ($external) {
+                            throw new StorageRejected('storage_record_purge_referenced');
+                        }
+                    }
+                }
+
+                $versions = 0;
+                foreach (array_chunk($recordIds, self::PURGE_CHUNK) as $chunk) {
+          if ($this->tableExists('larena_storage_record_relations')) {
+                        $this->database->table('larena_storage_record_relations')
+                            ->where(static function ($query) use ($chunk): void {
+                                $query->whereIn('from_record_id', $chunk)->orWhereIn('to_record_id', $chunk);
+                            })
+                            ->delete();
+                    }
+                    foreach ([
+                        'larena_storage_localized_values',
+                        'larena_storage_publication_states',
+                        'larena_storage_publication_log',
+                    ] as $table) {
+            if ($this->tableExists($table)) {
+                            $this->database->table($table)
+                                ->where('schema_id', $schemaId)
+                                ->whereIn('record_id', $chunk)
+                                ->delete();
+                        }
+                    }
+                    $versions += $this->database->table('larena_storage_record_versions')
+                        ->where('schema_id', $schemaId)
+                        ->whereIn('record_id', $chunk)
+                        ->delete();
+                    $this->database->table('larena_storage_records')
+                        ->where('schema_id', $schemaId)
+                        ->whereIn('record_id', $chunk)
+                        ->delete();
+                }
+
+                foreach ($recordIds as $recordId) {
+                    $this->emit('storage.record.purged', $actor, 'storage-record:' . $recordId, $correlationId, [
+                        'schema_id' => $schemaId,
+                        'record_id' => $recordId,
+                        'record_revision' => $expected[$recordId],
+                        'operation' => 'purge',
+                    ]);
+                }
+
+                return $versions;
+            });
+        } catch (StorageRejected|StorageConflict $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isLockConflict($exception)) {
+                throw new StorageConflict('storage_record_revision_conflict');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
     }
 
     public function schemaVersion(
@@ -1003,5 +1115,12 @@ final readonly class VersionedStorage implements VersionedStorageContract
         $message = strtolower($exception->getMessage());
 
         return str_contains($message, 'database is locked') || str_contains($message, 'deadlock') || str_contains($message, 'lock wait timeout');
+    }
+
+    // A connection that cannot describe its schema is treated as having every
+    // table, so a check it cannot run never turns into a skipped one.
+    private function tableExists(string $table): bool
+    {
+        return !$this->database instanceof Connection || $this->database->getSchemaBuilder()->hasTable($table);
     }
 }

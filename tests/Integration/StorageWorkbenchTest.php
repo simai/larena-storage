@@ -22,6 +22,7 @@ use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\VersionedStorage;
+use Larena\Storage\Compatibility\Audit\AuditStorageSecurityEventSink;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
@@ -123,6 +124,7 @@ function workbenchInstall(): void
     (require __DIR__ . '/../../database/migrations/2026_07_14_000002_create_larena_storage_schema_migration_tables.php')->up();
     (require __DIR__ . '/../../database/migrations/2026_08_09_000001_create_larena_storage_workbench_tables.php')->up();
     (require __DIR__ . '/../../database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php')->up();
+    (require __DIR__ . '/../../database/migrations/2026_09_30_000001_add_larena_storage_workbench_structure_archive_state.php')->up();
 }
 
 /** @return array{workbench: DatabaseStorageWorkbench, authorizer: WorkbenchAuthorizer, sink: WorkbenchAuditSink} */
@@ -166,6 +168,7 @@ function workbenchRuntime(Connection $connection, ?WorkbenchScopeProvider $scope
         $evolution,
         $policies,
         'goal2-storage-workbench-test-cursor-key-minimum-32',
+        AuditStorageSecurityEventSink::fromObject($audit),
     );
 
     return ['workbench' => $workbench, 'authorizer' => $authorizer, 'sink' => $sink];

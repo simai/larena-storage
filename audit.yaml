@@ -31,6 +31,18 @@ events:
   - type: storage.record.updated
     category: storage_record
     severity: security
+  - type: storage.record.purged
+    category: storage_record
+    severity: security
+  - type: storage.workbench.structure.archived
+    category: storage_structure
+    severity: security
+  - type: storage.workbench.structure.restored
+    category: storage_structure
+    severity: security
+  - type: storage.workbench.structure.purged
+    category: storage_structure
+    severity: security
   - type: storage.role.registered
     category: storage_structure_role
     severity: security

@@ -1,0 +1,29 @@
+{
+  "schema": "larena.package_file_map.v1",
+  "package": "larena/storage",
+  "goal": "storage-admin-section",
+  "changed_files": [
+    ".larena/launch-context.json",
+    "CHANGELOG.md",
+    "README.md",
+    "audit.yaml",
+    "module.yaml",
+    "composer.json",
+    "database/migrations/2026_09_30_000001_add_larena_storage_workbench_structure_archive_state.php",
+    "resources/lang/en/operations.php",
+    "resources/lang/ru/operations.php",
+    "src/Audit/StorageVersionAuditEventDescriptor.php",
+    "src/Contracts/StorageWorkbench.php",
+    "src/Contracts/StorageWorkbenchPurgeReceipt.php",
+    "src/Contracts/StorageWorkbenchStructure.php",
+    "src/Contracts/VersionedStorage.php",
+    "src/Providers/StorageServiceProvider.php",
+    "src/Runtime/DatabaseStorageWorkbench.php",
+    "src/Runtime/VersionedStorage.php",
+    "tests/Integration/StorageWorkbenchLifecycleTest.php",
+    "tests/Integration/StorageWorkbenchTest.php",
+    "tests/Unit/WorkbenchLocalizedFieldKeyTest.php",
+    "docs/project-management/launch-records/storage-admin-section-lifecycle.json",
+    "docs/project-management/evidence/storage-admin-section-lifecycle"
+  ]
+}

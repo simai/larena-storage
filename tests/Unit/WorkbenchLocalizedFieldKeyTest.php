@@ -22,21 +22,23 @@ use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 $reflection = new ReflectionClass(DatabaseStorageWorkbench::class);
 $source = (string) file_get_contents((string) $reflection->getFileName());
 
+// `hidden` (a presentation flag) was later made optional the same way, so the
+// check now names the optional keys once instead of listing every combination.
 larena_storage_role_assert(
-    str_contains($source, '$required = [\'constraints\', \'key\', \'label\', \'position\', \'required\', \'type\', \'type_version\', \'visibility\'];'),
+    str_contains($source, '$optional = array_values(array_intersect($fieldKeys, [\'hidden\', \'localized\']));'),
+    'only hidden and localized are optional',
+);
+larena_storage_role_assert(
+    str_contains($source, '$expected = array_merge([\'constraints\', \'key\', \'label\', \'position\', \'required\', \'type\', \'type_version\', \'visibility\'], $optional);'),
     'the eight-key shape the installed base uses is still accepted',
 );
 larena_storage_role_assert(
-    str_contains($source, '$withLocalized = [\'constraints\', \'key\', \'label\', \'localized\', \'position\', \'required\', \'type\', \'type_version\', \'visibility\'];'),
-    'and the nine-key shape with localized',
+    str_contains($source, 'if ($fieldKeys !== $expected) {'),
+    'anything else is still refused, so the key set was widened by named entries rather than opened up',
 );
 larena_storage_role_assert(
-    str_contains($source, 'if ($fieldKeys !== $required && $fieldKeys !== $withLocalized) {'),
-    'anything else is still refused, so the key set was widened by one entry rather than opened up',
-);
-larena_storage_role_assert(
-    str_contains($source, 'if (array_key_exists(\'localized\', $field) && !is_bool($field[\'localized\'])) {'),
-    'a non-boolean localized value is refused: "yes" is not a flag',
+    str_contains($source, 'if (!is_bool($field[$flag])) {'),
+    'a non-boolean flag is refused: "yes" is not a flag',
 );
 larena_storage_role_assert(
     str_contains($source, '\'localized\' => $field[\'localized\'] ?? false,'),

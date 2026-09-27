@@ -19,7 +19,14 @@ final readonly class StorageWorkbenchStructure
         public string $operation = 'create',
         public string $actor = '',
         public ?string $correlationId = null,
+        public ?string $archivedAt = null,
+        public ?string $archivedBy = null,
     ) {
+    }
+
+    public function isArchived(): bool
+    {
+        return $this->archivedAt !== null;
     }
 
     public function receipt(): StorageMutationReceipt

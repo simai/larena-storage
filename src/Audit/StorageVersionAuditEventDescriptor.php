@@ -21,6 +21,10 @@ final readonly class StorageVersionAuditEventDescriptor implements AuditEventDes
             'storage.record.updated',
             'storage.record.deleted',
             'storage.record.restored',
+            'storage.record.purged',
+            'storage.workbench.structure.archived',
+            'storage.workbench.structure.restored',
+            'storage.workbench.structure.purged',
         ], true)) {
             throw new InvalidArgumentException('storage_audit_event_type_invalid');
         }
@@ -33,7 +37,11 @@ final readonly class StorageVersionAuditEventDescriptor implements AuditEventDes
 
     public function category(): string
     {
-        return str_starts_with($this->eventType, 'storage.schema.') ? 'storage_schema' : 'storage_record';
+        return match (true) {
+            str_starts_with($this->eventType, 'storage.schema.') => 'storage_schema',
+            str_starts_with($this->eventType, 'storage.workbench.structure.') => 'storage_structure',
+            default => 'storage_record',
+        };
     }
 
     public function type(): string
