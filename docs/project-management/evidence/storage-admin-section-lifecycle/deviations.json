@@ -10,6 +10,16 @@
       "id": "relation_field_values_unchecked",
       "status": "consumer_boundary",
       "detail": "relation and file field values are opaque UUIDs without an existence check; purge restricts only recorded relation edges."
+    },
+    {
+      "id": "console_dependency_transitive",
+      "status": "accepted_limitation",
+      "detail": "The sweep command and its schedule use illuminate/console, which the package already installs through its Illuminate dependencies but does not declare directly; declaring it would refresh every path-repository pin in composer.lock, which belongs to a separate lock refresh."
+    },
+    {
+      "id": "sweep_audit_by_publication_history",
+      "status": "accepted_limitation",
+      "detail": "The console sweep calls PublicationLifecycle directly, as Auth's console commands call their services; each publication is recorded in the publication history under system:scheduler, while the operation-level audit event storage.publication.swept is emitted only when the sweep runs as a registry operation."
     }
   ]
 }

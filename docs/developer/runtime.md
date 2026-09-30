@@ -79,3 +79,23 @@ Storage consumes access and audit boundaries. It does not own their policies.
 - Storage applies the scope to storage runtime behavior.
 - Audit receives a safe descriptor of mutation activity.
 - Audit retention, indexing and security review remain outside storage.
+
+## Localized Reads And Scheduled Publication
+
+A public read (`ReadContracts`) takes its locale chain from the
+`LocaleFallbackResolver` port. Lang owns the order; the application binds the
+port to Lang's `FallbackPolicy::chainFor()`, so a record falls back in the same
+order as interface text. Without a binding, `RequestedLocaleOnly` tries the
+requested locale alone and a missing translation shows the shared value.
+
+A schedule is published by `PublicationLifecycle::sweep()`, never by a read.
+`php artisan storage:publication:sweep` runs it (`--limit`, `--now`), and the
+provider schedules it every minute without overlap. On ordinary hosting one cron
+line starts the Laravel scheduler:
+
+```text
+* * * * * php /path/to/site/artisan schedule:run >> /dev/null 2>&1
+```
+
+Each publication made by the sweep is recorded in the record's publication
+history under the actor `system:scheduler`.

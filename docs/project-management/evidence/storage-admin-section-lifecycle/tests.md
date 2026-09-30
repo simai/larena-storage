@@ -4,3 +4,5 @@
 - Composer quality:gate passed: preflight, metadata, lint, static analysis, package tests, evidence and scope checks.
 
 No larena.test or working database was used.
+- `RoleBoundSiteTreeTwoLocalesTest`: a read without a policy shows the shared value; with Lang's chain `kk → ru → en` the untranslated Kazakh render shows the Russian titles.
+- `PublicationSweepCommandTest`: the command publishes only due schedules under `system:scheduler`, is idempotent, refuses a non-positive limit, and the provider schedules it every minute without overlap.

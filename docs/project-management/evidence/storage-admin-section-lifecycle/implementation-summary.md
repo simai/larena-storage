@@ -6,3 +6,5 @@
 - `StorageWorkbench::purgeRecords()`: archived records only, expected revisions, up to 1000 in one transaction.
 - Optional `hidden` boolean on a workbench field, validated like `localized`; it is kept only when true and never reaches the storage schema.
 - New access codes: `storage.record.purge`, `storage.workbench.structure.archive`, `.restore`, `.purge`, `storage.workbench.record.purge`. New audit events: `storage.record.purged`, `storage.workbench.structure.archived`, `.restored`, `.purged` (category `storage_structure`).
+
+- Lang fallback and scheduled publication (2026-09-30): public reads take their locale chain from the new `LocaleFallbackResolver` port instead of the requested locale alone; the application binds it to Lang's `FallbackPolicy::chainFor()`, and `RequestedLocaleOnly` is the default without Lang. `storage:publication:sweep` publishes due schedules under `system:scheduler`, and the provider schedules it every minute without overlap; ordinary hosting runs it with one `schedule:run` cron line.

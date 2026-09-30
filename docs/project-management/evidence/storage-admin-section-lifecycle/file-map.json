@@ -30,6 +30,13 @@
     "src/SchemaEvolution/DatabaseStorageSchemaEvolution.php",
     "src/Contracts/StorageSchemaEvolution.php",
     "tests/Integration/StorageWorkbenchMigrationTest.php",
-    "docs/developer/schema-evolution.md"
+    "docs/developer/schema-evolution.md",
+    "src/Console/Commands/PublicationSweepCommand.php",
+    "src/Contracts/LocaleFallbackResolver.php",
+    "src/Runtime/RequestedLocaleOnly.php",
+    "src/Runtime/DatabaseReadContracts.php",
+    "tests/Unit/PublicationSweepCommandTest.php",
+    "tests/Unit/RoleBoundSiteTreeTwoLocalesTest.php",
+    "docs/developer/runtime.md"
   ]
 }

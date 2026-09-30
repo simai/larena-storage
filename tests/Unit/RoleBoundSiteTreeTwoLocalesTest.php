@@ -200,4 +200,25 @@ larena_storage_role_assert(
     'an untranslated node still renders, with the shared value',
 );
 
+// The read takes its locale chain from the bound resolver (Lang's policy in the
+// application). Published in Kazakh with no Kazakh titles: alone, the read shows
+// the shared value; with Lang's chain kk -> ru it shows the Russian translation.
+foreach (['home', 'docs', 'guide'] as $id) {
+    $publication->publish('site.pages', $id, 'site:main', 'kk', 1, 'actor:editor');
+}
+$kazakhAlone = $read->publishedProjection('site_node@v1', 'site:main', 'kk');
+larena_storage_role_assert($titles($kazakhAlone->records)['guide'] === 'Guide', 'without a policy only the requested locale is tried');
+$langChain = new class implements \Larena\Storage\Contracts\LocaleFallbackResolver {
+    public function chainFor(string $requestedLocale): LocaleFallbackChain
+    {
+        return LocaleFallbackChain::of($requestedLocale, 'ru', 'en');
+    }
+};
+$kazakh = (new DatabaseReadContracts($connection, $localized, $langChain))->publishedProjection('site_node@v1', 'site:main', 'kk');
+larena_storage_role_assert($titles($kazakh->records) === [
+    'docs' => 'Документация',
+    'guide' => 'Руководство',
+    'home' => 'Главная',
+], 'the Lang chain falls back to the Russian titles');
+
 echo "Role-bound site tree in two locales passed.\n";

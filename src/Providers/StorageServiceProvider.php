@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Providers;
 
+use Illuminate\Console\Scheduling\Schedule;
+use Larena\Storage\Console\Commands\PublicationSweepCommand;
+use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\ServiceProvider;
@@ -39,6 +42,7 @@ use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\DatabaseLocalizedValues;
 use Larena\Storage\Runtime\DatabasePublicationLifecycle;
 use Larena\Storage\Runtime\DatabaseReadContracts;
+use Larena\Storage\Runtime\RequestedLocaleOnly;
 use Larena\Storage\Runtime\DatabaseRecordRelations;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
@@ -125,9 +129,15 @@ final class StorageServiceProvider extends ServiceProvider
             return new DatabaseReadContracts(
                 $app->make(DatabaseManager::class)->connection(),
                 $app->make(LocalizedValues::class),
+                $app->make(LocaleFallbackResolver::class),
             );
         });
         $this->app->alias(DatabaseReadContracts::class, ReadContracts::class);
+        // Lang owns the fallback order; the application binds its policy. Without it,
+        // a read uses the requested locale alone.
+        if (!$this->app->bound(LocaleFallbackResolver::class)) {
+            $this->app->singleton(LocaleFallbackResolver::class, RequestedLocaleOnly::class);
+        }
 
         // Block documents moved here from larena/content; they always lived in
         // Storage's tables. The two ports have defaults so Storage boots alone:
@@ -302,6 +312,18 @@ final class StorageServiceProvider extends ServiceProvider
 
         if ($this->app->bound(AccessOperationRegistry::class)) {
             self::registerAccessOperations($this->app->make(AccessOperationRegistry::class));
+        }
+
+        // Scheduled publications are published by the sweep, never by a read. The
+        // Laravel scheduler runs it every minute; one cron line starts the scheduler.
+        if ($this->app->runningInConsole()) {
+            $this->commands([PublicationSweepCommand::class]);
+            $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
+                $schedule->command('storage:publication:sweep')
+                    ->everyMinute()
+                    ->withoutOverlapping()
+                    ->runInBackground();
+            });
         }
     }
 

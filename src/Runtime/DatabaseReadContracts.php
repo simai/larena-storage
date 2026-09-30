@@ -6,6 +6,7 @@ namespace Larena\Storage\Runtime;
 
 use Illuminate\Database\Connection;
 use Larena\Storage\Contracts\LocaleFallbackChain;
+use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublishedProjectionPage;
 use Larena\Storage\Contracts\ReadContracts;
@@ -45,6 +46,7 @@ final class DatabaseReadContracts implements ReadContracts
     public function __construct(
         private readonly Connection $connection,
         private readonly ?LocalizedValues $localizedValues = null,
+        private readonly LocaleFallbackResolver $localeFallback = new RequestedLocaleOnly(),
     ) {
     }
 
@@ -243,7 +245,7 @@ final class DatabaseReadContracts implements ReadContracts
         // A localized value overrides the shared one for this locale. Visibility is
         // still decided by the field, so a translated protected field stays out.
         if ($this->localizedValues !== null) {
-            foreach ($this->localizedValues->resolve($schemaId, $recordId, $revision, LocaleFallbackChain::of($locale), $publicFields) as $fieldKey => $value) {
+            foreach ($this->localizedValues->resolve($schemaId, $recordId, $revision, $this->localeFallback->chainFor($locale), $publicFields) as $fieldKey => $value) {
                 $public[$fieldKey] = $value->value;
             }
         }
