@@ -445,7 +445,10 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         // The derived index learns of the change at once; it never blocks the change.
         if ($this->observer !== null && $logId > 0) {
             try {
-                $this->observer->publicationChanged($result, $logId);
+                $this->observer->publicationChanged(
+                    $result,
+                    ProjectionVersion::of($this->connection, $schemaId, $recordId, $scopeRef, $locale),
+                );
             } catch (\Throwable) {
             }
         }

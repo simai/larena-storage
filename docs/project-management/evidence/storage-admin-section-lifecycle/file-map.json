@@ -41,6 +41,7 @@
     "src/Contracts/PublicationObserver.php",
     "src/Contracts/ReadContracts.php",
     "src/Runtime/DatabasePublicationLifecycle.php",
-    "tests/Unit/PublishedProjectionSearchSourceTest.php"
+    "tests/Unit/PublishedProjectionSearchSourceTest.php",
+    "src/Runtime/ProjectionVersion.php"
   ]
 }

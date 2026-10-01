@@ -53,13 +53,15 @@
     "src/Contracts/PublicationObserver.php",
     "src/Contracts/ReadContracts.php",
     "src/Runtime/DatabasePublicationLifecycle.php",
-    "tests/Unit/PublishedProjectionSearchSourceTest.php"
+    "tests/Unit/PublishedProjectionSearchSourceTest.php",
+    "src/Runtime/ProjectionVersion.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
     "database/migrations/2026_0[7-8]*",
     "src/Http/*",
-    "routes/*"
+    "routes/*",
+    "src/Runtime/ProjectionVersion.php"
   ],
   "forbidden_behavior": [
     "touching larena.test or a live environment",

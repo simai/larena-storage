@@ -178,34 +178,9 @@ final class DatabaseReadContracts implements ReadContracts
             'record_id' => (string) $head['record_id'],
             'revision' => (int) $head['revision'],
             'locale' => $locale,
-            'projection_version' => $this->projectionVersion($schemaId, $head['record_id'], $scopeRef, $locale),
+            'projection_version' => ProjectionVersion::of($this->connection, $schemaId, (string) $head['record_id'], $scopeRef, $locale),
             'values' => $this->publicValues($schemaId, $head['record_id'], (int) $head['revision'], $locale, $publicFields),
         ];
-    }
-
-    /**
-     * The newest log row of this publication plus the newest localized value of the
-     * record in this locale, of any revision. Each id only grows within its own
-     * table, so the sum grows whenever either does: on every publication transition
-     * (a new revision included) and on every localized value written.
-     *
-     * @phpstan-impure
-     */
-    private function projectionVersion(string $schemaId, string $recordId, string $scopeRef, string $locale): int
-    {
-        $transition = (int) $this->connection->table(DatabasePublicationLifecycle::LOG_TABLE)
-            ->where('publication_id', PublicationState::identity($schemaId, $recordId, $scopeRef, $locale))
-            ->max('id');
-        $localized = 0;
-        if ($this->connection->getSchemaBuilder()->hasTable('larena_storage_localized_values')) {
-            $localized = (int) $this->connection->table('larena_storage_localized_values')
-                ->where('schema_id', $schemaId)
-                ->where('record_id', $recordId)
-                ->where('locale', $locale)
-                ->max('id');
-        }
-
-        return max(1, $transition + $localized);
     }
 
     /**

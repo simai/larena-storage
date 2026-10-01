@@ -63,6 +63,13 @@ larena_storage_write_record_version($connection, 'b', 2, ['slug' => 'b', 'title'
 $publication->publish('site.pages', 'b', 'site:main', 'ru', 2, 'actor:editor');
 larena_storage_role_assert($read->publishedRecord('site.pages', 'site:main', 'ru', 'b')['projection_version'] > $translated['projection_version']);
 
+// Withdrawing a translated record reports a version above the one it was indexed at,
+// so the removal is never ignored as stale.
+$indexed = $read->publishedRecord('site.pages', 'site:main', 'ru', 'b')['projection_version'];
+$publication->unpublish('site.pages', 'b', 'site:main', 'ru', 'actor:editor');
+$withdrawn = $observer->heard[array_key_last($observer->heard)];
+larena_storage_role_assert($withdrawn[0] === 'b' && $withdrawn[2] > $indexed, 'the removal outranks the indexed version');
+
 // Unpublishing and publishing the same revision again each move it up, so a removal
 // never outlives the republication in an index fenced by the version.
 $published = $read->publishedRecord('site.pages', 'site:main', 'en', 'a')['projection_version'];
