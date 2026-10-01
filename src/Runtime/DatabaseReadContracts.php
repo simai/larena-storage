@@ -103,6 +103,7 @@ final class DatabaseReadContracts implements ReadContracts
             keyField: $keyField,
             keyValue: $keyValue,
             values: $only['values'],
+            valueSources: $only['sources'],
         );
     }
 
@@ -165,7 +166,7 @@ final class DatabaseReadContracts implements ReadContracts
     /**
      * @param array{record_id: string, revision: int} $head
      * @param list<string> $publicFields
-     * @return array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>}
+     * @return array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>, value_sources: array<string, string>}
      * @phpstan-impure
      */
     private function projectionEntry(string $schemaId, string $scopeRef, string $locale, array $head, array $publicFields): array
@@ -175,8 +176,20 @@ final class DatabaseReadContracts implements ReadContracts
             'revision' => (int) $head['revision'],
             'locale' => $locale,
             'projection_version' => ProjectionVersion::of($this->connection, $schemaId, (string) $head['record_id'], $scopeRef, $locale),
-            'values' => $this->publicValues($schemaId, $head['record_id'], (int) $head['revision'], $locale, $publicFields),
-        ];
+        ] + $this->entryValues($schemaId, $head, $locale, $publicFields);
+    }
+
+    /**
+     * @param array{record_id: string, revision: int} $head
+     * @param list<string> $publicFields
+     * @return array{values: array<string, mixed>, value_sources: array<string, string>}
+     * @phpstan-impure
+     */
+    private function entryValues(string $schemaId, array $head, string $locale, array $publicFields): array
+    {
+        $resolved = $this->publicValuesWithSources($schemaId, $head['record_id'], (int) $head['revision'], $locale, $publicFields);
+
+        return ['values' => $resolved['values'], 'value_sources' => $resolved['sources']];
     }
 
     /**
@@ -281,7 +294,7 @@ final class DatabaseReadContracts implements ReadContracts
      * Published records whose public key field equals the value, reading the whole
      * published set page by page and stopping once enough are found.
      *
-     * @return list<array{head: array{record_id: string, revision: int}, values: array<string, mixed>}>
+     * @return list<array{head: array{record_id: string, revision: int}, values: array<string, mixed>, sources: array<string, string>}>
      * @phpstan-impure
      */
     private function keyHolders(string $schemaId, string $scopeRef, string $locale, string $keyField, string $keyValue, int $stopAfter): array
@@ -294,9 +307,9 @@ final class DatabaseReadContracts implements ReadContracts
         do {
             $page = $this->publishedHeads($schemaId, $scopeRef, $locale, self::DEFAULT_BUDGET, $after);
             foreach ($page as $head) {
-                $values = $this->publicValues($schemaId, $head['record_id'], $head['revision'], $locale, $publicFields);
-                if (($values[$keyField] ?? null) === $keyValue) {
-                    $holders[] = ['head' => $head, 'values' => $values];
+                $resolved = $this->publicValuesWithSources($schemaId, $head['record_id'], $head['revision'], $locale, $publicFields);
+                if (($resolved['values'][$keyField] ?? null) === $keyValue) {
+                    $holders[] = ['head' => $head, 'values' => $resolved['values'], 'sources' => $resolved['sources']];
                     if (count($holders) >= $stopAfter) {
                         return $holders;
                     }
@@ -316,13 +329,26 @@ final class DatabaseReadContracts implements ReadContracts
     }
 
     /**
-     * The public fields of one revision, with localized values resolved for the locale.
-     *
      * @param list<string> $publicFields
      * @return array<string, mixed>
      * @phpstan-impure
      */
     private function publicValues(string $schemaId, string $recordId, int $revision, string $locale, array $publicFields): array
+    {
+        return $this->publicValuesWithSources($schemaId, $recordId, $revision, $locale, $publicFields)['values'];
+    }
+
+    /**
+     * The public fields of one revision, with localized values resolved for the locale,
+     * and where each value came from: `exact` (a translation in the requested locale),
+     * `fallback:<locale>` (a translation found further along Lang's chain) or `shared`
+     * (the revision's own value).
+     *
+     * @param list<string> $publicFields
+     * @return array{values: array<string, mixed>, sources: array<string, string>}
+     * @phpstan-impure
+     */
+    private function publicValuesWithSources(string $schemaId, string $recordId, int $revision, string $locale, array $publicFields): array
     {
         $row = $this->connection->table(self::VERSIONS_TABLE)
             ->where('schema_id', $schemaId)
@@ -331,7 +357,7 @@ final class DatabaseReadContracts implements ReadContracts
             ->first();
 
         if ($row === null) {
-            return [];
+            return ['values' => [], 'sources' => []];
         }
 
         $decoded = json_decode((string) ((array) $row)['values_json'], true);
@@ -342,13 +368,15 @@ final class DatabaseReadContracts implements ReadContracts
         // through would hand a reader every translated value of a schema whose
         // visibility nobody declared.
         if ($publicFields === []) {
-            return [];
+            return ['values' => [], 'sources' => []];
         }
 
         $public = [];
+        $sources = [];
         foreach ($publicFields as $fieldKey) {
             if (array_key_exists($fieldKey, $values)) {
                 $public[$fieldKey] = $values[$fieldKey];
+                $sources[$fieldKey] = 'shared';
             }
         }
 
@@ -357,12 +385,14 @@ final class DatabaseReadContracts implements ReadContracts
         if ($this->localizedValues !== null) {
             foreach ($this->localizedValues->resolve($schemaId, $recordId, $revision, $this->localeFallback->chainFor($locale), $publicFields) as $fieldKey => $value) {
                 $public[$fieldKey] = $value->value;
+                $sources[$fieldKey] = $value->exact ? 'exact' : 'fallback:' . $value->sourceLocale;
             }
         }
 
         ksort($public);
+        ksort($sources);
 
-        return $public;
+        return ['values' => $public, 'sources' => $sources];
     }
 
     /**

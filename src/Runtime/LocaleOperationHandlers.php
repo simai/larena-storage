@@ -10,8 +10,8 @@ use Larena\Core\Contracts\OperationProposalHandler;
 use Larena\Core\Enums\OperationExecutionMode;
 use Larena\Core\Enums\OperationRiskClass;
 use Larena\Storage\Audit\LocalizedValueAuditEventCatalog;
-use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocalizedValue;
+use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Exceptions\LocalizedValueRejected;
 
@@ -25,8 +25,14 @@ use Larena\Storage\Exceptions\LocalizedValueRejected;
  */
 final readonly class LocaleOperationHandlers implements OperationProposalHandler
 {
-    public function __construct(private LocalizedValues $values)
-    {
+    /**
+     * @param LocaleFallbackResolver $fallback Lang's order, bound by the application;
+     *                                         the caller names only the locale it wants
+     */
+    public function __construct(
+        private LocalizedValues $values,
+        private LocaleFallbackResolver $fallback = new RequestedLocaleOnly(),
+    ) {
     }
 
     /**
@@ -102,7 +108,7 @@ final readonly class LocaleOperationHandlers implements OperationProposalHandler
                 $this->string($context, 'schema_id'),
                 $this->string($context, 'record_id'),
                 $this->int($context, 'revision'),
-                new LocaleFallbackChain($this->stringList($context, 'locales')),
+                $this->fallback->chainFor($this->string($context, 'locale')),
                 $this->stringList($context, 'field_keys'),
             ))],
             'storage.locale.coverage' => $this->values->coverage(

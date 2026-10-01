@@ -1187,12 +1187,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             ] + (($field['hidden'] ?? false) === true ? ['hidden' => true] : []);
         }
         usort($normalized, static fn (array $left, array $right): int => [$left['position'], $left['key']] <=> [$right['position'], $right['key']]);
-        // The localized flag stays in the workbench structure descriptor and does
-        // not go into the storage schema: the schema normalizer has a closed key set
-        // of its own and rejects an unknown key, so widening it is a separate
-        // decision with its own migration of every stored definition. Nothing needs
-        // it there yet either — the localized value writer is told which fields are
-        // localized by its caller.
+        // The localized flag also goes into the storage schema, where the localized
+        // value writer reads it; it is kept there only when true, so a structure
+        // with no localized field has the schema it always had.
         $storageFields = array_map(static fn (array $field): array => [
             'key' => $field['key'],
             'type' => $field['type'],
@@ -1200,7 +1197,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'required' => $field['required'],
             'visibility' => $field['visibility'],
             'constraints' => $field['constraints'],
-        ], $normalized);
+        ] + ($field['localized'] === true ? ['localized' => true] : []), $normalized);
         $validated = $this->normalizer->normalize([
             'schema_id' => $structureId,
             'owner_package' => 'larena/storage',
@@ -1240,7 +1237,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     'required' => $field['required'],
                     'visibility' => $field['visibility'],
                     'constraints' => $field['constraints'],
-                ],
+                ] + (($field['localized'] ?? false) === true ? ['localized' => true] : []),
                 $fields,
             )),
         ]);
@@ -1267,12 +1264,17 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if (!is_array($candidate)) {
                 throw new StorageRejected('storage_workbench_structure_field_removed');
             }
+            // Whether a field is localized may change: it applies to revisions written
+            // under the new schema version, and a translation of an older revision
+            // keeps the rule of its own version. Everything else must stay.
+            $stored = $field;
+            unset($stored['localized']);
             $semantic = $this->semanticField($candidate);
-            if ($this->canonicalJson($semantic) !== $this->canonicalJson($field)) {
+            if ($this->canonicalJson($semantic) !== $this->canonicalJson($stored)) {
                 throw new StorageRejected('storage_workbench_structure_field_changed');
             }
             $currentUserKeys[$key] = true;
-            $target[] = $field;
+            $target[] = $stored + (($candidate['localized'] ?? false) === true ? ['localized' => true] : []);
         }
         foreach ($candidateFields as $field) {
             $key = (string) $field['key'];
@@ -1282,7 +1284,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if (($field['required'] ?? null) !== false || ($field['constraints'] ?? null) !== []) {
                 throw new StorageRejected('storage_workbench_structure_addition_incompatible');
             }
-            $target[] = $this->semanticField($field);
+            $target[] = $this->semanticField($field) + (($field['localized'] ?? false) === true ? ['localized' => true] : []);
         }
 
         return $this->normalizer->normalize([

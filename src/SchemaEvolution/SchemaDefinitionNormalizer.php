@@ -24,15 +24,19 @@ final readonly class SchemaDefinitionNormalizer
 
     /**
      * @param array<string, mixed> $definition
-     * @return array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>}
+     * @return array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>, partial_locales?: true}
      */
     public function normalize(array $definition, bool $validateConstraints = true): array
     {
         $definitionKeys = array_keys($definition);
         sort($definitionKeys);
-        if ($definitionKeys !== ['fields', 'owner_package', 'schema_id']) {
+        // `partial_locales` is optional and kept only when true, so every definition
+        // stored before it existed normalizes, and hashes, exactly as before.
+        if (array_values(array_diff($definitionKeys, ['partial_locales'])) !== ['fields', 'owner_package', 'schema_id']
+            || (array_key_exists('partial_locales', $definition) && !is_bool($definition['partial_locales']))) {
             throw new StorageRejected('storage_schema_definition_unknown_key');
         }
+        $partialLocales = ($definition['partial_locales'] ?? false) === true;
         $schemaId = is_string($definition['schema_id'] ?? null) ? trim($definition['schema_id']) : '';
         $ownerPackage = is_string($definition['owner_package'] ?? null) ? trim($definition['owner_package']) : '';
         $fields = $definition['fields'] ?? null;
@@ -51,7 +55,7 @@ final readonly class SchemaDefinitionNormalizer
                 throw new StorageRejected('storage_schema_field_invalid');
             }
             $fieldKeys = array_keys($field);
-            $unknownFieldKeys = array_diff($fieldKeys, ['key', 'type', 'type_version', 'required', 'visibility', 'constraints']);
+            $unknownFieldKeys = array_diff($fieldKeys, ['key', 'type', 'type_version', 'required', 'visibility', 'constraints', 'localized']);
             if ($unknownFieldKeys !== []
                 || !array_key_exists('key', $field)
                 || !array_key_exists('type', $field)
@@ -73,6 +77,7 @@ final readonly class SchemaDefinitionNormalizer
                 || !in_array($visibility, ['public', 'protected', 'admin'], true)
                 || !is_array($constraints)
                 || ($constraints !== [] && array_is_list($constraints))
+                || (array_key_exists('localized', $field) && !is_bool($field['localized']))
                 || $this->propertyTypes->resolve($type, $typeVersion) === null) {
                 throw new StorageRejected('storage_schema_field_invalid');
             }
@@ -104,10 +109,13 @@ final readonly class SchemaDefinitionNormalizer
                 'required' => $required,
                 'visibility' => $visibility,
                 'constraints' => $this->canonicalize($constraints),
-            ];
+            // A field is localized only when it says so; the key is kept only when
+            // true, so a field that says nothing hashes as it always did.
+            ] + (($field['localized'] ?? false) === true ? ['localized' => true] : []);
         }
 
-        return ['schema_id' => $schemaId, 'owner_package' => $ownerPackage, 'fields' => $normalizedFields];
+        return ['schema_id' => $schemaId, 'owner_package' => $ownerPackage, 'fields' => $normalizedFields]
+            + ($partialLocales ? ['partial_locales' => true] : []);
     }
 
     /**

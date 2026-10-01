@@ -162,3 +162,21 @@ declares no key and only `resolveKey` refuses a duplicate, as `ambiguous_key`.
 Key lookups read every published record of the scope and locale page by page;
 past `DatabaseReadContracts::KEY_SCAN_LIMIT` (50,000) they refuse with
 `key_scan_limit_exceeded` rather than miss a key.
+
+## Localized Fields Live In The Schema
+
+A storage schema field declares `localized: true`, and a schema may declare
+`partial_locales: true`; both are kept only when true, so definitions stored
+before them hash exactly as before. `LocalizedValues::write()` takes from the
+schema version of the revision which fields are localized, which of them are
+required and whether a secondary locale may leave a required one out. Only a
+schema version that declares no localized field at all still takes these from
+the caller. The primary locale, the application's `app.locale`, is the language
+of the shared values, so a value written for it only overrides and may be
+partial. Every write is audited as `storage.locale.written` with the field keys,
+never the values, and is rolled back if the audit fails.
+
+Published reads mark each value in `value_sources`: `exact` for a translation in
+the requested locale, `fallback:<locale>` for one found along Lang's chain and
+`shared` for the revision's own value. `storage.locale.fallback_resolve` takes
+one `locale` and Lang's chain from `LocaleFallbackResolver`.

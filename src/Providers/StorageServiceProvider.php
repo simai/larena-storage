@@ -101,12 +101,20 @@ final class StorageServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(DatabaseLocalizedValues::class, static function (Application $app): DatabaseLocalizedValues {
-            return new DatabaseLocalizedValues($app->make(DatabaseManager::class)->connection(), $app->make(PropertyTypeRegistry::class));
+            $primary = $app->make('config')->get('app.locale');
+
+            return new DatabaseLocalizedValues(
+                $app->make(DatabaseManager::class)->connection(),
+                $app->make(PropertyTypeRegistry::class),
+                // The shared values are written in the application's locale.
+                is_string($primary) && $primary !== '' ? $primary : null,
+                $app->make(StorageSecurityEventSink::class),
+            );
         });
         $this->app->alias(DatabaseLocalizedValues::class, LocalizedValues::class);
 
         $this->app->singleton(LocaleOperationHandlers::class, static function (Application $app): LocaleOperationHandlers {
-            return new LocaleOperationHandlers($app->make(LocalizedValues::class));
+            return new LocaleOperationHandlers($app->make(LocalizedValues::class), $app->make(LocaleFallbackResolver::class));
         });
 
         $this->app->singleton(DatabasePublicationLifecycle::class, static function (Application $app): DatabasePublicationLifecycle {

@@ -6,9 +6,8 @@ namespace Larena\Storage\Compatibility\Audit;
 
 use InvalidArgumentException;
 use Larena\Audit\Contracts\AuditEvent;
-use Larena\Audit\Enums\AuditRetentionClass;
-use Larena\Audit\Enums\AuditSeverity;
 use Larena\Audit\Runtime\AuditEventPipeline;
+use Larena\Storage\Audit\LocalizedValueAuditEventDescriptor;
 use Larena\Storage\Audit\PublicationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageSchemaMigrationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageVersionAuditEventDescriptor;
@@ -35,6 +34,7 @@ final readonly class AuditStorageSecurityEventSink implements StorageSecurityEve
         $descriptor = match ($event->stream) {
             'schema_migration' => new StorageSchemaMigrationAuditEventDescriptor($event->type),
             'publication' => new PublicationAuditEventDescriptor($event->type),
+            'locale' => new LocalizedValueAuditEventDescriptor($event->type),
             default => new StorageVersionAuditEventDescriptor($event->type),
         };
 
@@ -44,8 +44,8 @@ final readonly class AuditStorageSecurityEventSink implements StorageSecurityEve
             type: $descriptor->type(),
             actor: $event->actor,
             subject: $event->subject,
-            severity: AuditSeverity::Security,
-            retentionClass: AuditRetentionClass::Security,
+            severity: $descriptor->severity(),
+            retentionClass: $descriptor->retentionClass(),
             correlationId: $event->correlationId,
             payload: $event->payload,
         ));

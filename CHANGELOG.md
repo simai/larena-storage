@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A storage schema field may declare `localized: true` and a schema `partial_locales: true`; both are kept only when true, so stored definitions hash as before. The workbench and the starter site write the flag; toggling it on an existing workbench field is an accepted change.
+- `LocalizedValues::write()` takes localized fields, required fields and partial-locale permission from the schema version of the revision; the caller's lists apply only to versions that declare no localized field. A value for the primary locale (the application locale) may be partial. Each write emits `storage.locale.written` with field keys in its transaction.
+- Projection entries and `ResolvedKey` carry `value_sources` per field: `exact`, `fallback:<locale>` or `shared`.
+- `storage.locale.fallback_resolve` takes one `locale` and Lang's chain from `LocaleFallbackResolver` instead of a caller-supplied list.
+- `AuditStorageSecurityEventSink` takes severity and retention from the event descriptor.
+
 - Keep a routed key unique on publish: the application declares a structure's key field through `PublishedKeyPolicy`, and `PublishedKeyUniqueness` refuses a publish or a scheduled publication whose key another published record of the same structure, scope and locale holds (`key_conflict`); the sweep reports refused schedules and keeps them scheduled.
 - Key lookups read every published record page by page instead of stopping silently at the first page; past 50,000 records they refuse with `key_scan_limit_exceeded`.
 

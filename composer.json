@@ -146,6 +146,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LocaleFallbackTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LocaleCoverageTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LocalizedValuesFailsClosedTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LocalizedSchemaRulesTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/WorkbenchLocalizedFieldKeyTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationLifecycleTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationTransitionMatrixTest.php",

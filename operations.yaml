@@ -1104,12 +1104,10 @@ operations:
           maxLength: 39
         revision:
           type: 'integer'
-        locales:
-          type: 'array'
-          items:
-            type: 'string'
-            pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
-            maxLength: 16
+        locale:
+          type: 'string'
+          pattern: '^[a-z]{2,3}([_-][A-Za-z0-9]{2,8})*$'
+          maxLength: 16
         field_keys:
           type: 'array'
           items:
@@ -1120,7 +1118,7 @@ operations:
         - 'schema_id'
         - 'record_id'
         - 'revision'
-        - 'locales'
+        - 'locale'
     output:
       type: 'object'
       additionalProperties: false

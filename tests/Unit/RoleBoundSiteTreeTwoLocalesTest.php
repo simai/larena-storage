@@ -221,4 +221,14 @@ larena_storage_role_assert($titles($kazakh->records) === [
     'home' => 'Главная',
 ], 'the Lang chain falls back to the Russian titles');
 
+// Each value says where it came from: a Kazakh read of a Russian title is a
+// fallback, the untranslated slug is the shared value, a Russian read is exact.
+$guideKk = array_values(array_filter($kazakh->records, static fn (array $record): bool => $record['record_id'] === 'guide'))[0];
+larena_storage_role_assert($guideKk['value_sources']['title'] === 'fallback:ru', 'the fallback is marked with its locale');
+larena_storage_role_assert($guideKk['value_sources']['slug'] === 'shared', 'an untranslated field is marked shared');
+$guideRu = (new DatabaseReadContracts($connection, $localized, $langChain))->publishedRecord('site_node@v1', 'site:main', 'ru', 'guide');
+larena_storage_role_assert(($guideRu['value_sources']['title'] ?? null) === 'exact', 'a translation in the requested locale is exact');
+$resolved = (new DatabaseReadContracts($connection, $localized, $langChain))->resolveKey('site_node@v1', 'site:main', 'kk', 'slug', 'guide');
+larena_storage_role_assert(($resolved?->valueSources['title'] ?? null) === 'fallback:ru', 'resolve_key carries the same marks');
+
 echo "Role-bound site tree in two locales passed.\n";

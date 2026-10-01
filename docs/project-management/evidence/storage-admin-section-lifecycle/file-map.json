@@ -66,6 +66,13 @@
     "src/Runtime/NoPublishedKeys.php",
     "src/Runtime/PublishedKeyUniqueness.php",
     "src/Runtime/SlugUniquenessGuard.php",
-    "tests/Unit/PublishedKeyUniquenessTest.php"
+    "tests/Unit/PublishedKeyUniquenessTest.php",
+    "src/SchemaEvolution/SchemaDefinitionNormalizer.php",
+    "src/Runtime/LocaleOperationHandlers.php",
+    "src/Audit/LocalizedValueAuditEventDescriptor.php",
+    "src/Contracts/ResolvedKey.php",
+    "src/FirstRun/StarterSite.php",
+    "operations.yaml",
+    "tests/Unit/LocalizedSchemaRulesTest.php"
   ]
 }

@@ -167,10 +167,12 @@ final readonly class StarterSite
             'owner_package' => self::OWNER_PACKAGE,
             'fields' => [
                 $string('slug', true, 120),
-                $string('title', true, 191),
+                // Title and description are translated; the slug and target are one
+                // address for every language.
+                $string('title', true, 191) + ['localized' => true],
                 ['key' => 'order_index', 'type' => 'integer', 'type_version' => 1, 'required' => true, 'visibility' => 'public', 'constraints' => []],
                 $string('target', true, 512),
-                $string('description', false, 2000),
+                $string('description', false, 2000) + ['localized' => true],
             ],
         ];
     }

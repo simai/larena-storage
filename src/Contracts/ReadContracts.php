@@ -44,7 +44,11 @@ interface ReadContracts
      * a publication transition or a localized value written for the published
      * revision in that locale. A derived index uses it as its source revision.
      *
-     * @return array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>}|null
+     * `value_sources` says where each value came from: `exact` (a translation in the
+     * requested locale), `fallback:<locale>` (one found along Lang's chain) or
+     * `shared` (the revision's own value).
+     *
+     * @return array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>, value_sources: array<string, string>}|null
      */
     public function publishedRecord(
         string $roleRefOrSchemaId,

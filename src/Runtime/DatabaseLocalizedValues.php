@@ -10,6 +10,8 @@ use Larena\Storage\Contracts\LocaleCoverageReport;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocalizedValue;
 use Larena\Storage\Contracts\LocalizedValues;
+use Larena\Storage\Contracts\StorageSecurityEvent;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\LocalizedValueRejected;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Property\Runtime\PropertyTypeRegistry as BuiltInPropertyTypes;
@@ -31,23 +33,26 @@ final class DatabaseLocalizedValues implements LocalizedValues
 
     private PropertyTypeRegistry $types;
 
-    public function __construct(private readonly Connection $connection, ?PropertyTypeRegistry $types = null)
-    {
+    /**
+     * @param string|null $primaryLocale the language of the shared values, from the application
+     */
+    public function __construct(
+        private readonly Connection $connection,
+        ?PropertyTypeRegistry $types = null,
+        private readonly ?string $primaryLocale = null,
+        private readonly ?StorageSecurityEventSink $securityEvents = null,
+    ) {
         $this->types = $types ?? BuiltInPropertyTypes::builtIns();
     }
 
     /**
-     * @param array<string, mixed> $values
-     * @param list<string> $localizedFieldKeys
-     * @param list<string> $requiredFieldKeys
-     * @return list<string>
+     * The fields of the schema version a revision was written under, by key, and
+     * whether that version allows partial locales.
+     *
+     * @return array{fields: array<string, array<string, mixed>>, partial_locales: bool}
      * @phpstan-impure
      */
-    /**
-     * @param array<string, mixed> $values
-     * @return array<string, mixed> the normalized values
-     */
-    private function validatedValues(string $schemaId, string $recordId, int $revision, array $values): array
+    private function revisionSchema(string $schemaId, string $recordId, int $revision): array
     {
         $version = $this->connection->table('larena_storage_record_versions')
             ->where('schema_id', $schemaId)
@@ -68,6 +73,17 @@ final class DatabaseLocalizedValues implements LocalizedValues
                 $fields[$field['key']] = $field;
             }
         }
+
+        return ['fields' => $fields, 'partial_locales' => ($decoded['partial_locales'] ?? false) === true];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $fields
+     * @param array<string, mixed> $values
+     * @return array<string, mixed> the normalized values
+     */
+    private function validatedValues(array $fields, array $values): array
+    {
 
         $normalized = [];
         foreach ($values as $fieldKey => $value) {
@@ -122,6 +138,18 @@ final class DatabaseLocalizedValues implements LocalizedValues
             throw new LocalizedValueRejected('invalid_revision', 'A revision must be a positive integer.');
         }
 
+        // The schema version of the revision decides which fields are localized,
+        // which of them are required and whether partial locales are allowed. Only
+        // a version written before schemas could say so — one that declares no
+        // localized field at all — still takes these from the caller.
+        $schema = $this->revisionSchema($schemaId, $recordId, $revision);
+        $declared = array_keys(array_filter($schema['fields'], static fn (array $field): bool => ($field['localized'] ?? false) === true));
+        if ($declared !== []) {
+            $localizedFieldKeys = $declared;
+            $requiredFieldKeys = array_values(array_filter($declared, static fn (string $key): bool => ($schema['fields'][$key]['required'] ?? false) === true));
+            $partialLocalesAllowed = $schema['partial_locales'];
+        }
+
         foreach (array_keys($values) as $fieldKey) {
             if (!in_array($fieldKey, $localizedFieldKeys, true)) {
                 throw new LocalizedValueRejected(
@@ -133,8 +161,10 @@ final class DatabaseLocalizedValues implements LocalizedValues
 
         // A required localized field may be missing in a secondary locale only when
         // the schema says partial locales are acceptable. Otherwise a half-translated
-        // record would be publishable, and nothing downstream could tell.
-        if (!$partialLocalesAllowed) {
+        // record would be publishable, and nothing downstream could tell. The
+        // primary locale is the language of the shared values themselves, so a
+        // value written for it only overrides and may be partial.
+        if (!$partialLocalesAllowed && $locale !== $this->primaryLocale) {
             $missing = [];
             foreach ($requiredFieldKeys as $required) {
                 if (!array_key_exists($required, $values)) {
@@ -153,7 +183,7 @@ final class DatabaseLocalizedValues implements LocalizedValues
         // A translation passes the same Property validation as the shared value: the
         // field's type, version and constraints come from the schema version of the
         // revision it translates. A field the schema does not know is refused.
-        $values = $this->validatedValues($schemaId, $recordId, $revision, $values);
+        $values = $this->validatedValues($schema['fields'], $values);
 
         $now = $this->now();
         $written = [];
@@ -202,6 +232,23 @@ final class DatabaseLocalizedValues implements LocalizedValues
 
                 $written[] = (string) $fieldKey;
             }
+
+            // One audit event per write, in its transaction: a translation whose
+            // audit cannot be written is not written. Field keys, never values.
+            $this->securityEvents?->emit(new StorageSecurityEvent(
+                'locale',
+                LocalizedValueAuditEventCatalog::WRITTEN,
+                $actorId,
+                'storage-record:' . $recordId,
+                $correlationId ?? 'storage-locale:' . bin2hex(random_bytes(16)),
+                [
+                    'schema_id' => $schemaId,
+                    'record_id' => $recordId,
+                    'revision' => $revision,
+                    'locale' => $locale,
+                    'written_field_keys' => $written,
+                ],
+            ));
         });
 
         return $written;

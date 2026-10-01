@@ -44,19 +44,16 @@ larena_storage_role_assert(
     str_contains($source, '\'localized\' => $field[\'localized\'] ?? false,'),
     'an omitted key means not localized',
 );
-// The flag deliberately does *not* reach the storage schema. The schema normalizer
-// has a closed key set of its own and rejects an unknown key — the workbench
-// integration test caught exactly that on the first attempt — so widening it is a
-// separate decision with its own migration of every stored definition. Nothing needs
-// it there: the localized value writer is told which fields are localized by its
-// caller.
+// The flag reaches the storage schema, kept only when true, so the localized value
+// writer reads it from the schema of the revision instead of trusting its caller,
+// and a structure without localized fields keeps the schema it always had.
 larena_storage_role_assert(
-    !str_contains($source, '\'localized\' => $field[\'localized\'],'),
-    'the flag stays in the workbench structure descriptor and out of the storage schema',
+    str_contains($source, "] + (\$field['localized'] === true ? ['localized' => true] : []), \$normalized);"),
+    'the flag goes into the storage schema only when true',
 );
 larena_storage_role_assert(
-    str_contains($source, 'The localized flag stays in the workbench structure descriptor'),
-    'and the reason is written down where the next reader will look',
+    str_contains($source, 'Whether a field is localized may change'),
+    'and toggling it on an existing field is an accepted change, with the reason written down',
 );
 
 // The integration test that proves the eight-key shape still works is present and

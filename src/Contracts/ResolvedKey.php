@@ -26,6 +26,8 @@ final readonly class ResolvedKey
         public string $keyField,
         public string $keyValue,
         public array $values = [],
+        /** @var array<string, string> where each value came from: exact, fallback:<locale> or shared */
+        public array $valueSources = [],
     ) {
     }
 
@@ -41,6 +43,7 @@ final readonly class ResolvedKey
             'key_field' => $this->keyField,
             'key_value' => $this->keyValue,
             'values' => $this->values,
+            'value_sources' => $this->valueSources,
         ];
     }
 }
