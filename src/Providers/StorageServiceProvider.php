@@ -122,6 +122,8 @@ final class StorageServiceProvider extends ServiceProvider
                     ->exists(),
                 // A derived index the application binds (Search) hears of every change.
                 $app->bound(PublicationObserver::class) ? $app->make(PublicationObserver::class) : null,
+                // Every transition is audited, whatever path called it.
+                $app->make(StorageSecurityEventSink::class),
             );
         });
         $this->app->alias(DatabasePublicationLifecycle::class, PublicationLifecycle::class);

@@ -9,6 +9,7 @@ use Larena\Audit\Contracts\AuditEvent;
 use Larena\Audit\Enums\AuditRetentionClass;
 use Larena\Audit\Enums\AuditSeverity;
 use Larena\Audit\Runtime\AuditEventPipeline;
+use Larena\Storage\Audit\PublicationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageSchemaMigrationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageVersionAuditEventDescriptor;
 use Larena\Storage\Contracts\StorageSecurityEvent;
@@ -31,9 +32,11 @@ final readonly class AuditStorageSecurityEventSink implements StorageSecurityEve
 
     public function emit(StorageSecurityEvent $event): void
     {
-        $descriptor = $event->stream === 'schema_migration'
-            ? new StorageSchemaMigrationAuditEventDescriptor($event->type)
-            : new StorageVersionAuditEventDescriptor($event->type);
+        $descriptor = match ($event->stream) {
+            'schema_migration' => new StorageSchemaMigrationAuditEventDescriptor($event->type),
+            'publication' => new PublicationAuditEventDescriptor($event->type),
+            default => new StorageVersionAuditEventDescriptor($event->type),
+        };
 
         $this->audit->route($descriptor, AuditEvent::create(
             sourcePackage: $descriptor->sourcePackage(),

@@ -130,3 +130,20 @@ ask the `PublishedReadVisibility` port for the caller's filter and pass it to
 binding, `PublishedRecordsArePublic`, lets everyone read every published record:
 the reads return public fields of published heads only. Access has no row scope
 yet; a composition with record-level rules binds its own implementation.
+
+## Publication Audit
+
+`DatabasePublicationLifecycle` audits every transition itself, inside the
+transaction that writes the state and log rows: `storage.publication.published`,
+`.unpublished`, `.scheduled`, `.archived` and `.swept`, with actor, scope,
+locale, revisions and correlation id, never a field value. The operation path,
+`storage:publication:sweep` and direct calls are audited alike. A call without a
+correlation id gets a fresh one, and one sweep shares one id across its
+publications. If the audit event cannot be written, the transition is rolled
+back.
+
+`composer test:mysql-publication` proves restart readback on MySQL: it creates
+a disposable database on the local server named in the root's ignored
+`.env.auth-mfa-mysql-test`, publishes, withdraws, schedules and sweeps, reads
+heads, history and revisions back through a new connection, and drops the
+database.

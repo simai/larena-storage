@@ -152,6 +152,8 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationHistoryTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationSweepTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationSweepCommandTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationAuditTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationMySqlRestartTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationFailsClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadContractsResolveKeyTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublishedProjectionTest.php",
@@ -163,6 +165,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/BlockDocumentServiceTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
+        "test:mysql-publication": "LARENA_STORAGE_PUBLICATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationMySqlRestartTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
         "test:mysql-workbench-identity-migration": "LARENA_STORAGE_WORKBENCH_MIGRATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
         "test:unit": [

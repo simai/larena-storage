@@ -17,7 +17,7 @@ final readonly class StorageSecurityEvent
         public string $correlationId,
         public array $payload,
     ) {
-        if (!in_array($stream, ['version', 'schema_migration'], true)) {
+        if (!in_array($stream, ['version', 'schema_migration', 'publication'], true)) {
             throw new InvalidArgumentException('storage_security_event_stream_invalid');
         }
     }

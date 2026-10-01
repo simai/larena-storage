@@ -54,6 +54,12 @@
     "tests/Unit/PublicationFailsClosedTest.php",
     "tests/Unit/ReadContractsFailsClosedTest.php",
     "tests/Unit/ReadOperationVisibilityTest.php",
-    "tests/Unit/PublishedProjectionTest.php"
+    "tests/Unit/PublishedProjectionTest.php",
+    "src/Audit/PublicationAuditEventDescriptor.php",
+    "src/Compatibility/Audit/AuditStorageSecurityEventSink.php",
+    "src/Contracts/StorageSecurityEvent.php",
+    "tests/Unit/PublicationAuditTest.php",
+    "tests/Integration/PublicationMySqlRestartTest.php",
+    "tests/Support/mysql-disposable-database.php"
   ]
 }

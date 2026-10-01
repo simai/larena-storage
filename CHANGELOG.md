@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Audit every publication transition from `DatabasePublicationLifecycle` itself, in the transition's transaction, on every path (operation, sweep, direct call): `storage.publication.*` with actor, scope, locale, revisions and a correlation id; a call without one gets a fresh id shared by one sweep. A transition whose audit fails is rolled back.
+- Opt-in MySQL restart readback for publication (`composer test:mysql-publication`).
+
 - Translations pass Property validation against the schema version of their record revision (`unknown_revision`, `field_unknown`, `value_invalid`).
 - Read operations apply the caller's `PublishedReadVisibility` filter; `projectionExplain()` takes the filter and reports hidden records as `filtered_record_count` only.
 

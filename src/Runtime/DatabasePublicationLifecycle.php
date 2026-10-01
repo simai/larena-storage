@@ -11,6 +11,8 @@ use Larena\Storage\Contracts\PublicationObserver;
 use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\PublicationState;
 use Larena\Storage\Contracts\PublicationTransition;
+use Larena\Storage\Contracts\StorageSecurityEvent;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Enums\PublicationStateValue as State;
 use Larena\Storage\Enums\PublicationTransitionValue as Transition;
 use Larena\Storage\Exceptions\PublicationRejected;
@@ -31,6 +33,11 @@ use Larena\Storage\Exceptions\PublicationRejected;
  * Publishing never touches a revision, its values or its localized values. It changes
  * only which revision is the head — which is what makes an immutable revision worth
  * having.
+ *
+ * Every transition is audited from here, inside the same transaction, whatever the
+ * caller: an operation, the sweep or a direct call. A transition whose audit event
+ * cannot be written does not happen. A caller without a correlation id gets a fresh
+ * one, shared by every transition of one sweep.
  */
 final class DatabasePublicationLifecycle implements PublicationLifecycle
 {
@@ -62,6 +69,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         private readonly Connection $connection,
         private readonly mixed $revisionExists = null,
         private readonly ?PublicationObserver $observer = null,
+        private readonly ?StorageSecurityEventSink $securityEvents = null,
     ) {
     }
 
@@ -170,6 +178,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
 
         $moment = $now ?? $this->now();
         $published = [];
+        $correlationId ??= self::newCorrelationId();
 
         foreach ($this->dueSchedules($moment, $limit) as $state) {
             // The scheduled revision is the one the schedule recorded, which the
@@ -371,6 +380,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
 
         $result = null;
         $logId = 0;
+        $correlationId ??= self::newCorrelationId();
 
         $this->connection->transaction(function () use (
             $transition,
@@ -438,6 +448,28 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                 'created_at' => $now,
             ]);
 
+            $this->securityEvents?->emit(new StorageSecurityEvent(
+                'publication',
+                self::auditEvent($transition),
+                $actorId,
+                'storage-record:' . $recordId,
+                $correlationId,
+                [
+                    'schema_id' => $schemaId,
+                    'record_id' => $recordId,
+                    'scope_ref' => $scopeRef,
+                    'locale' => $locale,
+                    'transition' => $transition->value,
+                    'from_state' => $from->value,
+                    'to_state' => $to->value,
+                    'revision' => $revision,
+                    'published_revision' => $next->publishedRevision,
+                    'previous_published_revision' => $next->previousPublishedRevision,
+                    'scheduled_at' => $scheduledAt,
+                    'log_id' => $logId,
+                ],
+            ));
+
             $result = $next;
         });
 
@@ -454,6 +486,22 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         }
 
         return $result;
+    }
+
+    private static function auditEvent(Transition $transition): string
+    {
+        return match ($transition) {
+            Transition::Publish => PublicationAuditEventCatalog::PUBLISHED,
+            Transition::Unpublish => PublicationAuditEventCatalog::UNPUBLISHED,
+            Transition::Schedule => PublicationAuditEventCatalog::SCHEDULED,
+            Transition::Archive => PublicationAuditEventCatalog::ARCHIVED,
+            Transition::SweepPublish => PublicationAuditEventCatalog::SWEPT,
+        };
+    }
+
+    private static function newCorrelationId(): string
+    {
+        return 'storage-publication:' . bin2hex(random_bytes(16));
     }
 
     private function targetState(Transition $transition): State
