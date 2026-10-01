@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep a routed key unique on publish: the application declares a structure's key field through `PublishedKeyPolicy`, and `PublishedKeyUniqueness` refuses a publish or a scheduled publication whose key another published record of the same structure, scope and locale holds (`key_conflict`); the sweep reports refused schedules and keeps them scheduled.
+- Key lookups read every published record page by page instead of stopping silently at the first page; past 50,000 records they refuse with `key_scan_limit_exceeded`.
+
 - Audit every publication transition from `DatabasePublicationLifecycle` itself, in the transition's transaction, on every path (operation, sweep, direct call): `storage.publication.*` with actor, scope, locale, revisions and a correlation id; a call without one gets a fresh id shared by one sweep. A transition whose audit fails is rolled back.
 - Opt-in MySQL restart readback for publication (`composer test:mysql-publication`).
 

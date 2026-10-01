@@ -44,6 +44,14 @@ final class DatabaseReadContracts implements ReadContracts
 
     public const DEFAULT_BUDGET = 500;
 
+    /**
+     * How many published records a key lookup reads at most. A key is found by
+     * reading every published record of the scope and locale page by page; past
+     * this many the lookup refuses rather than answer "not found" for a key that
+     * may exist further on.
+     */
+    public const KEY_SCAN_LIMIT = 50_000;
+
     public function __construct(
         private readonly Connection $connection,
         private readonly ?LocalizedValues $localizedValues = null,
@@ -64,19 +72,7 @@ final class DatabaseReadContracts implements ReadContracts
         LocaleFallbackChain::assertLocale($locale);
 
         $schemaId = $this->schemaId($roleRefOrSchemaId);
-        $publicFields = $this->publicFieldKeys($schemaId);
-
-        $candidates = [];
-
-        foreach ($this->publishedHeads($schemaId, $scopeRef, $locale, self::DEFAULT_BUDGET + 1) as $head) {
-            $values = $this->publicValues($schemaId, $head['record_id'], (int) $head['revision'], $locale, $publicFields);
-
-            if (($values[$keyField] ?? null) !== $keyValue) {
-                continue;
-            }
-
-            $candidates[] = ['head' => $head, 'values' => $values];
-        }
+        $candidates = $this->keyHolders($schemaId, $scopeRef, $locale, $keyField, $keyValue, 2);
 
         if ($candidates === []) {
             // A miss and a record the caller may not read are the same answer on
@@ -184,6 +180,39 @@ final class DatabaseReadContracts implements ReadContracts
     }
 
     /**
+     * The ids of the published records that answer to a key in a scope and locale,
+     * found by reading every published record — not only the first page.
+     *
+     * @return list<string>
+     * @phpstan-impure
+     */
+    public function keyHolderIds(string $roleRefOrSchemaId, string $scopeRef, string $locale, string $keyField, string $keyValue): array
+    {
+        $this->assertSchema();
+        LocaleFallbackChain::assertLocale($locale);
+
+        return array_map(
+            static fn (array $candidate): string => $candidate['head']['record_id'],
+            $this->keyHolders($this->schemaId($roleRefOrSchemaId), $scopeRef, $locale, $keyField, $keyValue, PHP_INT_MAX),
+        );
+    }
+
+    /**
+     * The public values one revision would show in a locale, published or not:
+     * what a key would be if this revision were published.
+     *
+     * @return array<string, mixed>
+     * @phpstan-impure
+     */
+    public function publicValuesAt(string $schemaId, string $recordId, int $revision, string $locale): array
+    {
+        $this->assertSchema();
+        LocaleFallbackChain::assertLocale($locale);
+
+        return $this->publicValues($schemaId, $recordId, $revision, $locale, $this->publicFieldKeys($schemaId));
+    }
+
+    /**
      * @return array<string, mixed>
      * @phpstan-impure
      */
@@ -246,6 +275,44 @@ final class DatabaseReadContracts implements ReadContracts
         }
 
         return $heads;
+    }
+
+    /**
+     * Published records whose public key field equals the value, reading the whole
+     * published set page by page and stopping once enough are found.
+     *
+     * @return list<array{head: array{record_id: string, revision: int}, values: array<string, mixed>}>
+     * @phpstan-impure
+     */
+    private function keyHolders(string $schemaId, string $scopeRef, string $locale, string $keyField, string $keyValue, int $stopAfter): array
+    {
+        $publicFields = $this->publicFieldKeys($schemaId);
+        $holders = [];
+        $after = null;
+        $scanned = 0;
+
+        do {
+            $page = $this->publishedHeads($schemaId, $scopeRef, $locale, self::DEFAULT_BUDGET, $after);
+            foreach ($page as $head) {
+                $values = $this->publicValues($schemaId, $head['record_id'], $head['revision'], $locale, $publicFields);
+                if (($values[$keyField] ?? null) === $keyValue) {
+                    $holders[] = ['head' => $head, 'values' => $values];
+                    if (count($holders) >= $stopAfter) {
+                        return $holders;
+                    }
+                }
+            }
+            $scanned += count($page);
+            if ($scanned > self::KEY_SCAN_LIMIT) {
+                throw new ReadContractRejected(
+                    'key_scan_limit_exceeded',
+                    'More than ' . self::KEY_SCAN_LIMIT . ' published records in ' . $scopeRef . '/' . $locale . '; a key lookup refuses rather than miss.',
+                );
+            }
+            $after = $page === [] ? null : $page[array_key_last($page)]['record_id'];
+        } while (count($page) === self::DEFAULT_BUDGET);
+
+        return $holders;
     }
 
     /**

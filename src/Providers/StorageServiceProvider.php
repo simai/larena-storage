@@ -25,6 +25,7 @@ use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
+use Larena\Storage\Contracts\PublishedKeyPolicy;
 use Larena\Storage\Contracts\PublishedReadVisibility;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Contracts\RecordRelations;
@@ -49,6 +50,8 @@ use Larena\Storage\Runtime\DatabaseRecordRelations;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
+use Larena\Storage\Runtime\NoPublishedKeys;
+use Larena\Storage\Runtime\PublishedKeyUniqueness;
 use Larena\Storage\Runtime\PublishedRecordsArePublic;
 use Larena\Storage\Runtime\ReadContractOperationHandlers;
 use Larena\Storage\Runtime\RecordOperationHandlers;
@@ -124,6 +127,8 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->bound(PublicationObserver::class) ? $app->make(PublicationObserver::class) : null,
                 // Every transition is audited, whatever path called it.
                 $app->make(StorageSecurityEventSink::class),
+                // A key the application routes by stays unique among published records.
+                new PublishedKeyUniqueness($app->make(DatabaseReadContracts::class), $app->make(PublishedKeyPolicy::class)),
             );
         });
         $this->app->alias(DatabasePublicationLifecycle::class, PublicationLifecycle::class);
@@ -211,6 +216,7 @@ final class StorageServiceProvider extends ServiceProvider
 
         // A composition with record-level read rules binds its own visibility first.
         $this->app->singletonIf(PublishedReadVisibility::class, PublishedRecordsArePublic::class);
+        $this->app->singletonIf(PublishedKeyPolicy::class, NoPublishedKeys::class);
         $this->app->singleton(ReadContractOperationHandlers::class, static function (Application $app): ReadContractOperationHandlers {
             return new ReadContractOperationHandlers($app->make(ReadContracts::class), $app->make(PublishedReadVisibility::class));
         });

@@ -7,6 +7,7 @@ namespace Larena\Storage\Runtime;
 use Illuminate\Database\Connection;
 use Larena\Storage\Audit\PublicationAuditEventCatalog;
 use Larena\Storage\Contracts\LocaleFallbackChain;
+use Larena\Storage\Contracts\PublicationGuard;
 use Larena\Storage\Contracts\PublicationObserver;
 use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\PublicationState;
@@ -70,6 +71,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         private readonly mixed $revisionExists = null,
         private readonly ?PublicationObserver $observer = null,
         private readonly ?StorageSecurityEventSink $securityEvents = null,
+        private readonly ?PublicationGuard $guard = null,
     ) {
     }
 
@@ -178,6 +180,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
 
         $moment = $now ?? $this->now();
         $published = [];
+        $refusedSchedules = [];
         $correlationId ??= self::newCorrelationId();
 
         foreach ($this->dueSchedules($moment, $limit) as $state) {
@@ -189,17 +192,29 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                 continue;
             }
 
-            $this->transition(
-                Transition::SweepPublish,
-                $state->schemaId,
-                $state->recordId,
-                $state->scopeRef,
-                $state->locale,
-                $scheduledRevision,
-                null,
-                $actorId,
-                $correlationId,
-            );
+            try {
+                $this->transition(
+                    Transition::SweepPublish,
+                    $state->schemaId,
+                    $state->recordId,
+                    $state->scopeRef,
+                    $state->locale,
+                    $scheduledRevision,
+                    null,
+                    $actorId,
+                    $correlationId,
+                );
+            } catch (PublicationRejected $refused) {
+                // A schedule the guard refuses stays scheduled and does not stop the
+                // rest of the sweep; the editor sees why in the result.
+                $refusedSchedules[] = [
+                    'publication_id' => $state->publicationId,
+                    'revision' => $scheduledRevision,
+                    'reason_code' => $refused->reasonCode,
+                ];
+
+                continue;
+            }
 
             $published[] = [
                 'publication_id' => $state->publicationId,
@@ -211,6 +226,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             'swept_at' => $moment,
             'published' => $published,
             'published_count' => count($published),
+            'refused' => $refusedSchedules,
             'limit' => min($limit, self::SWEEP_LIMIT),
         ];
     }
@@ -376,6 +392,13 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                 'invalid_transition',
                 $transition->value . ' is not allowed from ' . $from->value . '.',
             );
+        }
+
+        // A new head must pass the guard, such as key uniqueness, before anything
+        // is written.
+        if ($this->guard !== null && $revision !== null
+            && in_array($transition, [Transition::Publish, Transition::SweepPublish], true)) {
+            $this->guard->assertMayPublish($schemaId, $recordId, $scopeRef, $locale, $revision);
         }
 
         $result = null;

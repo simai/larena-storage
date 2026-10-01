@@ -42,14 +42,10 @@ final class SlugUniquenessGuard
         string $keyValue,
         ?string $exceptRecordId = null,
     ): void {
-        $page = $this->readContracts->publishedProjection($schemaId, $scopeRef, $locale);
-
-        foreach ($page->records as $record) {
-            if (($record['values'][$keyField] ?? null) !== $keyValue) {
-                continue;
-            }
-
-            if ($exceptRecordId !== null && $record['record_id'] === $exceptRecordId) {
+        // Every published record, not the first projection page: a conflict on
+        // record 2001 is still a conflict.
+        foreach ($this->readContracts->keyHolderIds($schemaId, $scopeRef, $locale, $keyField, $keyValue) as $recordId) {
+            if ($exceptRecordId !== null && $recordId === $exceptRecordId) {
                 // The record is allowed to keep its own slug.
                 continue;
             }
@@ -57,7 +53,7 @@ final class SlugUniquenessGuard
             throw new ReadContractRejected(
                 'slug_conflict',
                 $keyField . '=' . $keyValue . ' is already published in ' . $scopeRef . '/' . $locale
-                . ' by record ' . $record['record_id'] . '.',
+                . ' by record ' . $recordId . '.',
             );
         }
     }

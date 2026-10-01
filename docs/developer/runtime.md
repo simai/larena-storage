@@ -147,3 +147,18 @@ a disposable database on the local server named in the root's ignored
 `.env.auth-mfa-mysql-test`, publishes, withdraws, schedules and sweeps, reads
 heads, history and revisions back through a new connection, and drops the
 database.
+
+## Keys Stay Unique On Publish
+
+A key such as a page slug belongs to whoever routes by it, so the application
+declares it: bind `PublishedKeyPolicy` and return the key field of a structure
+in a scope. Storage's `PublishedKeyUniqueness` then refuses to publish a
+revision whose key, as that revision shows it in the locale, another published
+record of the same structure, scope and locale already holds
+(`PublicationRejected` with `key_conflict`). The sweep keeps such a schedule
+scheduled and lists it under `refused`. Without a binding, `NoPublishedKeys`
+declares no key and only `resolveKey` refuses a duplicate, as `ambiguous_key`.
+
+Key lookups read every published record of the scope and locale page by page;
+past `DatabaseReadContracts::KEY_SCAN_LIMIT` (50,000) they refuse with
+`key_scan_limit_exceeded` rather than miss a key.

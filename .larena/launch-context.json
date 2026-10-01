@@ -72,7 +72,13 @@
     "src/Contracts/StorageSecurityEvent.php",
     "tests/Unit/PublicationAuditTest.php",
     "tests/Integration/PublicationMySqlRestartTest.php",
-    "tests/Support/mysql-disposable-database.php"
+    "tests/Support/mysql-disposable-database.php",
+    "src/Contracts/PublishedKeyPolicy.php",
+    "src/Contracts/PublicationGuard.php",
+    "src/Runtime/NoPublishedKeys.php",
+    "src/Runtime/PublishedKeyUniqueness.php",
+    "src/Runtime/SlugUniquenessGuard.php",
+    "tests/Unit/PublishedKeyUniquenessTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
