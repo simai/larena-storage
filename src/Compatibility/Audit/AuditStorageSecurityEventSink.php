@@ -9,6 +9,7 @@ use Larena\Audit\Contracts\AuditEvent;
 use Larena\Audit\Runtime\AuditEventPipeline;
 use Larena\Storage\Audit\LocalizedValueAuditEventDescriptor;
 use Larena\Storage\Audit\PublicationAuditEventDescriptor;
+use Larena\Storage\Audit\RelationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageSchemaMigrationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageVersionAuditEventDescriptor;
 use Larena\Storage\Contracts\StorageSecurityEvent;
@@ -35,6 +36,7 @@ final readonly class AuditStorageSecurityEventSink implements StorageSecurityEve
             'schema_migration' => new StorageSchemaMigrationAuditEventDescriptor($event->type),
             'publication' => new PublicationAuditEventDescriptor($event->type),
             'locale' => new LocalizedValueAuditEventDescriptor($event->type),
+            'relation' => new RelationAuditEventDescriptor($event->type),
             default => new StorageVersionAuditEventDescriptor($event->type),
         };
 

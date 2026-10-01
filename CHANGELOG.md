@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Relations are checked before they are written through `RelationTargets` (`DatabaseRelationTargets` in the provider): the source must be in the schema, the target must exist and be of the declared structure (`target_schema_id`) or role, a tree parent shares the schema and the scope (`larena_scope_ref`), and a schema version that declares `relations` (with their delete policy) is followed exactly. New codes: `source_not_found`, `source_schema_mismatch`, `target_not_found`, `target_schema_mismatch`, `target_role_mismatch`, `cross_scope_parent`, `relation_undeclared`, `relation_descriptor_mismatch`.
+- A schema definition may declare `relations`, kept only when present.
+- `storage.relation.delete_record` applies the declared delete policy; purging records applies it to edges reaching in from outside (`releaseIncomingEdges`): restrict refuses, cascade removes the edge and its subtree's edges, detach turns a tree child into a root with its subtree.
+- Detaching rewrites the whole subtree's paths; a detached root is no longer treated as its own child.
+- The tree operations apply the caller's `RecordReadVisibility` (default `AllRecordsVisible`); define, move and delete are audited (`storage.relation.defined`, one `storage.tree.moved` per move with the moved set, `storage.relation.deleted`).
+
 - A storage schema field may declare `localized: true` and a schema `partial_locales: true`; both are kept only when true, so stored definitions hash as before. The workbench and the starter site write the flag; toggling it on an existing workbench field is an accepted change.
 - `LocalizedValues::write()` takes localized fields, required fields and partial-locale permission from the schema version of the revision; the caller's lists apply only to versions that declare no localized field. A value for the primary locale (the application locale) may be partial. Each write emits `storage.locale.written` with field keys in its transaction.
 - Projection entries and `ResolvedKey` carry `value_sources` per field: `exact`, `fallback:<locale>` or `shared`.

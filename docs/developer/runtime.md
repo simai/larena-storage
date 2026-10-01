@@ -180,3 +180,21 @@ Published reads mark each value in `value_sources`: `exact` for a translation in
 the requested locale, `fallback:<locale>` for one found along Lang's chain and
 `shared` for the revision's own value. `storage.locale.fallback_resolve` takes
 one `locale` and Lang's chain from `LocaleFallbackResolver`.
+
+## Relations Are Checked Before They Are Written
+
+`DatabaseRecordRelations` asks `RelationTargets` what the linked records are
+before writing an edge: the source must belong to the schema, the target must
+exist and be of the declared structure (`target_schema_id`) or role
+(`target_role_code`), and a tree parent must share the schema and, when both
+records carry `larena_scope_ref`, the scope. A schema definition may declare its
+`relations` with kind, delete policy and target; a schema version that does is
+followed exactly (`relation_undeclared`, `relation_descriptor_mismatch`).
+
+The delete policy applies everywhere a record leaves a tree:
+`storage.relation.delete_record`, and a purge of records, which applies it to
+every edge reaching the purged set from outside — restrict refuses, cascade
+removes the edge and its subtree's edges, detach turns a child into a root and
+rewrites its subtree. Define, move and delete are audited; a move is one
+`storage.tree.moved` event naming every moved record. The tree operations apply
+the caller's `RecordReadVisibility` and count what they hide.

@@ -457,6 +457,9 @@ operations:
           maxLength: 39
         order_index:
           type: 'integer'
+        target_schema_id:
+          type: 'string'
+          maxLength: 120
         target_role_code:
           type: 'string'
           maxLength: 120
@@ -881,6 +884,83 @@ operations:
         - 'returned'
         - 'truncated'
         - 'filtered_count'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'
+  - name: 'storage.relation.delete_record'
+    execution_mode: 'sync'
+    risk: 'irreversible'
+    reversible: false
+    access_scope: 'storage.relation.manage'
+    audit_event: 'storage.relation.deleted'
+    idempotency_key: 'record_id'
+    transactional: true
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 39
+      required:
+        - 'relation_key'
+        - 'record_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        relation_key:
+          type: 'string'
+          maxLength: 64
+        record_id:
+          type: 'string'
+          maxLength: 39
+        policy:
+          type: 'string'
+          enum:
+            - 'restrict'
+            - 'cascade'
+            - 'detach'
+        descendant_count:
+          type: 'integer'
+        removed:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 39
+        detached:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 39
+      required:
+        - 'relation_key'
+        - 'record_id'
+        - 'policy'
+        - 'descendant_count'
+        - 'removed'
+        - 'detached'
     receipt:
       type: 'object'
       additionalProperties: true

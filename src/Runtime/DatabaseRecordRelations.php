@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace Larena\Storage\Runtime;
 
 use Illuminate\Database\Connection;
+use Larena\Storage\Audit\RelationAuditEventCatalog;
 use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\RelationDescriptor;
 use Larena\Storage\Contracts\RelationRecord;
+use Larena\Storage\Contracts\RelationTargets;
 use Larena\Storage\Contracts\RelationTraversalPage;
+use Larena\Storage\Contracts\StorageSecurityEvent;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Enums\RelationDeletePolicy;
 use Larena\Storage\Enums\RelationKind;
 use Larena\Storage\Enums\RelationStatus;
@@ -31,8 +35,15 @@ final class DatabaseRecordRelations implements RecordRelations
 
     public const DEFAULT_BUDGET = 2000;
 
-    public function __construct(private readonly Connection $connection)
-    {
+    /**
+     * @param RelationTargets|null $targets what the records are; without it (a package test
+     *                                      of the bare table) targets are not checked
+     */
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly ?RelationTargets $targets = null,
+        private readonly ?StorageSecurityEventSink $securityEvents = null,
+    ) {
     }
 
     /** @phpstan-impure */
@@ -57,6 +68,8 @@ final class DatabaseRecordRelations implements RecordRelations
         if (strlen($relationId) > 190) {
             throw new RelationRejected('relation_identity_too_long', 'Relation identity exceeds 190 characters.');
         }
+
+        $this->assertTargets($descriptor, $schemaId, $fromRecordId, $toRecordId);
 
         $path = null;
         $depth = 0;
@@ -84,7 +97,7 @@ final class DatabaseRecordRelations implements RecordRelations
         $order = $orderIndex ?? $this->nextOrderIndex($descriptor->relationKey, $toRecordId);
 
         try {
-            $this->connection->table(self::TABLE)->insert([
+            $this->connection->transaction(fn () => $this->insertAudited($relationId, $descriptor, $schemaId, $fromRecordId, $toRecordId, $actorId, $correlationId, [
                 'relation_id' => $relationId,
                 'relation_key' => $descriptor->relationKey,
                 'schema_id' => $schemaId,
@@ -103,7 +116,7 @@ final class DatabaseRecordRelations implements RecordRelations
                 'correlation_id' => $correlationId,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
+            ]));
         } catch (Throwable $failure) {
             if ($this->isUniqueViolation($failure)) {
                 // Which unique index fired tells the caller what they did.
@@ -208,6 +221,8 @@ final class DatabaseRecordRelations implements RecordRelations
         // never a walk up the table.
         $rows = $this->connection->table(self::TABLE)
             ->where('relation_key', $relationKey)
+            // A detached edge marks a former child that became a root: it is still
+            // the ancestor of its own subtree, so its status does not filter it out.
             ->where('kind', RelationKind::TreeParent->value)
             ->whereIn('from_record_id', $ancestorIds)
             ->get()
@@ -261,6 +276,7 @@ final class DatabaseRecordRelations implements RecordRelations
             if ($parentEdge !== null && $parentEdge->schemaId !== $edge->schemaId) {
                 throw new RelationRejected('cross_schema_parent', 'A tree parent must live in the same schema.');
             }
+            $this->assertParent($edge->schemaId, $recordId, $newParentRecordId);
 
             $newPath = $parentPath->child($recordId);
         }
@@ -337,6 +353,15 @@ final class DatabaseRecordRelations implements RecordRelations
                 ->orderBy('order_index')
                 ->get()
                 ->all();
+
+            // One event for the whole move, naming every record whose path changed.
+            $this->emit(RelationAuditEventCatalog::MOVED, $actorId, $recordId, $correlationId, [
+                'relation_key' => $relationKey,
+                'record_id' => $recordId,
+                'from_parent_record_id' => $edge->toRecordId === $recordId ? null : $edge->toRecordId,
+                'to_parent_record_id' => $newParentRecordId,
+                'moved_record_ids' => array_map(static fn ($row): string => (string) ((array) $row)['from_record_id'], $moved),
+            ]);
         });
 
         return $this->page($moved, $this->budget(null), null);
@@ -380,6 +405,7 @@ final class DatabaseRecordRelations implements RecordRelations
             $edge,
             $policy,
             $descendantQuery,
+            $actorId,
             $correlationId,
             &$removed,
             &$detached,
@@ -400,27 +426,25 @@ final class DatabaseRecordRelations implements RecordRelations
                 $children = $this->connection->table(self::TABLE)
                     ->where('relation_key', $relationKey)
                     ->where('to_record_id', $recordId)
+                    // A detached root points at itself; it is not its own child.
+                    ->where('from_record_id', '!=', $recordId)
                     ->where('kind', RelationKind::TreeParent->value)
                     ->get();
 
                 foreach ($children as $row) {
                     $row = (array) $row;
-                    $childId = (string) $row['from_record_id'];
-                    $detached[] = $childId;
-                    $rootPath = RelationPath::root($childId);
-
-                    $this->connection->table(self::TABLE)
-                        ->where('relation_id', $row['relation_id'])
-                        ->update([
-                            'to_record_id' => $childId,
-                            'path' => $rootPath->toString(),
-                            'depth' => $rootPath->depth(),
-                            'status' => RelationStatus::Detached->value,
-                            'correlation_id' => $correlationId,
-                            'updated_at' => $now,
-                        ]);
+                    $detached[] = (string) $row['from_record_id'];
+                    $this->detachChild($row, $correlationId, $now);
                 }
             }
+
+            $this->emit(RelationAuditEventCatalog::DELETED, $actorId, $recordId, $correlationId, [
+                'relation_key' => $relationKey,
+                'record_id' => $recordId,
+                'policy' => $policy->value,
+                'removed_record_ids' => $removed,
+                'detached_record_ids' => $detached,
+            ]);
 
             // The record's own edges go in every policy.
             $this->connection->table(self::TABLE)
@@ -671,5 +695,215 @@ final class DatabaseRecordRelations implements RecordRelations
     private function now(): string
     {
         return gmdate('Y-m-d H:i:s');
+    }
+
+    /**
+     * Applies each relation's declared delete policy to the edges that reach a set of
+     * records from outside it, before those records are removed for good: restrict
+     * refuses, cascade removes the edge and, for a tree, every edge beneath it, and
+     * detach drops a reference or turns a tree child into a root with its subtree.
+     *
+     * @param list<string> $recordIds
+     * @return array{removed: list<string>, detached: list<string>}
+     * @phpstan-impure
+     */
+    public function releaseIncomingEdges(array $recordIds, string $actorId, ?string $correlationId = null): array
+    {
+        $this->assertSchema();
+        $removed = [];
+        $detached = [];
+        $now = $this->now();
+
+        foreach (array_chunk($recordIds, 500) as $chunk) {
+            $incoming = $this->connection->table(self::TABLE)
+                ->whereIn('to_record_id', $chunk)
+                ->whereNotIn('from_record_id', $recordIds)
+                ->orderBy('relation_key')
+                ->orderBy('from_record_id')
+                ->get();
+
+            foreach ($incoming as $row) {
+                $row = (array) $row;
+                $policy = RelationDeletePolicy::from((string) $row['delete_policy']);
+                $fromRecordId = (string) $row['from_record_id'];
+                if ($policy === RelationDeletePolicy::Restrict) {
+                    throw new RelationRejected(
+                        'delete_restricted',
+                        'Record ' . $fromRecordId . ' refers to a record being removed and the relation ' . $row['relation_key'] . ' restricts deletion.',
+                    );
+                }
+                $isTree = $row['kind'] === RelationKind::TreeParent->value;
+                if ($policy === RelationDeletePolicy::Detach && $isTree) {
+                    $this->detachChild($row, $correlationId, $now);
+                    $detached[] = $fromRecordId;
+                    continue;
+                }
+                if ($policy === RelationDeletePolicy::Cascade && $isTree && is_string($row['path'])) {
+                    foreach ($this->connection->table(self::TABLE)
+                        ->where('relation_key', $row['relation_key'])
+                        ->where('kind', RelationKind::TreeParent->value)
+                        ->where('path', 'like', $row['path'] . RelationPath::SEPARATOR . '%')
+                        ->pluck('from_record_id') as $descendant) {
+                        $removed[] = (string) $descendant;
+                    }
+                    $this->connection->table(self::TABLE)
+                        ->where('relation_key', $row['relation_key'])
+                        ->where('kind', RelationKind::TreeParent->value)
+                        ->where('path', 'like', $row['path'] . RelationPath::SEPARATOR . '%')
+                        ->delete();
+                }
+                $this->connection->table(self::TABLE)->where('relation_id', $row['relation_id'])->delete();
+                $removed[] = $fromRecordId;
+            }
+        }
+
+        if ($removed !== [] || $detached !== []) {
+            $this->emit(RelationAuditEventCatalog::DELETED, $actorId, $recordIds[0] ?? 'unknown', $correlationId, [
+                'record_ids' => $recordIds,
+                'policy' => 'declared',
+                'removed_record_ids' => array_values(array_unique($removed)),
+                'detached_record_ids' => $detached,
+            ]);
+        }
+
+        return ['removed' => array_values(array_unique($removed)), 'detached' => $detached];
+    }
+
+    /**
+     * Turns a tree child into a root and rewrites its whole subtree, so no
+     * descendant keeps a path through the removed parent.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function detachChild(array $row, ?string $correlationId, string $now): void
+    {
+        $childId = (string) $row['from_record_id'];
+        $oldPath = RelationPath::parse((string) $row['path']);
+        $rootPath = RelationPath::root($childId);
+
+        $this->connection->table(self::TABLE)
+            ->where('relation_id', $row['relation_id'])
+            ->update([
+                'to_record_id' => $childId,
+                'path' => $rootPath->toString(),
+                'depth' => $rootPath->depth(),
+                'status' => RelationStatus::Detached->value,
+                'correlation_id' => $correlationId,
+                'updated_at' => $now,
+            ]);
+
+        foreach ($this->connection->table(self::TABLE)
+            ->where('relation_key', $row['relation_key'])
+            ->where('kind', RelationKind::TreeParent->value)
+            ->where('path', 'like', $oldPath->descendantPrefix() . '%')
+            ->get() as $descendant) {
+            $descendant = (array) $descendant;
+            $suffix = substr((string) $descendant['path'], strlen($oldPath->descendantPrefix()));
+            $rewritten = RelationPath::parse($rootPath->toString() . RelationPath::SEPARATOR . $suffix);
+            $this->connection->table(self::TABLE)
+                ->where('relation_id', $descendant['relation_id'])
+                ->update(['path' => $rewritten->toString(), 'depth' => $rewritten->depth(), 'updated_at' => $now]);
+        }
+    }
+
+    /** @param array<string, mixed> $row */
+    private function insertAudited(
+        string $relationId,
+        RelationDescriptor $descriptor,
+        string $schemaId,
+        string $fromRecordId,
+        string $toRecordId,
+        string $actorId,
+        ?string $correlationId,
+        array $row,
+    ): void {
+        $this->connection->table(self::TABLE)->insert($row);
+        $this->emit(RelationAuditEventCatalog::DEFINED, $actorId, $fromRecordId, $correlationId, [
+            'relation_id' => $relationId,
+            'relation_key' => $descriptor->relationKey,
+            'kind' => $descriptor->kind->value,
+            'delete_policy' => $descriptor->deletePolicy->value,
+            'schema_id' => $schemaId,
+            'from_record_id' => $fromRecordId,
+            'to_record_id' => $toRecordId,
+        ]);
+    }
+
+    /**
+     * A relation is checked against what the records are before it is written:
+     * the source belongs to the schema, the target exists and is of the declared
+     * structure or role, a tree parent shares the schema and the scope, and a
+     * schema version that declares its relations is followed exactly.
+     */
+    private function assertTargets(RelationDescriptor $descriptor, string $schemaId, string $fromRecordId, string $toRecordId): void
+    {
+        if ($this->targets === null) {
+            return;
+        }
+        $fromSchema = $this->targets->schemaOf($fromRecordId);
+        if ($fromSchema === null) {
+            throw new RelationRejected('source_not_found', 'The record ' . $fromRecordId . ' does not exist.');
+        }
+        if ($fromSchema !== $schemaId) {
+            throw new RelationRejected('source_schema_mismatch', 'The record ' . $fromRecordId . ' is not in ' . $schemaId . '.');
+        }
+
+        $declared = $this->targets->declaredRelations($fromRecordId);
+        if ($declared !== null) {
+            $own = $declared[$descriptor->relationKey]
+                ?? throw new RelationRejected('relation_undeclared', $schemaId . ' does not declare the relation ' . $descriptor->relationKey . '.');
+            if ($own['kind'] !== $descriptor->kind->value
+                || $own['delete_policy'] !== $descriptor->deletePolicy->value
+                || ($own['target_schema_id'] ?? null) !== $descriptor->targetSchemaId
+                || ($own['target_role_code'] ?? null) !== $descriptor->targetRoleCode) {
+                throw new RelationRejected('relation_descriptor_mismatch', 'The relation ' . $descriptor->relationKey . ' differs from what ' . $schemaId . ' declares.');
+            }
+        }
+
+        $toSchema = $this->targets->schemaOf($toRecordId);
+        if ($toSchema === null) {
+            throw new RelationRejected('target_not_found', 'The target record ' . $toRecordId . ' does not exist.');
+        }
+        if ($descriptor->targetSchemaId !== null && $toSchema !== $descriptor->targetSchemaId) {
+            throw new RelationRejected('target_schema_mismatch', 'The target is not in ' . $descriptor->targetSchemaId . '.');
+        }
+        if ($descriptor->targetRoleCode !== null && !$this->targets->playsRole($toSchema, $descriptor->targetRoleCode)) {
+            throw new RelationRejected('target_role_mismatch', 'The target structure does not play the role ' . $descriptor->targetRoleCode . '.');
+        }
+        if ($descriptor->kind->isTree()) {
+            $this->assertParent($schemaId, $fromRecordId, $toRecordId);
+        }
+    }
+
+    private function assertParent(string $schemaId, string $childRecordId, ?string $parentRecordId): void
+    {
+        if ($this->targets === null || $parentRecordId === null) {
+            return;
+        }
+        $parentSchema = $this->targets->schemaOf($parentRecordId);
+        if ($parentSchema === null) {
+            throw new RelationRejected('target_not_found', 'The parent record ' . $parentRecordId . ' does not exist.');
+        }
+        if ($parentSchema !== $schemaId) {
+            throw new RelationRejected('cross_schema_parent', 'A tree parent must live in the same schema.');
+        }
+        $childScope = $this->targets->scopeOf($childRecordId);
+        $parentScope = $this->targets->scopeOf($parentRecordId);
+        if ($childScope !== null && $parentScope !== null && $childScope !== $parentScope) {
+            throw new RelationRejected('cross_scope_parent', 'A tree parent must live in the same scope.');
+        }
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function emit(string $type, string $actorId, string $recordId, ?string $correlationId, array $payload): void
+    {
+        $this->securityEvents?->emit(new StorageSecurityEvent(
+            'relation',
+            $type,
+            $actorId,
+            'storage-record:' . $recordId,
+            $correlationId ?? 'storage-relation:' . bin2hex(random_bytes(16)),
+            $payload,
+        ));
     }
 }

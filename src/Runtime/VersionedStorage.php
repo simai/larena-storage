@@ -30,6 +30,7 @@ use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use stdClass;
 use Throwable;
+use Larena\Storage\Exceptions\RelationRejected;
 
 final readonly class VersionedStorage implements VersionedStorageContract
 {
@@ -48,6 +49,8 @@ final readonly class VersionedStorage implements VersionedStorageContract
         object $securityEvents,
         private ?QueryScopeProvider $queryScopeProvider = null,
         private ?string $recordListCursorKey = null,
+        // Applies relation delete policies on purge; without it any incoming edge refuses.
+        private ?DatabaseRecordRelations $relations = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
@@ -335,7 +338,15 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     }
                 }
 
-                if ($this->tableExists('larena_storage_record_relations')) {
+                if ($this->relations !== null && $this->tableExists('larena_storage_record_relations')) {
+                    // Each relation reaching in from outside follows its declared
+                    // delete policy; restrict still refuses the whole purge.
+                    try {
+                        $this->relations->releaseIncomingEdges($recordIds, $actor, $correlationId);
+                    } catch (RelationRejected) {
+                        throw new StorageRejected('storage_record_purge_referenced');
+                    }
+                } elseif ($this->tableExists('larena_storage_record_relations')) {
                     foreach (array_chunk($recordIds, self::PURGE_CHUNK) as $chunk) {
                         $external = $this->database->table('larena_storage_record_relations')
                             ->whereIn('to_record_id', $chunk)

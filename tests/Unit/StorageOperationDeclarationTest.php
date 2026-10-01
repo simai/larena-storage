@@ -15,7 +15,7 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 29, 'waves A to E and batch 7 D2 declare twenty-nine operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 30, 'waves A to E, batch 7 D2 and the relation delete declare thirty operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
@@ -39,6 +39,7 @@ larena_storage_role_assert($names === [
     'storage.record.create',
     'storage.record.update',
     'storage.relation.define',
+    'storage.relation.delete_record',
     'storage.relation.explain',
     'storage.relation.resolve',
     'storage.role.bind_structure',
@@ -76,10 +77,10 @@ $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(
 // which is core's business and not Storage's. The claim that matters is that the
 // two catalogues compose into one without either losing an entry.
 $coreCount = count($registry->list('larena/core'));
-larena_storage_role_assert(count($registry->list('larena/storage')) === 29, 'storage declares 29 operations');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 30, 'storage declares 30 operations');
 larena_storage_role_assert($coreCount >= 22, 'core contributes at least the operations Batch 3 declared, got ' . $coreCount);
 larena_storage_role_assert(
-    count($registry->list()) === $coreCount + 29,
+    count($registry->list()) === $coreCount + 30,
     'one catalogue holds both packages with nothing lost',
 );
 

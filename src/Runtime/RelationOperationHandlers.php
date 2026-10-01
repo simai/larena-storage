@@ -10,7 +10,9 @@ use Larena\Core\Contracts\OperationProposalHandler;
 use Larena\Core\Enums\OperationExecutionMode;
 use Larena\Core\Enums\OperationRiskClass;
 use Larena\Storage\Audit\RelationAuditEventCatalog;
+use Larena\Storage\Contracts\RecordReadVisibility;
 use Larena\Storage\Contracts\RecordRelations;
+use Larena\Storage\Contracts\RelationRecord;
 use Larena\Storage\Contracts\RelationDescriptor;
 use Larena\Storage\Enums\RelationDeletePolicy;
 use Larena\Storage\Enums\RelationKind;
@@ -25,8 +27,10 @@ use Larena\Storage\Exceptions\RelationRejected;
  */
 final readonly class RelationOperationHandlers implements OperationProposalHandler
 {
-    public function __construct(private RecordRelations $relations)
-    {
+    public function __construct(
+        private RecordRelations $relations,
+        private RecordReadVisibility $visibility = new AllRecordsVisible(),
+    ) {
     }
 
     /**
@@ -80,6 +84,16 @@ final readonly class RelationOperationHandlers implements OperationProposalHandl
                 reversible: true,
             ),
             new OperationDescriptor(
+                name: 'storage.relation.delete_record',
+                executionMode: OperationExecutionMode::Sync,
+                accessScope: $manage,
+                auditEvent: RelationAuditEventCatalog::DELETED,
+                idempotencyKey: 'record_id',
+                transactional: true,
+                riskClass: OperationRiskClass::Irreversible,
+                reversible: false,
+            ),
+            new OperationDescriptor(
                 name: 'storage.relation.explain',
                 executionMode: OperationExecutionMode::Sync,
                 accessScope: $read,
@@ -113,12 +127,20 @@ final readonly class RelationOperationHandlers implements OperationProposalHandl
                 $this->string($context, 'relation_key'),
                 $this->string($context, 'parent_record_id'),
                 $this->optionalInt($context, 'budget'),
+                $this->recordFilter($context),
             )->toArray(),
             'storage.tree.ancestors' => $this->relations->ancestors(
                 $this->string($context, 'relation_key'),
                 $this->string($context, 'record_id'),
                 $this->optionalInt($context, 'budget'),
+                $this->recordFilter($context),
             )->toArray(),
+            'storage.relation.delete_record' => $this->relations->deleteRecord(
+                $this->string($context, 'relation_key'),
+                $this->string($context, 'record_id'),
+                $context->actorId,
+                $context->correlationId,
+            ),
             'storage.tree.move' => $this->relations->move(
                 $this->string($context, 'relation_key'),
                 $this->string($context, 'record_id'),
@@ -180,7 +202,7 @@ final readonly class RelationOperationHandlers implements OperationProposalHandl
         };
     }
 
-    private function define(OperationContext $context): \Larena\Storage\Contracts\RelationRecord
+    private function define(OperationContext $context): RelationRecord
     {
         $kind = RelationKind::tryFrom($this->string($context, 'kind'))
             ?? throw new RelationRejected('invalid_input', 'Unknown relation kind.');
@@ -191,6 +213,7 @@ final readonly class RelationOperationHandlers implements OperationProposalHandl
             relationKey: $this->string($context, 'relation_key'),
             kind: $kind,
             deletePolicy: $policy,
+            targetSchemaId: $this->optionalString($context, 'target_schema_id'),
             targetRoleCode: $this->optionalString($context, 'target_role_code'),
         );
 
@@ -203,6 +226,18 @@ final readonly class RelationOperationHandlers implements OperationProposalHandl
             $this->optionalInt($context, 'order_index'),
             $context->correlationId,
         );
+    }
+
+    /**
+     * The caller's record filter, applied to the record each edge leads from.
+     *
+     * @return (callable(RelationRecord): bool)|null
+     */
+    private function recordFilter(OperationContext $context): ?callable
+    {
+        $filter = $this->visibility->filterFor($context->actorId, $this->string($context, 'relation_key'));
+
+        return $filter === null ? null : static fn (RelationRecord $record): bool => $filter($record->fromRecordId);
     }
 
     private function string(OperationContext $context, string $key): string

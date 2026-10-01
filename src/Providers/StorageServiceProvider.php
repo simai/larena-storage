@@ -28,6 +28,7 @@ use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\PublishedKeyPolicy;
 use Larena\Storage\Contracts\PublishedReadVisibility;
 use Larena\Storage\Contracts\ReadContracts;
+use Larena\Storage\Contracts\RecordReadVisibility;
 use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\StructureRoleRegistry;
 use Larena\Storage\BlockDocuments\Access\AccessBlockDocumentAuthorization;
@@ -46,7 +47,9 @@ use Larena\Storage\Runtime\DatabaseLocalizedValues;
 use Larena\Storage\Runtime\DatabasePublicationLifecycle;
 use Larena\Storage\Runtime\DatabaseReadContracts;
 use Larena\Storage\Runtime\RequestedLocaleOnly;
+use Larena\Storage\Runtime\AllRecordsVisible;
 use Larena\Storage\Runtime\DatabaseRecordRelations;
+use Larena\Storage\Runtime\DatabaseRelationTargets;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
@@ -92,12 +95,19 @@ final class StorageServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(DatabaseRecordRelations::class, static function (Application $app): DatabaseRecordRelations {
-            return new DatabaseRecordRelations($app->make(DatabaseManager::class)->connection());
+            $connection = $app->make(DatabaseManager::class)->connection();
+
+            // Relations are checked against what their records are, and audited.
+            return new DatabaseRecordRelations(
+                $connection,
+                new DatabaseRelationTargets($connection),
+                $app->make(StorageSecurityEventSink::class),
+            );
         });
         $this->app->alias(DatabaseRecordRelations::class, RecordRelations::class);
 
         $this->app->singleton(RelationOperationHandlers::class, static function (Application $app): RelationOperationHandlers {
-            return new RelationOperationHandlers($app->make(RecordRelations::class));
+            return new RelationOperationHandlers($app->make(RecordRelations::class), $app->make(RecordReadVisibility::class));
         });
 
         $this->app->singleton(DatabaseLocalizedValues::class, static function (Application $app): DatabaseLocalizedValues {
@@ -225,6 +235,7 @@ final class StorageServiceProvider extends ServiceProvider
         // A composition with record-level read rules binds its own visibility first.
         $this->app->singletonIf(PublishedReadVisibility::class, PublishedRecordsArePublic::class);
         $this->app->singletonIf(PublishedKeyPolicy::class, NoPublishedKeys::class);
+        $this->app->singletonIf(RecordReadVisibility::class, AllRecordsVisible::class);
         $this->app->singleton(ReadContractOperationHandlers::class, static function (Application $app): ReadContractOperationHandlers {
             return new ReadContractOperationHandlers($app->make(ReadContracts::class), $app->make(PublishedReadVisibility::class));
         });
@@ -281,6 +292,7 @@ final class StorageServiceProvider extends ServiceProvider
                 is_string($app->make('config')->get('app.key'))
                     ? $app->make('config')->get('app.key')
                     : null,
+                $app->make(DatabaseRecordRelations::class),
             );
         });
         $this->app->alias(VersionedStorage::class, VersionedStorageContract::class);

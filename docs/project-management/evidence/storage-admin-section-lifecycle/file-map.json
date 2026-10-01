@@ -73,6 +73,15 @@
     "src/Contracts/ResolvedKey.php",
     "src/FirstRun/StarterSite.php",
     "operations.yaml",
-    "tests/Unit/LocalizedSchemaRulesTest.php"
+    "tests/Unit/LocalizedSchemaRulesTest.php",
+    "src/Contracts/RelationTargets.php",
+    "src/Runtime/DatabaseRelationTargets.php",
+    "src/Contracts/RecordReadVisibility.php",
+    "src/Runtime/AllRecordsVisible.php",
+    "src/Runtime/DatabaseRecordRelations.php",
+    "src/Runtime/RelationOperationHandlers.php",
+    "src/Audit/RelationAuditEventDescriptor.php",
+    "tests/Unit/RelationIntegrityTest.php",
+    "tests/Unit/StorageOperationDeclarationTest.php"
   ]
 }

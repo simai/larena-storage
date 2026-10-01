@@ -24,7 +24,7 @@ final readonly class SchemaDefinitionNormalizer
 
     /**
      * @param array<string, mixed> $definition
-     * @return array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>, partial_locales?: true}
+     * @return array{schema_id: string, owner_package: string, fields: list<array<string, mixed>>, partial_locales?: true, relations?: list<array<string, string>>}
      */
     public function normalize(array $definition, bool $validateConstraints = true): array
     {
@@ -32,11 +32,15 @@ final readonly class SchemaDefinitionNormalizer
         sort($definitionKeys);
         // `partial_locales` is optional and kept only when true, so every definition
         // stored before it existed normalizes, and hashes, exactly as before.
-        if (array_values(array_diff($definitionKeys, ['partial_locales'])) !== ['fields', 'owner_package', 'schema_id']
+        if (array_values(array_diff($definitionKeys, ['partial_locales', 'relations'])) !== ['fields', 'owner_package', 'schema_id']
             || (array_key_exists('partial_locales', $definition) && !is_bool($definition['partial_locales']))) {
             throw new StorageRejected('storage_schema_definition_unknown_key');
         }
         $partialLocales = ($definition['partial_locales'] ?? false) === true;
+        // The relations a schema takes part in, with their delete policy, are part of
+        // the versioned schema. Kept only when declared, so older definitions hash as
+        // before.
+        $relations = self::normalizeRelations($definition['relations'] ?? []);
         $schemaId = is_string($definition['schema_id'] ?? null) ? trim($definition['schema_id']) : '';
         $ownerPackage = is_string($definition['owner_package'] ?? null) ? trim($definition['owner_package']) : '';
         $fields = $definition['fields'] ?? null;
@@ -115,7 +119,45 @@ final readonly class SchemaDefinitionNormalizer
         }
 
         return ['schema_id' => $schemaId, 'owner_package' => $ownerPackage, 'fields' => $normalizedFields]
-            + ($partialLocales ? ['partial_locales' => true] : []);
+            + ($partialLocales ? ['partial_locales' => true] : [])
+            + ($relations !== [] ? ['relations' => $relations] : []);
+    }
+
+    /**
+     * @return list<array{relation_key: string, kind: string, delete_policy: string, target_schema_id?: string, target_role_code?: string}>
+     */
+    private static function normalizeRelations(mixed $relations): array
+    {
+        if (!is_array($relations) || !array_is_list($relations)) {
+            throw new StorageRejected('storage_schema_relation_invalid');
+        }
+        $normalized = [];
+        $seen = [];
+        foreach ($relations as $relation) {
+            if (!is_array($relation)
+                || array_diff(array_keys($relation), ['relation_key', 'kind', 'delete_policy', 'target_schema_id', 'target_role_code']) !== []
+                || !is_string($relation['relation_key'] ?? null)
+                || preg_match('/^[a-z][a-z0-9_]{0,63}$/', $relation['relation_key']) !== 1
+                || isset($seen[$relation['relation_key']])
+                || !in_array($relation['kind'] ?? null, ['reference', 'tree_parent'], true)
+                || !in_array($relation['delete_policy'] ?? null, ['restrict', 'cascade', 'detach'], true)) {
+                throw new StorageRejected('storage_schema_relation_invalid');
+            }
+            $entry = ['relation_key' => $relation['relation_key'], 'kind' => $relation['kind'], 'delete_policy' => $relation['delete_policy']];
+            foreach (['target_schema_id', 'target_role_code'] as $target) {
+                if (array_key_exists($target, $relation)) {
+                    if (!is_string($relation[$target]) || preg_match('/^[a-z][a-z0-9_.:-]{0,119}$/', $relation[$target]) !== 1) {
+                        throw new StorageRejected('storage_schema_relation_invalid');
+                    }
+                    $entry[$target] = $relation[$target];
+                }
+            }
+            $seen[$relation['relation_key']] = true;
+            $normalized[] = $entry;
+        }
+        usort($normalized, static fn (array $left, array $right): int => $left['relation_key'] <=> $right['relation_key']);
+
+        return $normalized;
     }
 
     /**
