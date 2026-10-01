@@ -6,3 +6,4 @@
 No larena.test or working database was used.
 - `RoleBoundSiteTreeTwoLocalesTest`: a read without a policy shows the shared value; with Lang's chain `kk → ru → en` the untranslated Kazakh render shows the Russian titles.
 - `PublicationSweepCommandTest`: the command publishes only due schedules under `system:scheduler`, is idempotent, refuses a non-positive limit, and the provider schedules it every minute without overlap.
+- `PublishedProjectionSearchSourceTest`: keyset cursor, one record by id, the observer's version equals the read's, the version grows on a translation, a newer revision, an unpublish and a republish of the same revision, and a failing observer does not block publication.

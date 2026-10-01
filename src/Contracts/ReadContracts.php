@@ -32,7 +32,27 @@ interface ReadContracts
         string $locale,
         ?int $budget = null,
         ?callable $visibilityFilter = null,
+        ?string $afterRecordId = null,
     ): PublishedProjectionPage;
+
+    /**
+     * One published record of a role or schema in a scope and locale, in the same
+     * shape as a projection entry, or null when it is not published there.
+     *
+     * Every projection entry carries `projection_version`: a number that only grows,
+     * and grows whenever what the entry shows or whether it is published changes —
+     * a publication transition or a localized value written for the published
+     * revision in that locale. A derived index uses it as its source revision.
+     *
+     * @return array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>}|null
+     */
+    public function publishedRecord(
+        string $roleRefOrSchemaId,
+        string $scopeRef,
+        string $locale,
+        string $recordId,
+        ?callable $visibilityFilter = null,
+    ): ?array;
 
     /**
      * @return array<string, mixed>

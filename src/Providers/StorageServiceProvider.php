@@ -7,6 +7,7 @@ namespace Larena\Storage\Providers;
 use Illuminate\Console\Scheduling\Schedule;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
+use Larena\Storage\Contracts\PublicationObserver;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\ServiceProvider;
@@ -117,6 +118,8 @@ final class StorageServiceProvider extends ServiceProvider
                     ->where('record_id', $recordId)
                     ->where('revision', $revision)
                     ->exists(),
+                // A derived index the application binds (Search) hears of every change.
+                $app->bound(PublicationObserver::class) ? $app->make(PublicationObserver::class) : null,
             );
         });
         $this->app->alias(DatabasePublicationLifecycle::class, PublicationLifecycle::class);

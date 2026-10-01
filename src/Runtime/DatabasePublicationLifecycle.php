@@ -7,6 +7,7 @@ namespace Larena\Storage\Runtime;
 use Illuminate\Database\Connection;
 use Larena\Storage\Audit\PublicationAuditEventCatalog;
 use Larena\Storage\Contracts\LocaleFallbackChain;
+use Larena\Storage\Contracts\PublicationObserver;
 use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\PublicationState;
 use Larena\Storage\Contracts\PublicationTransition;
@@ -60,6 +61,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
     public function __construct(
         private readonly Connection $connection,
         private readonly mixed $revisionExists = null,
+        private readonly ?PublicationObserver $observer = null,
     ) {
     }
 
@@ -368,6 +370,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         }
 
         $result = null;
+        $logId = 0;
 
         $this->connection->transaction(function () use (
             $transition,
@@ -382,7 +385,8 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             $publicationId,
             $existing,
             $from,
-            &$result
+            &$result,
+            &$logId
         ): void {
             $now = $this->now();
             $to = $this->targetState($transition);
@@ -418,7 +422,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             // One log row per transition, in the same transaction as the state write:
             // a state change nobody can account for is not acceptable in a system whose
             // whole point is sanitized attribution.
-            $this->connection->table(self::LOG_TABLE)->insert([
+            $logId = (int) $this->connection->table(self::LOG_TABLE)->insertGetId([
                 'publication_id' => $publicationId,
                 'schema_id' => $schemaId,
                 'record_id' => $recordId,
@@ -437,7 +441,16 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             $result = $next;
         });
 
-        return $result ?? throw new PublicationRejected('transition_failed', 'The publication transition produced no state.');
+        $result ?? throw new PublicationRejected('transition_failed', 'The publication transition produced no state.');
+        // The derived index learns of the change at once; it never blocks the change.
+        if ($this->observer !== null && $logId > 0) {
+            try {
+                $this->observer->publicationChanged($result, $logId);
+            } catch (\Throwable) {
+            }
+        }
+
+        return $result;
     }
 
     private function targetState(Transition $transition): State

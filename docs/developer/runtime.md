@@ -99,3 +99,14 @@ line starts the Laravel scheduler:
 
 Each publication made by the sweep is recorded in the record's publication
 history under the actor `system:scheduler`.
+
+## Published Projection As A Search Source
+
+Search indexes the published projection. Each entry carries
+`projection_version`, the newest publication log id plus the newest localized
+value id of the record in that locale. It only grows and moves on every
+publication transition and every translation, so a derived index can use it as
+its monotonic source revision. `publishedProjection(..., afterRecordId)` walks
+the projection in record id order and `publishedRecord()` reads one entry. An
+application-bound `PublicationObserver` hears every transition with the version
+it produced; its failures are swallowed and a rebuild heals what it missed.

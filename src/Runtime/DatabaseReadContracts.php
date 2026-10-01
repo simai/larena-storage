@@ -7,6 +7,7 @@ namespace Larena\Storage\Runtime;
 use Illuminate\Database\Connection;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
+use Larena\Storage\Contracts\PublicationState;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublishedProjectionPage;
 use Larena\Storage\Contracts\ReadContracts;
@@ -116,6 +117,7 @@ final class DatabaseReadContracts implements ReadContracts
         string $locale,
         ?int $budget = null,
         ?callable $visibilityFilter = null,
+        ?string $afterRecordId = null,
     ): PublishedProjectionPage {
         $this->assertSchema();
         LocaleFallbackChain::assertLocale($locale);
@@ -124,7 +126,7 @@ final class DatabaseReadContracts implements ReadContracts
         $schemaId = $this->schemaId($roleRefOrSchemaId);
         $publicFields = $this->publicFieldKeys($schemaId);
 
-        $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, $limit + 1);
+        $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, $limit + 1, $afterRecordId);
         $truncated = count($heads) > $limit;
         $heads = array_slice($heads, 0, $limit);
 
@@ -138,15 +140,72 @@ final class DatabaseReadContracts implements ReadContracts
                 continue;
             }
 
-            $records[] = [
-                'record_id' => (string) $head['record_id'],
-                'revision' => (int) $head['revision'],
-                'locale' => $locale,
-                'values' => $this->publicValues($schemaId, $head['record_id'], (int) $head['revision'], $locale, $publicFields),
-            ];
+            $records[] = $this->projectionEntry($schemaId, $scopeRef, $locale, $head, $publicFields);
         }
 
         return new PublishedProjectionPage($records, $filtered, $truncated, $limit);
+    }
+
+    /** @phpstan-impure */
+    public function publishedRecord(
+        string $roleRefOrSchemaId,
+        string $scopeRef,
+        string $locale,
+        string $recordId,
+        ?callable $visibilityFilter = null,
+    ): ?array {
+        $this->assertSchema();
+        LocaleFallbackChain::assertLocale($locale);
+
+        $schemaId = $this->schemaId($roleRefOrSchemaId);
+        $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, 1, null, $recordId);
+        if ($heads === [] || ($visibilityFilter !== null && $visibilityFilter($recordId) !== true)) {
+            return null;
+        }
+
+        return $this->projectionEntry($schemaId, $scopeRef, $locale, $heads[0], $this->publicFieldKeys($schemaId));
+    }
+
+    /**
+     * @param array{record_id: string, revision: int} $head
+     * @param list<string> $publicFields
+     * @return array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>}
+     * @phpstan-impure
+     */
+    private function projectionEntry(string $schemaId, string $scopeRef, string $locale, array $head, array $publicFields): array
+    {
+        return [
+            'record_id' => (string) $head['record_id'],
+            'revision' => (int) $head['revision'],
+            'locale' => $locale,
+            'projection_version' => $this->projectionVersion($schemaId, $head['record_id'], $scopeRef, $locale),
+            'values' => $this->publicValues($schemaId, $head['record_id'], (int) $head['revision'], $locale, $publicFields),
+        ];
+    }
+
+    /**
+     * The newest log row of this publication plus the newest localized value of the
+     * record in this locale, of any revision. Each id only grows within its own
+     * table, so the sum grows whenever either does: on every publication transition
+     * (a new revision included) and on every localized value written.
+     *
+     * @phpstan-impure
+     */
+    private function projectionVersion(string $schemaId, string $recordId, string $scopeRef, string $locale): int
+    {
+        $transition = (int) $this->connection->table(DatabasePublicationLifecycle::LOG_TABLE)
+            ->where('publication_id', PublicationState::identity($schemaId, $recordId, $scopeRef, $locale))
+            ->max('id');
+        $localized = 0;
+        if ($this->connection->getSchemaBuilder()->hasTable('larena_storage_localized_values')) {
+            $localized = (int) $this->connection->table('larena_storage_localized_values')
+                ->where('schema_id', $schemaId)
+                ->where('record_id', $recordId)
+                ->where('locale', $locale)
+                ->max('id');
+        }
+
+        return max(1, $transition + $localized);
     }
 
     /**
@@ -180,18 +239,22 @@ final class DatabaseReadContracts implements ReadContracts
      * @return list<array{record_id: string, revision: int}>
      * @phpstan-impure
      */
-    private function publishedHeads(string $schemaId, string $scopeRef, string $locale, int $limit): array
+    private function publishedHeads(string $schemaId, string $scopeRef, string $locale, int $limit, ?string $afterRecordId = null, ?string $recordId = null): array
     {
-        $rows = $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)
+        $query = $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)
             ->select(['record_id', 'published_revision'])
             ->where('schema_id', $schemaId)
             ->where('scope_ref', $scopeRef)
             ->where('locale', $locale)
             ->where('state', PublicationStateValue::Published->value)
-            ->whereNotNull('published_revision')
-            ->orderBy('record_id')
-            ->limit($limit)
-            ->get();
+            ->whereNotNull('published_revision');
+        if ($afterRecordId !== null) {
+            $query->where('record_id', '>', $afterRecordId);
+        }
+        if ($recordId !== null) {
+            $query->where('record_id', $recordId);
+        }
+        $rows = $query->orderBy('record_id')->limit($limit)->get();
 
         $heads = [];
         foreach ($rows as $row) {

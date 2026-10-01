@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Serve the published projection as a Search source: keyset cursor, `publishedRecord()`, a monotonic `projection_version` per entry and a `PublicationObserver` port.
+
 - Public reads take their locale chain from the `LocaleFallbackResolver` port, bound by the application to Lang's fallback policy; `storage:publication:sweep` publishes due schedules and is scheduled every minute.
 
 - Declared schema transforms: remove fields, change their type or make them required, rewriting every record in one transaction with fixed conversion rules; the workbench exposes it as `migrateStructure()`.

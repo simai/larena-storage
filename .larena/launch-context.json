@@ -49,7 +49,11 @@
     "src/Runtime/DatabaseReadContracts.php",
     "tests/Unit/PublicationSweepCommandTest.php",
     "tests/Unit/RoleBoundSiteTreeTwoLocalesTest.php",
-    "docs/developer/runtime.md"
+    "docs/developer/runtime.md",
+    "src/Contracts/PublicationObserver.php",
+    "src/Contracts/ReadContracts.php",
+    "src/Runtime/DatabasePublicationLifecycle.php",
+    "tests/Unit/PublishedProjectionSearchSourceTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
