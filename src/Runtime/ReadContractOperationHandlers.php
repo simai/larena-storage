@@ -9,6 +9,7 @@ use Larena\Core\Contracts\OperationDescriptor;
 use Larena\Core\Contracts\OperationHandler;
 use Larena\Core\Enums\OperationExecutionMode;
 use Larena\Core\Enums\OperationRiskClass;
+use Larena\Storage\Contracts\PublishedReadVisibility;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Exceptions\ReadContractRejected;
 
@@ -17,11 +18,16 @@ use Larena\Storage\Exceptions\ReadContractRejected;
  *
  * All three are reads, so none implements the proposal port: a read is its own preview,
  * and offering to "propose" one would be a second name for the same thing.
+ *
+ * Each read passes the caller's visibility filter, so an operation never returns a
+ * record the caller could not read on the site.
  */
 final readonly class ReadContractOperationHandlers implements OperationHandler
 {
-    public function __construct(private ReadContracts $readContracts)
-    {
+    public function __construct(
+        private ReadContracts $readContracts,
+        private PublishedReadVisibility $visibility = new PublishedRecordsArePublic(),
+    ) {
     }
 
     /**
@@ -35,7 +41,8 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
             // The two public reads carry no access scope. They return only the
             // published head's public fields, which is what an anonymous visitor of
             // the site sees anyway, and the REST public site boundary cannot name
-            // an Access check an anonymous caller could pass.
+            // an Access check an anonymous caller could pass. Which records each
+            // caller may read is still filtered, by PublishedReadVisibility.
             new OperationDescriptor(
                 name: 'storage.read.resolve_key',
                 executionMode: OperationExecutionMode::Sync,
@@ -70,24 +77,31 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
      */
     public function handle(OperationDescriptor $descriptor, OperationContext $context): array
     {
+        $target = $this->string($context, 'target');
+        $scopeRef = $this->string($context, 'scope_ref');
+        $filter = $this->visibility->filterFor($context->actorId, $target, $scopeRef);
+
         return match ($descriptor->name) {
             'storage.read.resolve_key' => ['resolved' => $this->readContracts->resolveKey(
-                $this->string($context, 'target'),
-                $this->string($context, 'scope_ref'),
+                $target,
+                $scopeRef,
                 $this->string($context, 'locale'),
                 $this->string($context, 'key_field'),
                 $this->string($context, 'key_value'),
+                $filter,
             )?->toArray()],
             'storage.read.published_projection' => $this->readContracts->publishedProjection(
-                $this->string($context, 'target'),
-                $this->string($context, 'scope_ref'),
+                $target,
+                $scopeRef,
                 $this->string($context, 'locale'),
                 $this->optionalInt($context, 'budget'),
+                $filter,
             )->toArray(),
             'storage.read.projection_explain' => $this->readContracts->projectionExplain(
-                $this->string($context, 'target'),
-                $this->string($context, 'scope_ref'),
+                $target,
+                $scopeRef,
                 $this->string($context, 'locale'),
+                $filter,
             ),
             default => throw new ReadContractRejected(
                 'unknown_operation',

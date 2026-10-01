@@ -55,7 +55,10 @@ interface ReadContracts
     ): ?array;
 
     /**
+     * What the projection of a scope and locale holds for this caller. Records the
+     * caller may not read are reported as a count, never by identifier.
+     *
      * @return array<string, mixed>
      */
-    public function projectionExplain(string $roleRefOrSchemaId, string $scopeRef, string $locale): array;
+    public function projectionExplain(string $roleRefOrSchemaId, string $scopeRef, string $locale, ?callable $visibilityFilter = null): array;
 }

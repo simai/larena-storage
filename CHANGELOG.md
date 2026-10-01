@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Translations pass Property validation against the schema version of their record revision (`unknown_revision`, `field_unknown`, `value_invalid`).
+- Read operations apply the caller's `PublishedReadVisibility` filter; `projectionExplain()` takes the filter and reports hidden records as `filtered_record_count` only.
+
 - Serve the published projection as a Search source: keyset cursor, `publishedRecord()`, a monotonic `projection_version` per entry and a `PublicationObserver` port.
 
 - Public reads take their locale chain from the `LocaleFallbackResolver` port, bound by the application to Lang's fallback policy; `storage:publication:sweep` publishes due schedules and is scheduled every minute.

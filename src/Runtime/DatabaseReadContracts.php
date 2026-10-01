@@ -187,18 +187,23 @@ final class DatabaseReadContracts implements ReadContracts
      * @return array<string, mixed>
      * @phpstan-impure
      */
-    public function projectionExplain(string $roleRefOrSchemaId, string $scopeRef, string $locale): array
+    public function projectionExplain(string $roleRefOrSchemaId, string $scopeRef, string $locale, ?callable $visibilityFilter = null): array
     {
         $this->assertSchema();
 
         $schemaId = $this->schemaId($roleRefOrSchemaId);
+        $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, self::DEFAULT_BUDGET);
+        $visible = $visibilityFilter === null
+            ? count($heads)
+            : count(array_filter($heads, static fn (array $head): bool => $visibilityFilter($head['record_id']) === true));
 
         return [
             'schema_id' => $schemaId,
             'scope_ref' => $scopeRef,
             'locale' => $locale,
             'public_field_keys' => $this->publicFieldKeys($schemaId),
-            'published_record_count' => count($this->publishedHeads($schemaId, $scopeRef, $locale, self::DEFAULT_BUDGET)),
+            'published_record_count' => $visible,
+            'filtered_record_count' => count($heads) - $visible,
             'budget' => self::DEFAULT_BUDGET,
             'derived' => true,
             'note' => 'the projection is rebuildable from Storage; no consumer may treat a copy of it as a source of truth',

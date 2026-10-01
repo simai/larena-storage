@@ -11,6 +11,8 @@ use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocalizedValue;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Exceptions\LocalizedValueRejected;
+use Larena\Property\Contracts\PropertyTypeRegistry;
+use Larena\Property\Runtime\PropertyTypeRegistry as BuiltInPropertyTypes;
 use Throwable;
 
 /**
@@ -27,8 +29,11 @@ final class DatabaseLocalizedValues implements LocalizedValues
 {
     public const TABLE = 'larena_storage_localized_values';
 
-    public function __construct(private readonly Connection $connection)
+    private PropertyTypeRegistry $types;
+
+    public function __construct(private readonly Connection $connection, ?PropertyTypeRegistry $types = null)
     {
+        $this->types = $types ?? BuiltInPropertyTypes::builtIns();
     }
 
     /**
@@ -38,6 +43,66 @@ final class DatabaseLocalizedValues implements LocalizedValues
      * @return list<string>
      * @phpstan-impure
      */
+    /**
+     * @param array<string, mixed> $values
+     * @return array<string, mixed> the normalized values
+     */
+    private function validatedValues(string $schemaId, string $recordId, int $revision, array $values): array
+    {
+        $version = $this->connection->table('larena_storage_record_versions')
+            ->where('schema_id', $schemaId)
+            ->where('record_id', $recordId)
+            ->where('revision', $revision)
+            ->value('schema_version');
+        if ($version === null) {
+            throw new LocalizedValueRejected('unknown_revision', 'Revision ' . $revision . ' does not exist for this record.');
+        }
+        $definition = $this->connection->table('larena_storage_schema_versions')
+            ->where('schema_id', $schemaId)
+            ->where('version', (int) $version)
+            ->value('definition');
+        $decoded = is_string($definition) ? json_decode($definition, true) : null;
+        $fields = [];
+        foreach (is_array($decoded['fields'] ?? null) ? $decoded['fields'] : [] as $field) {
+            if (is_array($field) && is_string($field['key'] ?? null)) {
+                $fields[$field['key']] = $field;
+            }
+        }
+
+        $normalized = [];
+        foreach ($values as $fieldKey => $value) {
+            $field = $fields[(string) $fieldKey] ?? null;
+            $type = is_array($field) && is_string($field['type'] ?? null) ? $field['type'] : null;
+            $typeVersion = is_array($field) && is_int($field['type_version'] ?? null)
+                ? $field['type_version']
+                : ($type === null ? null : $this->types->latest($type)?->version);
+            if ($type === null || $typeVersion === null) {
+                throw new LocalizedValueRejected('field_unknown', 'The schema has no typed field "' . $fieldKey . '".');
+            }
+            // An explicit empty value is allowed for an optional field, as for the shared one.
+            if ($value === null) {
+                if (($field['required'] ?? false) === true) {
+                    throw new LocalizedValueRejected('value_invalid', 'The required field "' . $fieldKey . '" cannot be empty.');
+                }
+                $normalized[$fieldKey] = null;
+
+                continue;
+            }
+            $result = $this->types->normalizeAndValidate(
+                $type,
+                $typeVersion,
+                $value,
+                is_array($field['constraints'] ?? null) ? $field['constraints'] : [],
+            );
+            if (!$result->canBePersistedByOwner()) {
+                throw new LocalizedValueRejected('value_invalid', 'The value of "' . $fieldKey . '" is not a valid ' . $type . '.');
+            }
+            $normalized[$fieldKey] = $result->normalizedValue;
+        }
+
+        return $normalized;
+    }
+
     public function write(
         string $schemaId,
         string $recordId,
@@ -84,6 +149,11 @@ final class DatabaseLocalizedValues implements LocalizedValues
                 );
             }
         }
+
+        // A translation passes the same Property validation as the shared value: the
+        // field's type, version and constraints come from the schema version of the
+        // revision it translates. A field the schema does not know is refused.
+        $values = $this->validatedValues($schemaId, $recordId, $revision, $values);
 
         $now = $this->now();
         $written = [];

@@ -29,6 +29,8 @@ function larena_storage_publication_denied(callable $call, string $expectedReaso
 }
 
 $connection = larena_storage_publication_with_locales_connection();
+require_once __DIR__ . '/../Support/localized-value-schema.php';
+larena_storage_localized_seed_versions($connection);
 
 // A revision check is bound in the composed application; a head pointing at a
 // revision that does not exist would be worse than no head, because a reader would

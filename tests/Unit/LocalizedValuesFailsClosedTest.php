@@ -137,4 +137,21 @@ larena_storage_locale_denied(
     'schema_missing',
 );
 
+// A translation passes the Property validation of its revision's schema version.
+$typed = new \Larena\Storage\Runtime\DatabaseLocalizedValues(larena_storage_localized_connection());
+$refuse = static function (callable $write, string $reason): void {
+    try {
+        $write();
+    } catch (\Larena\Storage\Exceptions\LocalizedValueRejected $refused) {
+        larena_storage_role_assert($refused->reasonCode === $reason, $refused->reasonCode . ' instead of ' . $reason);
+
+        return;
+    }
+    larena_storage_role_assert(false, 'expected ' . $reason);
+};
+$refuse(static fn () => $typed->write('site.pages', 'node-9', 1, 'ru', ['title' => 'Нет'], ['title'], 'actor:t'), 'unknown_revision');
+$refuse(static fn () => $typed->write('site.pages', 'node-1', 1, 'ru', ['ghost' => 'x'], ['ghost'], 'actor:t'), 'field_unknown');
+$refuse(static fn () => $typed->write('site.pages', 'node-1', 1, 'ru', ['title' => ['not' => 'text']], ['title'], 'actor:t'), 'value_invalid');
+larena_storage_role_assert($typed->read('site.pages', 'node-1', 1, 'ru') === [], 'nothing is written by a refused translation');
+
 echo "Localized value fail-closed boundaries passed.\n";

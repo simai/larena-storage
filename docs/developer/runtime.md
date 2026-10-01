@@ -110,3 +110,23 @@ its monotonic source revision. `publishedProjection(..., afterRecordId)` walks
 the projection in record id order and `publishedRecord()` reads one entry. An
 application-bound `PublicationObserver` hears every transition with the version
 it produced; its failures are swallowed and a rebuild heals what it missed.
+
+## Translations Pass Property Validation
+
+`LocalizedValues::write()` validates a translation the way a shared value is
+validated: the field must exist in the schema version of that record revision,
+and Property's `normalizeAndValidate()` must accept the value for the field's
+type, type version and constraints. The normalized value is stored. A refusal is
+`LocalizedValueRejected` with `unknown_revision`, `field_unknown` or
+`value_invalid`, and nothing is written. `null` is accepted only for an optional
+field.
+
+## Who May Read A Published Record
+
+The read operations (`storage.read.*`) and the application's REST site boundary
+ask the `PublishedReadVisibility` port for the caller's filter and pass it to
+`ReadContracts`. A hidden record is the same miss as an absent one, and
+`projectionExplain()` reports it only as `filtered_record_count`. The default
+binding, `PublishedRecordsArePublic`, lets everyone read every published record:
+the reads return public fields of published heads only. Access has no row scope
+yet; a composition with record-level rules binds its own implementation.

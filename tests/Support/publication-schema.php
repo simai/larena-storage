@@ -85,6 +85,5 @@ function larena_storage_publication_with_locales_connection(): Connection
             'storage_localized_rev_locale_field_uq',
         );
     });
-
     return $connection;
 }

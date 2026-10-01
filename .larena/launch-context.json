@@ -54,7 +54,19 @@
     "src/Contracts/ReadContracts.php",
     "src/Runtime/DatabasePublicationLifecycle.php",
     "tests/Unit/PublishedProjectionSearchSourceTest.php",
-    "src/Runtime/ProjectionVersion.php"
+    "src/Runtime/ProjectionVersion.php",
+    "src/Runtime/DatabaseLocalizedValues.php",
+    "src/Runtime/ReadContractOperationHandlers.php",
+    "src/Contracts/PublishedReadVisibility.php",
+    "src/Runtime/PublishedRecordsArePublic.php",
+    "tests/Support/localized-value-schema.php",
+    "tests/Support/publication-schema.php",
+    "tests/Unit/LocalizedValuesFailsClosedTest.php",
+    "tests/Unit/LocalizedValuesTest.php",
+    "tests/Unit/PublicationFailsClosedTest.php",
+    "tests/Unit/ReadContractsFailsClosedTest.php",
+    "tests/Unit/ReadOperationVisibilityTest.php",
+    "tests/Unit/PublishedProjectionTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

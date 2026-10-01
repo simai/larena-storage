@@ -25,6 +25,7 @@ use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
+use Larena\Storage\Contracts\PublishedReadVisibility;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Contracts\RecordRelations;
 use Larena\Storage\Contracts\StructureRoleRegistry;
@@ -48,6 +49,7 @@ use Larena\Storage\Runtime\DatabaseRecordRelations;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
+use Larena\Storage\Runtime\PublishedRecordsArePublic;
 use Larena\Storage\Runtime\ReadContractOperationHandlers;
 use Larena\Storage\Runtime\RecordOperationHandlers;
 use Larena\Storage\Runtime\DatabaseAdminRecordTreeReader;
@@ -96,7 +98,7 @@ final class StorageServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(DatabaseLocalizedValues::class, static function (Application $app): DatabaseLocalizedValues {
-            return new DatabaseLocalizedValues($app->make(DatabaseManager::class)->connection());
+            return new DatabaseLocalizedValues($app->make(DatabaseManager::class)->connection(), $app->make(PropertyTypeRegistry::class));
         });
         $this->app->alias(DatabaseLocalizedValues::class, LocalizedValues::class);
 
@@ -205,8 +207,10 @@ final class StorageServiceProvider extends ServiceProvider
             },
         );
 
+        // A composition with record-level read rules binds its own visibility first.
+        $this->app->singletonIf(PublishedReadVisibility::class, PublishedRecordsArePublic::class);
         $this->app->singleton(ReadContractOperationHandlers::class, static function (Application $app): ReadContractOperationHandlers {
-            return new ReadContractOperationHandlers($app->make(ReadContracts::class));
+            return new ReadContractOperationHandlers($app->make(ReadContracts::class), $app->make(PublishedReadVisibility::class));
         });
 
         // The core registry is composed from a hard-coded provider list inside

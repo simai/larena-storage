@@ -50,10 +50,15 @@ $values->write('site.pages', 'node-1', 2, 'en', ['title' => 'Home v2'], $fields,
 larena_storage_role_assert($values->read('site.pages', 'node-1', 1, 'en')['title']->value === 'Home');
 larena_storage_role_assert($values->read('site.pages', 'node-1', 2, 'en')['title']->value === 'Home v2');
 
-// A structured value survives the round trip: the column is JSON, not text.
-$values->write('site.pages', 'node-2', 1, 'en', ['title' => ['main' => 'Hi', 'sub' => ['a', 'b']]], $fields, 'actor:editor', ['title']);
-$structured = $values->read('site.pages', 'node-2', 1, 'en')['title']->value;
-larena_storage_role_assert($structured === ['main' => 'Hi', 'sub' => ['a', 'b']], 'a structured value round trips');
+// A translation passes the field's Property validation: a structure is not a string,
+// so it is refused rather than stored under a string field.
+try {
+    $values->write('site.pages', 'node-2', 1, 'en', ['title' => ['main' => 'Hi', 'sub' => ['a', 'b']]], $fields, 'actor:editor', ['title']);
+    larena_storage_role_assert(false, 'a structured value is not a valid string');
+} catch (\Larena\Storage\Exceptions\LocalizedValueRejected $refused) {
+    larena_storage_role_assert($refused->reasonCode === 'value_invalid', $refused->reasonCode);
+}
+larena_storage_role_assert($values->read('site.pages', 'node-2', 1, 'en') === [], 'and nothing was written');
 
 // An empty string and a null are values, not absences.
 $values->write('site.pages', 'node-3', 1, 'en', ['title' => '', 'description' => null], $fields, 'actor:editor', ['title']);

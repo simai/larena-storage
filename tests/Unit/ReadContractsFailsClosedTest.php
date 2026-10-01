@@ -46,8 +46,20 @@ larena_storage_role_assert(!str_contains((string) json_encode($page->toArray()),
 // And a localized value of an undeclared schema stays out too. This is the hole the
 // SQLite smoke found: the localized reader treats an empty field list as "every
 // field", so the projection has to stop before asking it anything.
+// The write API refuses a field the schema does not type, so such a row can only
+// come from older data; insert it directly to prove the projection still stops.
 $localizedLeak = new DatabaseLocalizedValues($connection);
-$localizedLeak->write('undeclared.schema', 'orphan', 1, 'ru', ['secret' => 'перевод утечки'], ['secret'], 'actor:test');
+try {
+    $localizedLeak->write('undeclared.schema', 'orphan', 1, 'ru', ['secret' => 'перевод утечки'], ['secret'], 'actor:test');
+    larena_storage_role_assert(false, 'an untyped field must be refused');
+} catch (\Larena\Storage\Exceptions\LocalizedValueRejected $refused) {
+    larena_storage_role_assert($refused->reasonCode === 'field_unknown', $refused->reasonCode);
+}
+$connection->table('larena_storage_localized_values')->insert([
+    'schema_id' => 'undeclared.schema', 'record_id' => 'orphan', 'revision' => 1, 'locale' => 'ru', 'field_key' => 'secret',
+    'value_json' => json_encode('перевод утечки'), 'content_hash' => hash('sha256', 'x'), 'created_by' => 'actor:legacy',
+    'created_at' => gmdate('Y-m-d H:i:s'),
+]);
 $afterLocalized = $read->publishedProjection('undeclared.schema', 'site:main', 'en');
 larena_storage_role_assert($afterLocalized->records[0]['values'] === [], 'still nothing');
 $publication->publish('undeclared.schema', 'orphan', 'site:main', 'ru', 1, 'actor:editor');
