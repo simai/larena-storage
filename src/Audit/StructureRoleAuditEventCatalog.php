@@ -14,9 +14,11 @@ final class StructureRoleAuditEventCatalog
 
     public const BOUND = 'storage.role.bound';
 
+    public const MIGRATED = 'storage.role.migrated';
+
     /** @return list<string> */
     public static function all(): array
     {
-        return [self::REGISTERED, self::BOUND];
+        return [self::REGISTERED, self::BOUND, self::MIGRATED];
     }
 }

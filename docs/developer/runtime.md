@@ -198,3 +198,19 @@ removes the edge and its subtree's edges, detach turns a child into a root and
 rewrites its subtree. Define, move and delete are audited; a move is one
 `storage.tree.moved` event naming every moved record. The tree operations apply
 the caller's `RecordReadVisibility` and count what they hide.
+
+## Structure Role Versions And Dependencies
+
+A role row is never edited: a breaking change is a new version. Bindings stay on
+the older version until they are moved. `planRoleMigration(from, to)` lists the
+breaking changes and every binding still on `from`; `migrateBinding()` checks a
+structure against `to` and, in one transaction, revokes the old binding and
+writes the new one. A structure that does not conform is refused with
+`role_migration_blocked` and the conformance report in
+`StructureRoleRejected::$diagnostic`, which a refused bind carries too.
+
+A consumer declares the roles it reads with `StructureRoleDependencies::declare()`
+and gets bound structures only for those (`role_dependency_undeclared`
+otherwise); `unsatisfied($scope)` names declared roles nothing satisfies.
+`StarterStructureRoles::fixtures()` gives one conforming structure per starter
+role. Registration, binding and migration are audited.

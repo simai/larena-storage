@@ -15,6 +15,8 @@ use Larena\Storage\Enums\RoleBindingStatus;
 use Larena\Storage\Enums\RoleLifecycle;
 use Larena\Storage\Enums\RoleStatus;
 use Larena\Storage\Exceptions\StructureRoleRejected;
+use Larena\Storage\Contracts\StorageSecurityEvent;
+use Larena\Storage\Contracts\StorageSecurityEventSink;
 
 /**
  * Structure roles and bindings on the database.
@@ -34,6 +36,7 @@ final class DatabaseStructureRoleRegistry implements StructureRoleRegistry
     public function __construct(
         private readonly Connection $connection,
         private readonly ?ScopeRefResolver $scopes = null,
+        private readonly ?StorageSecurityEventSink $securityEvents = null,
     ) {
     }
 
@@ -67,6 +70,10 @@ final class DatabaseStructureRoleRegistry implements StructureRoleRegistry
             'correlation_id' => $correlationId,
             'created_at' => $now,
             'updated_at' => $now,
+        ]);
+        $this->emit(StructureRoleAuditEventCatalog::REGISTERED, $actorId, $role->ref(), $correlationId, [
+            'role_ref' => $role->ref(),
+            'owner_package' => $role->ownerPackage,
         ]);
 
         return $role;
@@ -150,6 +157,7 @@ final class DatabaseStructureRoleRegistry implements StructureRoleRegistry
             throw new StructureRoleRejected(
                 'role_conformance_failed',
                 'Structure ' . $schemaId . ' does not satisfy ' . $roleRef . ': ' . json_encode($report->toArray()),
+                $report->toArray(),
             );
         }
 
@@ -189,6 +197,13 @@ final class DatabaseStructureRoleRegistry implements StructureRoleRegistry
                 'updated_at' => $now,
             ]);
         }
+
+        $this->emit(StructureRoleAuditEventCatalog::BOUND, $actorId, $roleRef, $correlationId, [
+            'binding_id' => $bindingId,
+            'role_ref' => $roleRef,
+            'schema_id' => $schemaId,
+            'scope_ref' => $scopeRef,
+        ]);
 
         return new StructureRoleBinding(
             bindingId: $bindingId,
@@ -415,5 +430,132 @@ final class DatabaseStructureRoleRegistry implements StructureRoleRegistry
     private function now(): string
     {
         return gmdate('Y-m-d H:i:s');
+    }
+
+    /** @phpstan-impure */
+    public function planRoleMigration(string $fromRoleRef, string $toRoleRef): array
+    {
+        [$from, $to] = $this->versionPair($fromRoleRef, $toRoleRef);
+
+        $bindings = [];
+        foreach ($this->connection->table(self::BINDINGS_TABLE)
+            ->where('role_ref', $fromRoleRef)
+            ->where('status', RoleBindingStatus::Active->value)
+            ->orderBy('scope_ref')
+            ->orderBy('schema_id')
+            ->get() as $row) {
+            $row = (array) $row;
+            $bindings[] = ['binding_id' => (string) $row['binding_id'], 'schema_id' => (string) $row['schema_id'], 'scope_ref' => (string) $row['scope_ref']];
+        }
+
+        return [
+            'from_role_ref' => $fromRoleRef,
+            'to_role_ref' => $toRoleRef,
+            'breaking_changes' => self::breakingChanges($from, $to),
+            'bindings' => $bindings,
+        ];
+    }
+
+    /** @phpstan-impure */
+    public function migrateBinding(
+        string $fromRoleRef,
+        string $toRoleRef,
+        string $schemaId,
+        string $scopeRef,
+        array $fields,
+        string $actorId,
+        array $declaredRelationKeys = [],
+        ?string $schemaLifecycle = null,
+        ?string $correlationId = null,
+    ): StructureRoleBinding {
+        [, $to] = $this->versionPair($fromRoleRef, $toRoleRef);
+        $oldId = StructureRoleBinding::identity($fromRoleRef, $schemaId, $scopeRef);
+        $old = $this->connection->table(self::BINDINGS_TABLE)->where('binding_id', $oldId)->first();
+        if ($old === null || (string) $old->status !== RoleBindingStatus::Active->value) {
+            throw new StructureRoleRejected('binding_not_found', 'Structure ' . $schemaId . ' is not bound to ' . $fromRoleRef . ' in ' . $scopeRef . '.');
+        }
+        $report = $this->conformance($to, $schemaId, $fields, $declaredRelationKeys, $schemaLifecycle);
+        if (!$report->conforms) {
+            throw new StructureRoleRejected(
+                'role_migration_blocked',
+                'Structure ' . $schemaId . ' does not satisfy ' . $toRoleRef . ' and stays on ' . $fromRoleRef . '.',
+                $report->toArray(),
+            );
+        }
+
+        return $this->connection->transaction(function () use ($fromRoleRef, $toRoleRef, $schemaId, $scopeRef, $fields, $actorId, $declaredRelationKeys, $schemaLifecycle, $correlationId, $oldId): StructureRoleBinding {
+            $this->connection->table(self::BINDINGS_TABLE)->where('binding_id', $oldId)->update([
+                'status' => RoleBindingStatus::Revoked->value,
+                'correlation_id' => $correlationId,
+                'updated_at' => $this->now(),
+            ]);
+            $binding = $this->bindStructure($toRoleRef, $schemaId, $scopeRef, $fields, $actorId, $declaredRelationKeys, $schemaLifecycle, $correlationId);
+            $this->emit(StructureRoleAuditEventCatalog::MIGRATED, $actorId, $toRoleRef, $correlationId, [
+                'from_role_ref' => $fromRoleRef,
+                'to_role_ref' => $toRoleRef,
+                'schema_id' => $schemaId,
+                'scope_ref' => $scopeRef,
+            ]);
+
+            return $binding;
+        });
+    }
+
+    /** @return array{StructureRole, StructureRole} */
+    private function versionPair(string $fromRoleRef, string $toRoleRef): array
+    {
+        $this->assertSchema();
+        $from = $this->read($fromRoleRef) ?? throw new StructureRoleRejected('unknown_role', 'Unknown role: ' . $fromRoleRef);
+        $to = $this->read($toRoleRef) ?? throw new StructureRoleRejected('unknown_role', 'Unknown role: ' . $toRoleRef);
+        if ($from->roleCode !== $to->roleCode || $to->roleVersion <= $from->roleVersion) {
+            throw new StructureRoleRejected('role_migration_invalid', 'A migration goes from a role version to a newer version of the same role.');
+        }
+
+        return [$from, $to];
+    }
+
+    /**
+     * What a structure that conformed to the older version may now lack.
+     *
+     * @return list<string>
+     */
+    private static function breakingChanges(StructureRole $from, StructureRole $to): array
+    {
+        $changes = [];
+        $before = [];
+        foreach ($from->requiredFields as $field) {
+            $before[$field['key']] = $field['type'];
+        }
+        foreach ($to->requiredFields as $field) {
+            if (!array_key_exists($field['key'], $before)) {
+                $changes[] = 'required_field_added:' . $field['key'];
+            } elseif ($before[$field['key']] !== $field['type']) {
+                $changes[] = 'required_field_type_changed:' . $field['key'];
+            }
+        }
+        $relationsBefore = array_column($from->requiredRelations, 'relation_key');
+        foreach ($to->requiredRelations as $relation) {
+            if (!in_array($relation['relation_key'], $relationsBefore, true)) {
+                $changes[] = 'required_relation_added:' . $relation['relation_key'];
+            }
+        }
+        if ($from->lifecycle !== $to->lifecycle && $to->isPublishable()) {
+            $changes[] = 'lifecycle_now_publishable';
+        }
+
+        return $changes;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function emit(string $type, string $actorId, string $roleRef, ?string $correlationId, array $payload): void
+    {
+        $this->securityEvents?->emit(new StorageSecurityEvent(
+            'role',
+            $type,
+            $actorId,
+            'storage-role:' . $roleRef,
+            $correlationId ?? 'storage-role:' . bin2hex(random_bytes(16)),
+            $payload,
+        ));
     }
 }

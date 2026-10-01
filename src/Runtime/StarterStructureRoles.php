@@ -131,6 +131,30 @@ final class StarterStructureRoles
     }
 
     /**
+     * One conforming structure per starter role, shipped with the role so a
+     * structure author has a known-good shape to start from and a test can prove
+     * every role is satisfiable. Each entry is what validateStructure() takes.
+     *
+     * @return array<string, array{fields: list<array{key: string, type: string}>, relation_keys: list<string>, lifecycle: string}>
+     */
+    public static function fixtures(): array
+    {
+        $fixtures = [];
+        foreach (self::roles() as $role) {
+            $fixtures[$role->ref()] = [
+                'fields' => array_map(
+                    static fn (array $field): array => ['key' => $field['key'], 'type' => $field['type']],
+                    [...$role->requiredFields, ...$role->optionalFields],
+                ),
+                'relation_keys' => array_column($role->requiredRelations, 'relation_key'),
+                'lifecycle' => $role->lifecycle->value,
+            ];
+        }
+
+        return $fixtures;
+    }
+
+    /**
      * @return array<string, mixed> what the install did, per role
      * @phpstan-impure
      */

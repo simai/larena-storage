@@ -82,6 +82,14 @@
     "src/Runtime/RelationOperationHandlers.php",
     "src/Audit/RelationAuditEventDescriptor.php",
     "tests/Unit/RelationIntegrityTest.php",
-    "tests/Unit/StorageOperationDeclarationTest.php"
+    "tests/Unit/StorageOperationDeclarationTest.php",
+    "src/Exceptions/StructureRoleRejected.php",
+    "src/Audit/StructureRoleAuditEventCatalog.php",
+    "src/Audit/StructureRoleAuditEventDescriptor.php",
+    "src/Contracts/StructureRoleRegistry.php",
+    "src/Runtime/DatabaseStructureRoleRegistry.php",
+    "src/Runtime/StarterStructureRoles.php",
+    "src/Runtime/StructureRoleDependencies.php",
+    "tests/Unit/StructureRoleLifecycleTest.php"
   ]
 }

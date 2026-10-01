@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Each starter role ships a conforming fixture (`StarterStructureRoles::fixtures()`), doc_space included.
+- A refused bind carries the conformance report in `StructureRoleRejected::$diagnostic`.
+- Role versions migrate by plan: `planRoleMigration()` names the breaking changes and the bindings still on the older version; `migrateBinding()` checks a structure against the newer version and moves its binding in one transaction, or refuses with `role_migration_blocked` and the diagnostic.
+- `StructureRoleDependencies`: a consumer declares the roles it reads and receives bound structures only for those; `unsatisfied()` reports declared roles a scope does not satisfy.
+- Role registration, binding and migration are audited (`storage.role.registered`, `.bound`, `.migrated`); a guard test keeps role codes out of Storage outside the starter role set and the starter site.
+
 - Relations are checked before they are written through `RelationTargets` (`DatabaseRelationTargets` in the provider): the source must be in the schema, the target must exist and be of the declared structure (`target_schema_id`) or role, a tree parent shares the schema and the scope (`larena_scope_ref`), and a schema version that declares `relations` (with their delete policy) is followed exactly. New codes: `source_not_found`, `source_schema_mismatch`, `target_not_found`, `target_schema_mismatch`, `target_role_mismatch`, `cross_scope_parent`, `relation_undeclared`, `relation_descriptor_mismatch`.
 - A schema definition may declare `relations`, kept only when present.
 - `storage.relation.delete_record` applies the declared delete policy; purging records applies it to edges reaching in from outside (`releaseIncomingEdges`): restrict refuses, cascade removes the edge and its subtree's edges, detach turns a tree child into a root with its subtree.

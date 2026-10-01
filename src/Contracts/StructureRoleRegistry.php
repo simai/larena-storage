@@ -60,4 +60,34 @@ interface StructureRoleRegistry
      * @return array<string, mixed>
      */
     public function explain(string $roleRef): array;
+
+    /**
+     * What moving from one version of a role to a newer one changes: the breaking
+     * changes between the two and every active binding of the older version, which
+     * stays on it until it is migrated.
+     *
+     * @return array{from_role_ref: string, to_role_ref: string, breaking_changes: list<string>, bindings: list<array{binding_id: string, schema_id: string, scope_ref: string}>}
+     */
+    public function planRoleMigration(string $fromRoleRef, string $toRoleRef): array;
+
+    /**
+     * Move one structure's binding to the newer role version: the structure is
+     * checked against the newer version, the old binding is revoked and the new one
+     * written in one transaction. A structure that does not conform stays bound to
+     * the older version.
+     *
+     * @param list<array<string, mixed>> $fields
+     * @param list<string> $declaredRelationKeys
+     */
+    public function migrateBinding(
+        string $fromRoleRef,
+        string $toRoleRef,
+        string $schemaId,
+        string $scopeRef,
+        array $fields,
+        string $actorId,
+        array $declaredRelationKeys = [],
+        ?string $schemaLifecycle = null,
+        ?string $correlationId = null,
+    ): StructureRoleBinding;
 }

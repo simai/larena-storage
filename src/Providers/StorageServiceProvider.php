@@ -65,6 +65,7 @@ use Larena\Core\Contracts\OperationHandler;
 use Larena\Storage\Runtime\SlugUniquenessGuard;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StarterStructureRoles;
+use Larena\Storage\Runtime\StructureRoleDependencies;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
 use Larena\Storage\Runtime\VersionedStorage;
@@ -82,8 +83,13 @@ final class StorageServiceProvider extends ServiceProvider
             return new DatabaseStructureRoleRegistry(
                 $app->make(DatabaseManager::class)->connection(),
                 $app->bound(ScopeRefResolver::class) ? $app->make(ScopeRefResolver::class) : null,
+                $app->make(StorageSecurityEventSink::class),
             );
         });
+        // Consumers declare the roles they read; the declarations are checked here.
+        $this->app->singleton(StructureRoleDependencies::class, static fn (Application $app): StructureRoleDependencies => new StructureRoleDependencies(
+            $app->make(StructureRoleRegistry::class),
+        ));
         $this->app->alias(DatabaseStructureRoleRegistry::class, StructureRoleRegistry::class);
 
         $this->app->singleton(StarterStructureRoles::class, static function (Application $app): StarterStructureRoles {
