@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Workbench records take `record@1` fields: a write that sets or changes one must name an active record of the field's target structure in the same scope (`storage_record_reference_target_unavailable`), an unchanged value survives its target's archiving, filters take `eq`/`in`, and a record or structure still referenced through `record@1` is not purged (`storage_record_purge_referenced`).
 - Each starter role ships a conforming fixture (`StarterStructureRoles::fixtures()`), doc_space included.
 - A refused bind carries the conformance report in `StructureRoleRejected::$diagnostic`.
 - Role versions migrate by plan: `planRoleMigration()` names the breaking changes and the bindings still on the older version; `migrateBinding()` checks a structure against the newer version and moves its binding in one transaction, or refuses with `role_migration_blocked` and the diagnostic.

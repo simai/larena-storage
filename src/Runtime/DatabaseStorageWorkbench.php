@@ -65,6 +65,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         'user' => ['eq', 'in'],
         'file' => ['eq', 'in'],
         'relation' => ['eq', 'in'],
+        'record' => ['eq', 'in'],
     ];
     private const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
 
@@ -483,6 +484,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->assertScope($actor, 'storage.workbench.record.create', $scopeRef, self::RECORD_RESOURCE);
         $this->assertUserValues($values);
         $structure = $this->readStructureInternal($scopeRef, $structureId, false, true);
+        $this->assertRecordReferences($structure, $scopeRef, $values, null, $actor);
         $values[self::SCOPE_FIELD] = $scopeRef;
         $values[self::STATE_FIELD] = self::STATE_ACTIVE;
         $ownerRef = 'workbench.record:' . bin2hex(random_bytes(16));
@@ -525,6 +527,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if ($current->state !== self::STATE_ACTIVE) {
                 throw new StorageRejected('storage_workbench_record_archived');
             }
+            $this->assertRecordReferences($structure, $scopeRef, $values, $current, $actor);
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ACTIVE;
             $version = $this->storage->compareAndSwap(
@@ -741,6 +744,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     throw new StorageRejected('storage_workbench_structure_not_archived');
                 }
                 $schemaId = (string) $head->storage_schema_id;
+                if ($this->referencedRecordIds($scopeRef, $structureId, null) !== []) {
+                    throw new StorageRejected('storage_record_purge_referenced');
+                }
                 if ($this->tableExists('larena_storage_structure_role_bindings')
                     && $this->database->table('larena_storage_structure_role_bindings')->where('schema_id', $schemaId)->exists()) {
                     throw new StorageRejected('storage_workbench_structure_role_bound');
@@ -847,6 +853,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 }
                 $refs[] = new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $revision);
             }
+            // A record another record still names through record@1 stays (owner decision: restrict).
+            if ($this->referencedRecordIds($scopeRef, $structureId, array_keys($expectedRevisions)) !== []) {
+                throw new StorageRejected('storage_record_purge_referenced');
+            }
             $versions = $this->storage->purge($refs, $actor, $correlationId);
 
             return new StorageWorkbenchPurgeReceipt(
@@ -860,6 +870,113 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $this->timestamp(),
             );
         });
+    }
+
+    /**
+     * A record@1 value that a write sets or changes must name an active record of the field's
+     * target structure in the same scope. A value the update leaves as it was is kept even when
+     * its target has been archived since.
+     *
+     * @param array<string, mixed> $values
+     */
+    private function assertRecordReferences(
+        StorageWorkbenchStructure $structure,
+        string $scopeRef,
+        array $values,
+        ?StorageWorkbenchRecord $current,
+        string $actor,
+    ): void {
+        foreach ($structure->fields as $field) {
+            if (($field['type'] ?? null) !== 'record' || !array_key_exists((string) $field['key'], $values)) {
+                continue;
+            }
+            $value = $values[(string) $field['key']];
+            if (!is_string($value) || $value === '') {
+                continue;
+            }
+            $value = strtolower($value);
+            $previous = $current?->values[(string) $field['key']] ?? null;
+            if (is_string($previous) && $previous === $value) {
+                continue;
+            }
+            $target = $field['constraints']['target_structure_id'] ?? null;
+            try {
+                if (!is_string($target) || preg_match('/\Arecord-[0-9a-f]{32}\z/D', $value) !== 1) {
+                    throw new StorageRejected('storage_record_reference_target_unavailable');
+                }
+                $targetStructure = $this->readStructureInternal($scopeRef, $target, false, true);
+                $record = $this->readRecordInternal($targetStructure, $scopeRef, $value, $actor);
+            } catch (StorageRejected) {
+                throw new StorageRejected('storage_record_reference_target_unavailable');
+            }
+            if ($record->state !== self::STATE_ACTIVE) {
+                throw new StorageRejected('storage_record_reference_target_unavailable');
+            }
+        }
+    }
+
+    /**
+     * Records of the structure (all of them, or the given ones) that another record of the scope
+     * names through a record@1 field. References from the given records themselves, or from the
+     * structure's own records when the whole structure goes, do not hold them.
+     *
+     * @param list<string>|null $recordIds
+     * @return list<string>
+     */
+    private function referencedRecordIds(string $scopeRef, string $structureId, ?array $recordIds): array
+    {
+        $wanted = $recordIds === null ? null : array_fill_keys($recordIds, true);
+        $referenced = [];
+        $heads = $this->database->table('larena_storage_workbench_structures')
+            ->where('scope_ref', $scopeRef)
+            ->orderBy('structure_id')
+            ->limit(self::MAX_STRUCTURES + 1)
+            ->get()
+            ->all();
+        foreach ($heads as $head) {
+            $source = $this->hydrateStructureVersion($head);
+            $keys = [];
+            foreach ($source->fields as $field) {
+                if (($field['type'] ?? null) === 'record'
+                    && ($field['constraints']['target_structure_id'] ?? null) === $structureId) {
+                    $keys[] = (string) $field['key'];
+                }
+            }
+            if ($keys === [] || ($wanted === null && $source->structureId === $structureId)) {
+                continue;
+            }
+            $rows = $this->database->table('larena_storage_records as heads')
+                ->join('larena_storage_record_versions as versions', static function ($join): void {
+                    $join->on('versions.schema_id', '=', 'heads.schema_id')
+                        ->on('versions.record_id', '=', 'heads.record_id')
+                        ->on('versions.revision', '=', 'heads.current_revision');
+                })
+                ->where('heads.schema_id', $source->schema->schemaId)
+                ->limit(self::MAX_SCAN + 1)
+                ->select(['versions.record_id', 'versions.values_json'])
+                ->cursor();
+            $scanned = 0;
+            foreach ($rows as $row) {
+                if (++$scanned > self::MAX_SCAN) {
+                    throw new StorageRejected('storage_workbench_record_scan_limit_exceeded');
+                }
+                if ($source->structureId === $structureId && isset($wanted[(string) $row->record_id])) {
+                    continue;
+                }
+                $values = json_decode((string) $row->values_json, true);
+                if (!is_array($values) || ($values[self::SCOPE_FIELD] ?? null) !== $scopeRef) {
+                    continue;
+                }
+                foreach ($keys as $key) {
+                    $value = $values[$key] ?? null;
+                    if (is_string($value) && ($wanted === null || isset($wanted[$value]))) {
+                        $referenced[$value] = true;
+                    }
+                }
+            }
+        }
+
+        return array_keys($referenced);
     }
 
     private function changeStructureState(
