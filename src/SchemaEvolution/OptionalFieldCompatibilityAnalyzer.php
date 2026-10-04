@@ -58,7 +58,11 @@ final readonly class OptionalFieldCompatibilityAnalyzer
             if (($field['required'] ?? false) !== false) {
                 $reasons[] = 'storage_schema_migration_required_field_added';
             }
-            if (($field['constraints'] ?? []) !== []) {
+            // Records written before the field have no value for it, so only a constraint that
+            // never applies to an absent value is accepted: the target of a record@1 reference.
+            $constraints = $field['constraints'] ?? [];
+            if ($constraints !== [] && (($field['type'] ?? null) !== 'record' || !is_array($constraints)
+                || array_keys($constraints) !== ['target_structure_id'])) {
                 $reasons[] = 'storage_schema_migration_added_field_constraints_unsupported';
             }
         }

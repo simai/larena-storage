@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- An existing workbench structure may gain an optional `record@1` field: its `target_structure_id` is the one constraint an added field may carry, in the workbench and in the optional-field compatibility analysis.
 - Workbench records take `record@1` fields: a write that sets or changes one must name an active record of the field's target structure in the same scope (`storage_record_reference_target_unavailable`), an unchanged value survives its target's archiving, filters take `eq`/`in`, and a record or structure still referenced through `record@1` is not purged (`storage_record_purge_referenced`).
 - Each starter role ships a conforming fixture (`StarterStructureRoles::fixtures()`), doc_space included.
 - A refused bind carries the conformance report in `StructureRoleRejected::$diagnostic`.

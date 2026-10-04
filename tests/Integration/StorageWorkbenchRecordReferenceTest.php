@@ -43,6 +43,19 @@ try {
         'fields' => [$string('title', 10), ['constraints' => []] + $section('workbench.sections')],
     ], $actor), 'storage_schema_constraint_invalid');
 
+    // An existing structure gains an optional record@1 field: the target is its only constraint.
+    $notes = $workbench->createStructure($scope, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10)],
+    ], $actor);
+    $notes = $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections')],
+    ], $actor);
+    workbenchExpect(($notes->fields[1]['constraints']['target_structure_id'] ?? null) === 'workbench.sections', 'record field was not added');
+    workbenchRejects(static fn () => $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes',
+        'fields' => [$string('title', 10), $section('workbench.sections'), ['key' => 'length', 'constraints' => ['max_length' => 5]] + $string('length', 30)],
+    ], $actor), 'storage_workbench_structure_addition_incompatible');
+
     $books = $workbench->createRecord($scope, 'workbench.sections', ['title' => 'Books'], $actor);
     $games = $workbench->createRecord($scope, 'workbench.sections', ['title' => 'Games'], $actor);
 

@@ -1398,7 +1398,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if (isset($currentUserKeys[$key])) {
                 continue;
             }
-            if (($field['required'] ?? null) !== false || ($field['constraints'] ?? null) !== []) {
+            // An added field is optional and unconstrained, so no stored record changes meaning; a
+            // record@1 field carries only its target, which existing records (without the field) ignore.
+            $constraints = $field['constraints'] ?? null;
+            if (($field['required'] ?? null) !== false
+                || ($constraints !== [] && (($field['type'] ?? null) !== 'record' || !is_array($constraints)
+                    || array_keys($constraints) !== ['target_structure_id']))) {
                 throw new StorageRejected('storage_workbench_structure_addition_incompatible');
             }
             $target[] = $this->semanticField($field) + (($field['localized'] ?? false) === true ? ['localized' => true] : []);
