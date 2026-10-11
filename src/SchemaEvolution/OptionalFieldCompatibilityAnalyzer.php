@@ -59,10 +59,20 @@ final readonly class OptionalFieldCompatibilityAnalyzer
                 $reasons[] = 'storage_schema_migration_required_field_added';
             }
             // Records written before the field have no value for it, so only a constraint that
-            // never applies to an absent value is accepted: the target of a record@1 reference.
+            // never applies to an absent value is accepted: the target of a record@1 reference, the
+            // options of a choice field and how many of them several choices may hold.
             $constraints = $field['constraints'] ?? [];
-            if ($constraints !== [] && (($field['type'] ?? null) !== 'record' || !is_array($constraints)
-                || array_keys($constraints) !== ['target_structure_id'])) {
+            $constraintKeys = is_array($constraints) ? array_keys($constraints) : null;
+            if ($constraintKeys !== null) {
+                sort($constraintKeys);
+            }
+            $allowedKeys = match ($field['type'] ?? null) {
+                'record' => [['target_structure_id']],
+                'choice' => [['options']],
+                'choices' => [['options'], ['max_items', 'options']],
+                default => [],
+            };
+            if ($constraints !== [] && !in_array($constraintKeys, $allowedKeys, true)) {
                 $reasons[] = 'storage_schema_migration_added_field_constraints_unsupported';
             }
         }

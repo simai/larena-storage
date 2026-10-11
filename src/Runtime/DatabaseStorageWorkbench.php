@@ -1399,11 +1399,21 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 continue;
             }
             // An added field is optional and unconstrained, so no stored record changes meaning; a
-            // record@1 field carries only its target, which existing records (without the field) ignore.
+            // record@1 field carries only its target, and a choice field only its options (and, for
+            // several choices, how many), which existing records (without the field) ignore.
             $constraints = $field['constraints'] ?? null;
+            $constraintKeys = is_array($constraints) ? array_keys($constraints) : null;
+            if ($constraintKeys !== null) {
+                sort($constraintKeys);
+            }
+            $allowedKeys = match ($field['type'] ?? null) {
+                'record' => [['target_structure_id']],
+                'choice' => [['options']],
+                'choices' => [['options'], ['max_items', 'options']],
+                default => [],
+            };
             if (($field['required'] ?? null) !== false
-                || ($constraints !== [] && (($field['type'] ?? null) !== 'record' || !is_array($constraints)
-                    || array_keys($constraints) !== ['target_structure_id']))) {
+                || ($constraints !== [] && !in_array($constraintKeys, $allowedKeys, true))) {
                 throw new StorageRejected('storage_workbench_structure_addition_incompatible');
             }
             $target[] = $this->semanticField($field) + (($field['localized'] ?? false) === true ? ['localized' => true] : []);

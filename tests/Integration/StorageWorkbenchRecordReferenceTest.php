@@ -55,6 +55,13 @@ try {
         'structure_id' => 'workbench.notes', 'label' => 'Notes',
         'fields' => [$string('title', 10), $section('workbench.sections'), ['key' => 'length', 'constraints' => ['max_length' => 5]] + $string('length', 30)],
     ], $actor), 'storage_workbench_structure_addition_incompatible');
+    // ... and an optional choice field with its options: records without the field keep their meaning.
+    $notes = $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections'),
+            ['key' => 'stage', 'label' => 'Stage', 'position' => 30, 'type' => 'choice', 'type_version' => 1, 'required' => false,
+                'visibility' => 'public', 'constraints' => ['options' => [['value' => 'new', 'label' => 'New', 'color' => 'info']]]]],
+    ], $actor);
+    workbenchExpect(($notes->fields[2]['constraints']['options'][0]['value'] ?? null) === 'new', 'choice field was not added');
 
     $books = $workbench->createRecord($scope, 'workbench.sections', ['title' => 'Books'], $actor);
     $games = $workbench->createRecord($scope, 'workbench.sections', ['title' => 'Games'], $actor);
