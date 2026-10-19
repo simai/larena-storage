@@ -103,7 +103,8 @@
     "src/Runtime/StarterStructureRoles.php",
     "src/Runtime/StructureRoleDependencies.php",
     "tests/Unit/StructureRoleLifecycleTest.php",
-    "tests/Integration/StorageWorkbenchRecordReferenceTest.php"
+    "tests/Integration/StorageWorkbenchRecordReferenceTest.php",
+    "database/migrations/2026_10_19_000001_add_larena_storage_workbench_history_keep.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

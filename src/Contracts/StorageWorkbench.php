@@ -48,6 +48,19 @@ interface StorageWorkbench
     /** @return list<StorageWorkbenchStructure> Active structures; archived ones only when asked for. */
     public function listStructures(string $scopeRef, string $actor, bool $includeArchived = false): array;
 
+    /**
+     * How many saved versions of each record the structure keeps («Хранить изменений»): null keeps all.
+     * Setting a number trims the history of every record of the structure at once; each later
+     * write trims its record. The current version and published ones always stay.
+     */
+    public function setHistoryKeep(
+        string $scopeRef,
+        string $structureId,
+        ?int $keep,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure;
+
     /** An archived structure keeps its records and accepts no record writes until it is restored. */
     public function archiveStructure(
         string $scopeRef,

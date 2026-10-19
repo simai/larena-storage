@@ -8,6 +8,9 @@ use Illuminate\Database\ConnectionInterface;
 
 interface VersionedStorage
 {
+    /** The most saved versions of a record a «keep» setting may ask for. */
+    public const HISTORY_KEEP_LIMIT = 1000;
+
     /**
      * @param array<string, mixed> $definition
      */
@@ -64,6 +67,17 @@ interface VersionedStorage
      * @return int record versions removed
      */
     public function purge(array $current, string $actor, ?string $correlationId = null): int;
+
+    /**
+     * Removes the oldest saved versions of these records of one schema so that each keeps
+     * its newest $keep. The current revision, and any revision a publication state or its
+     * log names, are never removed; their localized values go with the removed versions.
+     * One audit event when anything was removed.
+     *
+     * @param list<string> $recordIds
+     * @return int record versions removed
+     */
+    public function pruneHistory(string $schemaId, array $recordIds, int $keep, string $actor, ?string $correlationId = null): int;
 
     /**
      * A locking read is effective only inside an ambient database transaction.

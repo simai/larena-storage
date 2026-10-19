@@ -22,9 +22,11 @@ final readonly class StorageVersionAuditEventDescriptor implements AuditEventDes
             'storage.record.deleted',
             'storage.record.restored',
             'storage.record.purged',
+            'storage.record.history_pruned',
             'storage.workbench.structure.archived',
             'storage.workbench.structure.restored',
             'storage.workbench.structure.purged',
+            'storage.workbench.structure.history_keep_changed',
         ], true)) {
             throw new InvalidArgumentException('storage_audit_event_type_invalid');
         }

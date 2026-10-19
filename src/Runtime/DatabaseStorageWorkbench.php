@@ -538,6 +538,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             )->version;
+            $this->keepHistory($structure, [$recordId], $actor, $correlationId);
 
             return $this->workbenchRecord($structure, $version);
         });
@@ -586,6 +587,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             )->version;
+            $this->keepHistory($structure, [$recordId], $actor, $correlationId);
 
             return $this->workbenchRecord($structure, $version);
         });
@@ -634,6 +636,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             )->version;
+            $this->keepHistory($structure, [$recordId], $actor, $correlationId);
 
             return $this->workbenchRecord($structure, $version);
         });
@@ -695,9 +698,61 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 )->version;
                 $archived[] = $this->workbenchRecord($structure, $version);
             }
+            $this->keepHistory($structure, array_map('strval', array_keys($preflight)), $actor, $correlationId);
 
             return $archived;
         });
+    }
+
+    public function setHistoryKeep(
+        string $scopeRef,
+        string $structureId,
+        ?int $keep,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure {
+        $this->assertStructureId($structureId);
+        if ($keep !== null && ($keep < 1 || $keep > VersionedStorage::HISTORY_KEEP_LIMIT)) {
+            throw new InvalidArgumentException('storage_workbench_history_keep_invalid');
+        }
+        $this->assertScope($actor, 'storage.workbench.structure.update', $scopeRef, self::STRUCTURE_RESOURCE);
+        $correlationId = $this->correlationId($correlationId);
+
+        try {
+            return $this->database->transaction(function () use ($scopeRef, $structureId, $keep, $actor, $correlationId): StorageWorkbenchStructure {
+                $head = $this->structureHead($scopeRef, $structureId, true);
+                // The same setting again changes nothing and says nothing.
+                if ((isset($head->history_keep) ? (int) $head->history_keep : null) === $keep) {
+                    return $this->hydrateStructureVersion($head, true);
+                }
+                $this->database->table('larena_storage_workbench_structures')
+                    ->where('scope_ref', $scopeRef)
+                    ->where('structure_id', $structureId)
+                    ->update(['history_keep' => $keep, 'updated_at' => $this->timestamp()]);
+                $schemaId = (string) $head->storage_schema_id;
+                $this->emitStructure('storage.workbench.structure.history_keep_changed', $scopeRef, $structureId, $actor, $correlationId,
+                    ['schema_id' => $schemaId, 'keep' => $keep]);
+                // A number trims every record's history now; each later write keeps it trimmed.
+                if ($keep !== null) {
+                    $ids = array_map('strval', $this->database->table('larena_storage_records')
+                        ->where('schema_id', $schemaId)->orderBy('record_id')->pluck('record_id')->all());
+                    foreach (array_chunk($ids, 5000) as $chunk) {
+                        $this->storage->pruneHistory($schemaId, $chunk, $keep, $actor, $correlationId);
+                    }
+                }
+
+                return $this->hydrateStructureVersion($this->structureHead($scopeRef, $structureId, true), true);
+            });
+        } catch (StorageRejected|StorageConflict $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isLockConflict($exception)) {
+                throw new StorageConflict('storage_workbench_structure_version_conflict');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
     }
 
     public function archiveStructure(
@@ -1558,7 +1613,25 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $row->correlation_id === null ? null : (string) $row->correlation_id,
             $this->headArchivedAt($head),
             $this->headArchivedAt($head) === null || !is_string($head->archived_by ?? null) ? null : $head->archived_by,
+            isset($head->history_keep) ? (int) $head->history_keep : null,
         );
+    }
+
+    /**
+     * After a write, the record's history is trimmed to what the structure keeps. Trimming
+     * never fails the write: a history that could not be trimmed now is trimmed by the next one.
+     *
+     * @param list<string> $recordIds
+     */
+    private function keepHistory(StorageWorkbenchStructure $structure, array $recordIds, string $actor, ?string $correlationId): void
+    {
+        if ($structure->historyKeep === null || $recordIds === []) {
+            return;
+        }
+        try {
+            $this->storage->pruneHistory($structure->schema->schemaId, $recordIds, $structure->historyKeep, $actor, $correlationId);
+        } catch (Throwable) {
+        }
     }
 
     private function headArchivedAt(stdClass $head): ?string

@@ -296,6 +296,95 @@ final readonly class VersionedStorage implements VersionedStorageContract
         );
     }
 
+    public function pruneHistory(string $schemaId, array $recordIds, int $keep, string $actor, ?string $correlationId = null): int
+    {
+        $this->assertActor($actor);
+        if ($keep < 1 || $keep > self::HISTORY_KEEP_LIMIT || $recordIds === [] || in_array('', $recordIds, true)
+            || count($recordIds) > self::PURGE_LIMIT || count(array_unique($recordIds)) !== count($recordIds)) {
+            throw new StorageRejected('storage_record_history_prune_invalid');
+        }
+        $this->authorizer->assertAllowed($actor, 'storage.record.update');
+        $correlationId = $this->correlationId($correlationId, 'storage-record');
+        sort($recordIds, SORT_STRING);
+
+        try {
+            return $this->database->transaction(function () use ($schemaId, $recordIds, $keep, $actor, $correlationId): int {
+                $removed = 0;
+                $records = 0;
+                foreach (array_chunk($recordIds, self::PURGE_CHUNK) as $chunk) {
+                    $heads = [];
+                    foreach ($this->database->table('larena_storage_records')
+                        ->where('schema_id', $schemaId)
+                        ->whereIn('record_id', $chunk)
+                        ->lockForUpdate()
+                        ->get(['record_id', 'current_revision']) as $row) {
+                        $heads[(string) $row->record_id] = (int) $row->current_revision;
+                    }
+                    // A revision a publication names (its head, the one before, a scheduled one) stays readable.
+                    $kept = [];
+                    if ($this->tableExists('larena_storage_publication_states')) {
+                        foreach ($this->database->table('larena_storage_publication_states')
+                            ->where('schema_id', $schemaId)->whereIn('record_id', $chunk)
+                            ->get(['record_id', 'published_revision', 'previous_published_revision']) as $row) {
+                            foreach ([$row->published_revision, $row->previous_published_revision] as $revision) {
+                                if ($revision !== null) {
+                                    $kept[(string) $row->record_id][] = (int) $revision;
+                                }
+                            }
+                        }
+                    }
+                    if ($this->tableExists('larena_storage_publication_log')) {
+                        foreach ($this->database->table('larena_storage_publication_log')
+                            ->where('schema_id', $schemaId)->whereIn('record_id', $chunk)->whereNotNull('revision')
+                            ->get(['record_id', 'revision']) as $row) {
+                            $kept[(string) $row->record_id][] = (int) $row->revision;
+                        }
+                    }
+                    foreach ($heads as $recordId => $current) {
+                        $below = $current - $keep;
+                        if ($below < 1) {
+                            continue;
+                        }
+                        $deleted = $this->database->table('larena_storage_record_versions')
+                            ->where('schema_id', $schemaId)->where('record_id', $recordId)
+                            ->where('revision', '<=', $below)
+                            ->whereNotIn('revision', $kept[$recordId] ?? [])
+                            ->delete();
+                        if ($deleted > 0 && $this->tableExists('larena_storage_localized_values')) {
+                            $this->database->table('larena_storage_localized_values')
+                                ->where('schema_id', $schemaId)->where('record_id', $recordId)
+                                ->where('revision', '<=', $below)
+                                ->whereNotIn('revision', $kept[$recordId] ?? [])
+                                ->delete();
+                        }
+                        $removed += $deleted;
+                        $records += $deleted > 0 ? 1 : 0;
+                    }
+                }
+                if ($removed > 0) {
+                    $this->emit('storage.record.history_pruned', $actor, 'storage-schema:' . $schemaId, $correlationId, [
+                        'schema_id' => $schemaId,
+                        'records' => $records,
+                        'versions_removed' => $removed,
+                        'keep' => $keep,
+                        'operation' => 'prune',
+                    ]);
+                }
+
+                return $removed;
+            });
+        } catch (StorageRejected|StorageConflict $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isLockConflict($exception)) {
+                throw new StorageConflict('storage_record_revision_conflict');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
     public function purge(array $current, string $actor, ?string $correlationId = null): int
     {
         $this->assertActor($actor);

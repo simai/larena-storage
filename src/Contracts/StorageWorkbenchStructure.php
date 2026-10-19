@@ -21,6 +21,8 @@ final readonly class StorageWorkbenchStructure
         public ?string $correlationId = null,
         public ?string $archivedAt = null,
         public ?string $archivedBy = null,
+        /** How many saved versions of each record are kept; null keeps them all. */
+        public ?int $historyKeep = null,
     ) {
     }
 
