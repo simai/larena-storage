@@ -104,7 +104,12 @@
     "src/Runtime/StructureRoleDependencies.php",
     "tests/Unit/StructureRoleLifecycleTest.php",
     "tests/Integration/StorageWorkbenchRecordReferenceTest.php",
-    "database/migrations/2026_10_19_000001_add_larena_storage_workbench_history_keep.php"
+    "database/migrations/2026_10_19_000001_add_larena_storage_workbench_history_keep.php",
+    "src/Benchmark/StorageBenchmark.php",
+    "src/Benchmark/StorageBenchmarkAccess.php",
+    "src/Console/Commands/StorageBenchCommand.php",
+    "scripts/storage-bench.php",
+    "tests/Integration/StorageBenchCommandTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

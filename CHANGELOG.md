@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `larena:storage:bench` measures the engine on a disposable database (a new SQLite file or a named non-default connection; the default one is refused): a 20-field workbench structure seeded with engine-identical rows, then list pages, filters, sorts, search, the matched count and single-record read, update and create, each with p50/p95/max ms, peak memory and SQL query count, as JSON. A refused operation (the 5000-record list scan limit) is recorded as `fails` with its reason. `scripts/storage-bench.php` runs it outside the application on a temp SQLite file or a throwaway local MySQL database.
 - An existing workbench structure may gain an optional `record@1` field: its `target_structure_id` is the one constraint an added field may carry, in the workbench and in the optional-field compatibility analysis.
 - Workbench records take `record@1` fields: a write that sets or changes one must name an active record of the field's target structure in the same scope (`storage_record_reference_target_unavailable`), an unchanged value survives its target's archiving, filters take `eq`/`in`, and a record or structure still referenced through `record@1` is not purged (`storage_record_purge_referenced`).
 - Each starter role ships a conforming fixture (`StarterStructureRoles::fixtures()`), doc_space included.

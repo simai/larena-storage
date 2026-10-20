@@ -156,6 +156,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationHistoryTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationSweepTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationSweepCommandTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageBenchCommandTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationAuditTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationMySqlRestartTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationFailsClosedTest.php",

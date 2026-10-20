@@ -6,6 +6,7 @@ namespace Larena\Storage\Providers;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
+use Larena\Storage\Console\Commands\StorageBenchCommand;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\PublicationObserver;
 use Illuminate\Contracts\Foundation\Application;
@@ -358,7 +359,8 @@ final class StorageServiceProvider extends ServiceProvider
         // Scheduled publications are published by the sweep, never by a read. The
         // Laravel scheduler runs it every minute; one cron line starts the scheduler.
         if ($this->app->runningInConsole()) {
-            $this->commands([PublicationSweepCommand::class]);
+            // The benchmark measures the engine on a disposable database only.
+            $this->commands([PublicationSweepCommand::class, StorageBenchCommand::class]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
                     ->everyMinute()
