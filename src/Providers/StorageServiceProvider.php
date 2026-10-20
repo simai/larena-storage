@@ -7,6 +7,8 @@ namespace Larena\Storage\Providers;
 use Illuminate\Console\Scheduling\Schedule;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
+use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
+use Larena\Storage\View\StorageViewSync;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\PublicationObserver;
 use Illuminate\Contracts\Foundation\Application;
@@ -286,6 +288,10 @@ final class StorageServiceProvider extends ServiceProvider
                 return $registry;
             },
         );
+        // Each storage's витрина (typed read table), kept in the write transaction.
+        $this->app->singleton(StorageViewSync::class, static fn (Application $app): StorageViewSync => StorageViewSync::for(
+            $app->make(DatabaseManager::class)->connection(),
+        ));
         $this->app->singleton(VersionedStorage::class, static function (Application $app): VersionedStorage {
             /** @var DatabaseManager $database */
             $database = $app->make(DatabaseManager::class);
@@ -300,6 +306,7 @@ final class StorageServiceProvider extends ServiceProvider
                     ? $app->make('config')->get('app.key')
                     : null,
                 $app->make(DatabaseRecordRelations::class),
+                $app->make(StorageViewSync::class),
             );
         });
         $this->app->alias(VersionedStorage::class, VersionedStorageContract::class);
@@ -314,6 +321,7 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(ActorOperationAuthorizer::class),
                 $app->make(StorageSecurityEventSink::class),
                 $app->make(StorageSchemaEvolutionOwnerPolicyRegistry::class),
+                $app->make(StorageViewSync::class),
             );
         });
         $this->app->alias(DatabaseStorageSchemaEvolution::class, StorageSchemaEvolutionContract::class);
@@ -334,6 +342,7 @@ final class StorageServiceProvider extends ServiceProvider
                     ? $app->make('config')->get('app.key')
                     : '',
                 $app->make(StorageSecurityEventSink::class),
+                $app->make(StorageViewSync::class),
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
@@ -360,7 +369,8 @@ final class StorageServiceProvider extends ServiceProvider
         // Laravel scheduler runs it every minute; one cron line starts the scheduler.
         if ($this->app->runningInConsole()) {
             // The benchmark measures the engine on a disposable database only.
-            $this->commands([PublicationSweepCommand::class, StorageBenchCommand::class]);
+            // The витрина rebuild builds the typed read tables of existing storages.
+            $this->commands([PublicationSweepCommand::class, StorageBenchCommand::class, StorageViewRebuildCommand::class]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
                     ->everyMinute()

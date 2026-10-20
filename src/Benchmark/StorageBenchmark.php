@@ -19,6 +19,9 @@ use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
+use Larena\Storage\View\StorageViewRebuilder;
+use Larena\Storage\View\StorageViewRegistry;
+use Larena\Storage\View\StorageViewSync;
 use Throwable;
 
 /**
@@ -33,6 +36,9 @@ use Throwable;
  * values normalized against the stored schema version, canonical JSON, a
  * sha256 content hash shared by the head and the first version. Seeding
  * through the engine one record at a time would take hours at 100k.
+ *
+ * Writes keep each structure's витрина, as in the application; the seeded
+ * records get theirs from one rebuild after seeding (not timed).
  *
  * The benchmark runs its own runtime with an access policy that admits only the
  * benchmark actor in a fresh benchmark scope, so it never reads other data. Run
@@ -56,6 +62,7 @@ final class StorageBenchmark
     private DatabaseStorageWorkbench $workbench;
     private VersionedStorage $storage;
     private SchemaDefinitionNormalizer $normalizer;
+    private StorageViewSync $views;
 
     public function __construct(private Connection $connection, PropertyTypeRegistry $propertyTypes)
     {
@@ -65,7 +72,8 @@ final class StorageBenchmark
         $events = new NullStorageSecurityEventSink();
         $cursorKey = bin2hex(random_bytes(32));
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
-        $this->storage = new VersionedStorage($connection, $propertyTypes, $access, $events, $access, $cursorKey);
+        $this->views = StorageViewSync::for($connection);
+        $this->storage = new VersionedStorage($connection, $propertyTypes, $access, $events, $access, $cursorKey, null, $this->views);
         $policies = new StorageSchemaEvolutionOwnerPolicyRegistry();
         $policies->protect(
             'larena/storage',
@@ -83,10 +91,11 @@ final class StorageBenchmark
             $access,
             $access,
             $this->storage,
-            new DatabaseStorageSchemaEvolution($connection, $propertyTypes, $access, $events, $policies),
+            new DatabaseStorageSchemaEvolution($connection, $propertyTypes, $access, $events, $policies, $this->views),
             $policies,
             $cursorKey,
             $events,
+            $this->views,
         );
     }
 
@@ -157,6 +166,12 @@ final class StorageBenchmark
         $seedStarted = hrtime(true);
         $recordIds = $this->seed($structure, $size, $sectionIds);
         $seedMs = (hrtime(true) - $seedStarted) / 1e6;
+        if ($this->views->enabled()) {
+            // Nothing else writes the benchmark storage, so the build does not wait for writers.
+            $builder = new StorageViewSync($this->connection, new StorageViewRegistry($this->connection, 0.0), $this->views->ddl());
+            (new StorageViewRebuilder($builder))->rebuild($structure->schema->schemaId, StorageViewRebuilder::DEFAULT_CHUNK, true);
+            $this->views->registry()->forget($structure->schema->schemaId);
+        }
         $progress(sprintf('Seeded %d records in %.1f s; measuring...', $size, $seedMs / 1000));
 
         $list = fn (array $filters = [], ?string $search = null, array $sort = [], int $limit = 50, ?int $page = null): int => $this->workbench->listRecords(
@@ -378,7 +393,7 @@ final class StorageBenchmark
     /** @return array{records: int} */
     private function deleteOwnedRows(StorageWorkbenchStructure $structure): array
     {
-        return $this->connection->transaction(function () use ($structure): array {
+        $result = $this->connection->transaction(function () use ($structure): array {
             $schemaId = $structure->schema->schemaId;
             $this->connection->table('larena_storage_record_versions')->where('schema_id', $schemaId)->delete();
             $records = $this->connection->table('larena_storage_records')->where('schema_id', $schemaId)->delete();
@@ -386,9 +401,13 @@ final class StorageBenchmark
                 ->where('scope_ref', $this->scopeRef)->where('structure_id', $structure->structureId)->delete();
             $this->connection->table('larena_storage_workbench_structures')
                 ->where('scope_ref', $this->scopeRef)->where('structure_id', $structure->structureId)->delete();
+            $this->views->structurePurged($schemaId);
 
             return ['records' => $records];
         });
+        $this->views->settle();
+
+        return $result;
     }
 
     /** @return array<string, mixed> */

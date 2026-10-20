@@ -28,6 +28,7 @@ use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
+use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 use Larena\Storage\Exceptions\RelationRejected;
@@ -51,6 +52,8 @@ final readonly class VersionedStorage implements VersionedStorageContract
         private ?string $recordListCursorKey = null,
         // Applies relation delete policies on purge; without it any incoming edge refuses.
         private ?DatabaseRecordRelations $relations = null,
+        // Keeps each storage's витрина row in the write's transaction; without it no витрина is written.
+        private ?StorageViewSync $views = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
@@ -180,11 +183,13 @@ final readonly class VersionedStorage implements VersionedStorageContract
 
         try {
             return $this->database->transaction(function () use ($ownerRef, $schema, $values, $actor, $correlationId): StorageWriteResult {
+                // A shared lock: writers to one storage run side by side, while a schema
+                // apply (which takes the row for update) waits for them and they for it.
                 $schemaHead = $this->database->table('larena_storage_schemas')
                     ->where('schema_id', $schema->schemaId)
-                    ->lockForUpdate()
+                    ->sharedLock()
                     ->first();
-                $schemaVersion = $this->schemaVersion($schema, true);
+                $schemaVersion = $this->loadSchemaVersion($schema, 'shared');
                 if (!$schemaHead instanceof stdClass
                     || (int) $schemaHead->current_version !== $schema->version
                     || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
@@ -218,6 +223,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     $correlationId,
                     $now,
                 );
+                $this->views?->recordWritten($schemaVersion, $recordId, 1, $normalizedValues, $contentHash, $now, $now);
 
                 $record = new StorageRecordVersion(
                     new StorageRecordVersionRef($schema->schemaId, $recordId, 1),
@@ -477,6 +483,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                         ->whereIn('record_id', $chunk)
                         ->delete();
                 }
+                $this->views?->recordsRemoved((string) $schemaId, $recordIds);
 
                 foreach ($recordIds as $recordId) {
                     $this->emit('storage.record.purged', $actor, 'storage-record:' . $recordId, $correlationId, [
@@ -506,12 +513,20 @@ final readonly class VersionedStorage implements VersionedStorageContract
         bool $forUpdate = false,
     ): StorageSchemaVersion
     {
+        return $this->loadSchemaVersion($ref, $forUpdate ? 'update' : null);
+    }
+
+    /** @param 'update'|'shared'|null $lock */
+    private function loadSchemaVersion(StorageSchemaVersionRef $ref, ?string $lock): StorageSchemaVersion
+    {
         try {
             $query = $this->database->table('larena_storage_schema_versions')
                 ->where('schema_id', $ref->schemaId)
                 ->where('version', $ref->version);
-            if ($forUpdate) {
+            if ($lock === 'update') {
                 $query->lockForUpdate();
+            } elseif ($lock === 'shared') {
+                $query->sharedLock();
             }
             $row = $query->first();
             if (!$row instanceof stdClass) {
@@ -802,11 +817,12 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 $correlationId,
                 $operation,
             ): StorageWriteResult {
+                // Shared, as in create: only the record's own head is taken for update.
                 $schemaHead = $this->database->table('larena_storage_schemas')
                     ->where('schema_id', $schema->schemaId)
-                    ->lockForUpdate()
+                    ->sharedLock()
                     ->first();
-                $schemaVersion = $this->schemaVersion($schema, true);
+                $schemaVersion = $this->loadSchemaVersion($schema, 'shared');
                 if (!$schemaHead instanceof stdClass
                     || (int) $schemaHead->current_version !== $schema->version
                     || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
@@ -829,11 +845,21 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 if ((int) $head->current_revision !== $expected->revision) {
                     throw new StorageConflict('storage_record_revision_conflict');
                 }
-                $expectedVersion = $this->recordVersionInternal($expected, true);
-                if ($expectedVersion->ownerRef !== $ownerRef
-                    || $expectedVersion->schema->version !== (int) $head->current_schema_version
-                    || $expectedVersion->schema->version !== $schema->version
-                    || !hash_equals($expectedVersion->contentHash, (string) $head->current_hash)) {
+                // The stored hash of the expected version is compared with the head's; the
+                // version is not decoded and hashed again, so a write hashes once.
+                $expectedVersion = $this->database->table('larena_storage_record_versions')
+                    ->where('schema_id', $expected->schemaId)
+                    ->where('record_id', $expected->recordId)
+                    ->where('revision', $expected->revision)
+                    ->sharedLock()
+                    ->first(['owner_ref', 'schema_version', 'content_hash']);
+                if (!$expectedVersion instanceof stdClass) {
+                    throw new StorageRejected('storage_record_version_unknown');
+                }
+                if ((string) $expectedVersion->owner_ref !== $ownerRef
+                    || (int) $expectedVersion->schema_version !== (int) $head->current_schema_version
+                    || (int) $expectedVersion->schema_version !== $schema->version
+                    || !hash_equals((string) $expectedVersion->content_hash, (string) $head->current_hash)) {
                     throw new StorageRejected('storage_record_head_corrupt');
                 }
                 $normalizedValues = $this->normalizer->normalizeValues($schemaVersion, $values);
@@ -867,6 +893,15 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     $operation,
                     $actor,
                     $correlationId,
+                    $now,
+                );
+                $this->views?->recordWritten(
+                    $schemaVersion,
+                    $expected->recordId,
+                    $nextRevision,
+                    $normalizedValues,
+                    $contentHash,
+                    (string) $head->created_at,
                     $now,
                 );
                 $record = new StorageRecordVersion(

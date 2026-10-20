@@ -26,6 +26,7 @@ use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
@@ -42,6 +43,8 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
         private ActorOperationAuthorizer $authorizer,
         object $securityEvents,
         private StorageSchemaEvolutionOwnerPolicyRegistry $ownerPolicies,
+        // Rewrites the витрина rows of the migrated records in the apply transaction.
+        private ?StorageViewSync $views = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->compatibility = new OptionalFieldCompatibilityAnalyzer($this->normalizer);
@@ -237,7 +240,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                 $transactionScope,
                 $orchestrationCapability,
             );
-            return $this->database->transaction(function () use ($planRef, $expectedPlanHash, $actor, $correlationId): StorageSchemaMigrationResult {
+            $applied = $this->database->transaction(function () use ($planRef, $expectedPlanHash, $actor, $correlationId): StorageSchemaMigrationResult {
                 $plan = $this->loadVerifiedPlan($planRef, true);
                 if (!hash_equals($plan->planHash, $expectedPlanHash)) {
                     throw new StorageRejected('storage_schema_migration_plan_hash_mismatch');
@@ -340,6 +343,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                     $valuesJson = $this->normalizer->canonicalJson($normalized);
                     $versionRows[$expected->before->recordId] = [
                         'head' => $head,
+                        'values' => $normalized,
                         'values_json' => $valuesJson,
                         'content_hash' => hash('sha256', $valuesJson),
                     ];
@@ -364,6 +368,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                     'correlation_id' => $correlationId,
                     'created_at' => $now,
                 ]);
+                $view = $this->views?->beginApply($targetSchema);
 
                 $resultRecords = [];
                 $resultMaterial = [];
@@ -399,6 +404,14 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                         'correlation_id' => $correlationId,
                         'created_at' => $now,
                     ]);
+                    $view?->write(
+                        $expected->before->recordId,
+                        $nextRevision,
+                        $stored['content_hash'],
+                        $stored['values'],
+                        (string) $stored['head']->created_at,
+                        $now,
+                    );
                     $after = new StorageRecordVersionRef($expected->before->schemaId, $expected->before->recordId, $nextRevision);
                     $resultRecords[] = new StorageSchemaMigrationRecordResult($expected->ownerRef, $expected->before, $after, $stored['content_hash']);
                     $resultMaterial[] = [
@@ -464,6 +477,10 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                     $now,
                 );
             });
+            // Columns the target layout no longer writes are dropped once committed.
+            $this->views?->settle();
+
+            return $applied;
         } catch (StorageRejected $exception) {
             $this->emitRejected($actor, 'unknown', 0, $correlationId, $exception->reasonCode, $safePlanRef);
             throw $exception;

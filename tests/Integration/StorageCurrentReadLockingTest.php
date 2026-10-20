@@ -37,7 +37,7 @@ final class StorageCurrentReadRecordingConnection extends SQLiteConnection
     {
         $sql = (string) $query;
         $this->recordedSelects[] = $sql;
-        $executable = preg_replace('/\s+for update\s*$/i', '', $sql);
+        $executable = preg_replace('/\s+(?:for update|lock in share mode)\s*$/i', '', $sql);
         if (!is_string($executable)) {
             throw new RuntimeException('storage_locking_test_sql_rewrite_failed');
         }
@@ -107,6 +107,32 @@ function storageCurrentReadHasLockedSelect(array $statements, string $table): bo
 {
     foreach ($statements as $statement) {
         if (str_contains($statement, '`' . $table . '`')
+            && preg_match('/\sfor update\s*$/i', $statement) === 1) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/** @param list<string> $statements */
+function storageCurrentReadHasSharedSelect(array $statements, string $table): bool
+{
+    foreach ($statements as $statement) {
+        if (str_contains($statement, 'from `' . $table . '`')
+            && preg_match('/\slock in share mode\s*$/i', $statement) === 1) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/** @param list<string> $statements */
+function storageCurrentReadLocksForUpdate(array $statements, string $table): bool
+{
+    foreach ($statements as $statement) {
+        if (str_contains($statement, 'from `' . $table . '`')
             && preg_match('/\sfor update\s*$/i', $statement) === 1) {
             return true;
         }
@@ -247,12 +273,17 @@ try {
         'user:admin:1',
         'current-read-record-2',
     );
+    // Writers to one storage share the schema row (a schema apply takes it for update).
     storageCurrentReadExpect(
-        storageCurrentReadHasLockedSelect($connection->recordedSelects(), 'larena_storage_schemas'),
-        'record create did not lock the schema head',
+        storageCurrentReadHasSharedSelect($connection->recordedSelects(), 'larena_storage_schemas'),
+        'record create did not share-lock the schema head',
     );
     storageCurrentReadExpect(
-        storageCurrentReadHasLockedSelect($connection->recordedSelects(), 'larena_storage_schema_versions'),
+        !storageCurrentReadLocksForUpdate($connection->recordedSelects(), 'larena_storage_schemas'),
+        'record create took the schema head for update and serializes the storage',
+    );
+    storageCurrentReadExpect(
+        storageCurrentReadHasSharedSelect($connection->recordedSelects(), 'larena_storage_schema_versions'),
         'record create did not current-read the exact schema version',
     );
 
@@ -266,17 +297,26 @@ try {
         'current-read-update',
     );
     storageCurrentReadExpect($updated->version->ref->revision === 2, 'record CAS did not advance the revision');
+    // Only the record's own head is taken for update; the schema rows and the
+    // expected version are current reads under a shared lock.
+    storageCurrentReadExpect(
+        storageCurrentReadLocksForUpdate($connection->recordedSelects(), 'larena_storage_records'),
+        'record CAS did not lock the record head for update',
+    );
     foreach ([
         'larena_storage_schemas',
         'larena_storage_schema_versions',
-        'larena_storage_records',
         'larena_storage_record_versions',
-    ] as $lockedTable) {
+    ] as $sharedTable) {
         storageCurrentReadExpect(
-            storageCurrentReadHasLockedSelect($connection->recordedSelects(), $lockedTable),
-            'record CAS missed current-read table ' . $lockedTable,
+            storageCurrentReadHasSharedSelect($connection->recordedSelects(), $sharedTable),
+            'record CAS missed shared current-read table ' . $sharedTable,
         );
     }
+    storageCurrentReadExpect(
+        !storageCurrentReadLocksForUpdate($connection->recordedSelects(), 'larena_storage_schemas'),
+        'record CAS took the schema head for update and serializes the storage',
+    );
 
     $connection->clearRecordedSelects();
     $lockedProjection = $storage->projectPublicVersion($updated->version->ref, true);

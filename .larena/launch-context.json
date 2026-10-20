@@ -109,7 +109,16 @@
     "src/Benchmark/StorageBenchmarkAccess.php",
     "src/Console/Commands/StorageBenchCommand.php",
     "scripts/storage-bench.php",
-    "tests/Integration/StorageBenchCommandTest.php"
+    "tests/Integration/StorageBenchCommandTest.php",
+    "src/View/*",
+    "src/Console/Commands/StorageViewRebuildCommand.php",
+    "database/migrations/platform/2026_10_20_000001_create_larena_storage_views_table.php",
+    "tests/Unit/StorageViewLayoutTest.php",
+    "tests/Integration/StorageViewDdlTest.php",
+    "tests/Integration/StorageViewWritePathTest.php",
+    "tests/Integration/StorageViewMySqlTest.php",
+    "tests/Support/storage-view-fixture.php",
+    "tests/Integration/StorageCurrentReadLockingTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

@@ -115,6 +115,10 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionOwnerPolicyProviderOrderTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionConcurrencyTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageCurrentReadLockingTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageViewLayoutTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewDdlTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewWritePathTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageDatabaseTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageRecordListTest.php",
@@ -173,6 +177,7 @@
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-publication": "LARENA_STORAGE_PUBLICATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationMySqlRestartTest.php",
         "test:mysql-schema-evolution": "LARENA_STORAGE_SCHEMA_EVOLUTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
+        "test:mysql-view": "LARENA_STORAGE_VIEW_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewMySqlTest.php",
         "test:mysql-workbench-identity-migration": "LARENA_STORAGE_WORKBENCH_MIGRATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageWorkbenchIdentityMigrationAtomicityTest.php",
         "test:unit": [
             "@test"

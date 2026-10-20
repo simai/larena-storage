@@ -7,6 +7,7 @@ namespace Larena\Storage\Runtime;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Query\Builder;
 use InvalidArgumentException;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
@@ -31,6 +32,7 @@ use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
+use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
@@ -68,6 +70,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         'record' => ['eq', 'in'],
     ];
     private const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
+    private const LOCK_UPDATE = 'update';
+    private const LOCK_SHARED = 'shared';
 
     private SchemaDefinitionNormalizer $normalizer;
     private StorageSecurityEventSink $events;
@@ -82,6 +86,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         private StorageSchemaEvolutionOwnerPolicyRegistry $ownerPolicies,
         private string $cursorKey,
         ?StorageSecurityEventSink $events = null,
+        // Builds each structure's витрина and keeps its columns in step with the fields.
+        private ?StorageViewSync $views = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
@@ -103,15 +109,19 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->assertStructureId($normalized['structure_id']);
         $correlationId = $this->correlationId($correlationId);
         $storageSchemaId = ScopedStorageWorkbenchSchemaIdentity::derive($scopeRef, $normalized['structure_id']);
+        $definition = $this->schemaDefinition($storageSchemaId, $normalized['fields']);
+        // The витрина table is created before the transaction: MySQL cannot run DDL inside one.
+        $this->views?->prepareCreate($storageSchemaId, $definition['fields']);
 
         try {
-            return $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $actor, $correlationId): StorageWorkbenchStructure {
+            $created = $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $definition, $actor, $correlationId): StorageWorkbenchStructure {
                 $schema = $this->storage->registerSchemaVersion(
-                    $this->schemaDefinition($storageSchemaId, $normalized['fields']),
+                    $definition,
                     null,
                     $actor,
                     $correlationId,
                 );
+                $this->views?->structureCreated($schema);
                 $now = $this->timestamp();
                 $hash = $this->descriptorHash(
                     $normalized['structure_id'],
@@ -159,6 +169,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $correlationId,
                 );
             });
+            $this->views?->settle();
+
+            return $created;
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (QueryException $exception) {
@@ -189,9 +202,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw new StorageRejected('storage_workbench_structure_identity_changed');
         }
         $correlationId = $this->correlationId($correlationId);
+        $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], false);
 
         try {
-            return $this->database->transaction(function () use (
+            $updated = $this->database->transaction(function () use (
                 $scopeRef,
                 $structureId,
                 $expectedVersion,
@@ -199,14 +213,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             ): StorageWorkbenchStructure {
-                $head = $this->structureHead($scopeRef, $structureId, true);
+                $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
                     throw new StorageConflict('storage_workbench_structure_version_conflict');
                 }
                 if ($this->headArchivedAt($head) !== null) {
                     throw new StorageRejected('storage_workbench_structure_archived');
                 }
-                $current = $this->hydrateStructureVersion($head, true);
+                $current = $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
                 $currentSchema = $this->storage->schemaVersion($current->schema, true);
                 $candidateDefinition = $this->schemaDefinitionForUpdate($currentSchema, $normalized['fields']);
                 $schemaVersion = $current->schema->version;
@@ -289,6 +303,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $correlationId,
                 );
             });
+            $this->views?->settle();
+
+            return $updated;
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (QueryException $exception) {
@@ -325,9 +342,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw new StorageRejected('storage_workbench_structure_identity_changed');
         }
         $correlationId = $this->correlationId($correlationId);
+        $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], true);
 
         try {
-            return $this->database->transaction(function () use (
+            $migrated = $this->database->transaction(function () use (
                 $scopeRef,
                 $structureId,
                 $expectedVersion,
@@ -335,14 +353,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             ): StorageWorkbenchStructure {
-                $head = $this->structureHead($scopeRef, $structureId, true);
+                $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
                     throw new StorageConflict('storage_workbench_structure_version_conflict');
                 }
                 if ($this->headArchivedAt($head) !== null) {
                     throw new StorageRejected('storage_workbench_structure_archived');
                 }
-                $current = $this->hydrateStructureVersion($head, true);
+                $current = $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
                 $currentSchema = $this->storage->schemaVersion($current->schema, true);
                 $candidateDefinition = $this->schemaDefinition($current->schema->schemaId, $normalized['fields']);
                 $schemaVersion = $current->schema->version;
@@ -426,6 +444,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $correlationId,
                 );
             });
+            $this->views?->settle();
+
+            return $migrated;
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (QueryException $exception) {
@@ -483,7 +504,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->assertStructureId($structureId);
         $this->assertScope($actor, 'storage.workbench.record.create', $scopeRef, self::RECORD_RESOURCE);
         $this->assertUserValues($values);
-        $structure = $this->readStructureInternal($scopeRef, $structureId, false, true);
+        $structure = $this->readStructureInternal($scopeRef, $structureId, null, true);
         $this->assertRecordReferences($structure, $scopeRef, $values, null, $actor);
         $values[self::SCOPE_FIELD] = $scopeRef;
         $values[self::STATE_FIELD] = self::STATE_ACTIVE;
@@ -519,7 +540,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $actor,
             $correlationId,
         ): StorageWorkbenchRecord {
-            $structure = $this->readStructureInternal($scopeRef, $structureId, true, true);
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_SHARED, true);
             $current = $this->readRecordInternal($structure, $scopeRef, $recordId, $actor, true);
             if ($current->revision !== $expectedRevision) {
                 throw new StorageConflict('storage_workbench_record_revision_conflict');
@@ -567,7 +588,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $actor,
             $correlationId,
         ): StorageWorkbenchRecord {
-            $structure = $this->readStructureInternal($scopeRef, $structureId, true, true);
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_SHARED, true);
             $current = $this->readRecordInternal($structure, $scopeRef, $recordId, $actor, true);
             if ($current->revision !== $expectedRevision) {
                 throw new StorageConflict('storage_workbench_record_revision_conflict');
@@ -616,7 +637,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $actor,
             $correlationId,
         ): StorageWorkbenchRecord {
-            $structure = $this->readStructureInternal($scopeRef, $structureId, true, true);
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_SHARED, true);
             $current = $this->readRecordInternal($structure, $scopeRef, $recordId, $actor, true);
             if ($current->revision !== $expectedRevision) {
                 throw new StorageConflict('storage_workbench_record_revision_conflict');
@@ -669,7 +690,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $actor,
             $correlationId,
         ): array {
-            $structure = $this->readStructureInternal($scopeRef, $structureId, true, true);
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_SHARED, true);
             $preflight = [];
             foreach ($expectedRevisions as $recordId => $revision) {
                 $record = $this->readRecordInternal($structure, $scopeRef, $recordId, $actor, true);
@@ -720,10 +741,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
 
         try {
             return $this->database->transaction(function () use ($scopeRef, $structureId, $keep, $actor, $correlationId): StorageWorkbenchStructure {
-                $head = $this->structureHead($scopeRef, $structureId, true);
+                $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 // The same setting again changes nothing and says nothing.
                 if ((isset($head->history_keep) ? (int) $head->history_keep : null) === $keep) {
-                    return $this->hydrateStructureVersion($head, true);
+                    return $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
                 }
                 $this->database->table('larena_storage_workbench_structures')
                     ->where('scope_ref', $scopeRef)
@@ -741,7 +762,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     }
                 }
 
-                return $this->hydrateStructureVersion($this->structureHead($scopeRef, $structureId, true), true);
+                return $this->hydrateStructureVersion($this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE), self::LOCK_UPDATE);
             });
         } catch (StorageRejected|StorageConflict $exception) {
             throw $exception;
@@ -790,8 +811,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $correlationId = $this->correlationId($correlationId);
 
         try {
-            return $this->database->transaction(function () use ($scopeRef, $structureId, $expectedVersion, $actor, $correlationId): StorageWorkbenchPurgeReceipt {
-                $head = $this->structureHead($scopeRef, $structureId, true);
+            $receipt = $this->database->transaction(function () use ($scopeRef, $structureId, $expectedVersion, $actor, $correlationId): StorageWorkbenchPurgeReceipt {
+                $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
                     throw new StorageConflict('storage_workbench_structure_version_conflict');
                 }
@@ -836,6 +857,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 if ($deleted !== 1) {
                     throw new StorageConflict('storage_workbench_structure_version_conflict');
                 }
+                // The витрина goes with the structure; its tables are dropped after the commit.
+                $this->views?->structurePurged($schemaId);
                 $recordIds = array_map(static fn (StorageRecordVersionRef $ref): string => $ref->recordId, $refs);
                 $this->emitStructure('storage.workbench.structure.purged', $scopeRef, $structureId, $actor, $correlationId, [
                     'schema_id' => $schemaId,
@@ -855,6 +878,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $this->timestamp(),
                 );
             });
+            $this->views?->settle();
+
+            return $receipt;
         } catch (StorageRejected|StorageConflict $exception) {
             throw $exception;
         } catch (QueryException $exception) {
@@ -896,7 +922,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $correlationId,
         ): StorageWorkbenchPurgeReceipt {
             // An archived structure keeps accepting permanent deletion of its archived records.
-            $structure = $this->readStructureInternal($scopeRef, $structureId, true);
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_UPDATE);
             $refs = [];
             foreach ($expectedRevisions as $recordId => $revision) {
                 $record = $this->readRecordInternal($structure, $scopeRef, $recordId, $actor, true);
@@ -959,7 +985,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 if (!is_string($target) || preg_match('/\Arecord-[0-9a-f]{32}\z/D', $value) !== 1) {
                     throw new StorageRejected('storage_record_reference_target_unavailable');
                 }
-                $targetStructure = $this->readStructureInternal($scopeRef, $target, false, true);
+                $targetStructure = $this->readStructureInternal($scopeRef, $target, null, true);
                 $record = $this->readRecordInternal($targetStructure, $scopeRef, $value, $actor);
             } catch (StorageRejected) {
                 throw new StorageRejected('storage_record_reference_target_unavailable');
@@ -1052,7 +1078,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
 
         try {
             return $this->database->transaction(function () use ($scopeRef, $structureId, $expectedVersion, $actor, $correlationId, $archive): StorageWorkbenchStructure {
-                $head = $this->structureHead($scopeRef, $structureId, true);
+                $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
                     throw new StorageConflict('storage_workbench_structure_version_conflict');
                 }
@@ -1083,7 +1109,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     ['schema_id' => (string) $head->storage_schema_id, 'structure_version' => $expectedVersion],
                 );
 
-                return $this->hydrateStructureVersion($this->structureHead($scopeRef, $structureId, true), true);
+                return $this->hydrateStructureVersion($this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE), self::LOCK_UPDATE);
             });
         } catch (StorageRejected|StorageConflict $exception) {
             throw $exception;
@@ -1094,6 +1120,36 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw StoragePersistenceFailed::from($exception);
         } catch (Throwable $exception) {
             throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /**
+     * Before a structure change opens its transaction: the витрина gains the columns
+     * the changed fields need, so the change itself runs no DDL. Best effort; a
+     * change this cannot foresee is handled inside the transaction.
+     *
+     * @param list<array<string, mixed>> $fields
+     */
+    private function prepareViewChange(string $scopeRef, string $structureId, int $expectedVersion, array $fields, bool $migrate): void
+    {
+        if ($this->views === null) {
+            return;
+        }
+        try {
+            $head = $this->structureHead($scopeRef, $structureId, null);
+            if ((int) $head->current_version !== $expectedVersion || $this->headArchivedAt($head) !== null) {
+                return;
+            }
+            $current = $this->hydrateStructureVersion($head);
+            $currentSchema = $this->storage->schemaVersion($current->schema);
+            $candidate = $migrate
+                ? $this->schemaDefinition($current->schema->schemaId, $fields)
+                : $this->schemaDefinitionForUpdate($currentSchema, $fields);
+            if ($this->canonicalJson($candidate) === $this->canonicalJson($this->schemaDefinitionFromVersion($currentSchema))) {
+                return;
+            }
+            $this->views->prepareChange($current->schema->schemaId, $candidate['fields']);
+        } catch (Throwable) {
         }
     }
 
@@ -1515,19 +1571,20 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         ];
     }
 
+    /** @param self::LOCK_*|null $lock */
     private function readStructureInternal(
         string $scopeRef,
         string $structureId,
-        bool $forUpdate = false,
+        ?string $lock = null,
         bool $requireActive = false,
     ): StorageWorkbenchStructure {
         try {
-            $head = $this->structureHead($scopeRef, $structureId, $forUpdate);
+            $head = $this->structureHead($scopeRef, $structureId, $lock);
             if ($requireActive && $this->headArchivedAt($head) !== null) {
                 throw new StorageRejected('storage_workbench_structure_archived');
             }
 
-            return $this->hydrateStructureVersion($head, $forUpdate);
+            return $this->hydrateStructureVersion($head, $lock);
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -1535,14 +1592,18 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
     }
 
-    private function structureHead(string $scopeRef, string $structureId, bool $forUpdate): stdClass
+    /**
+     * Record writes read the structure with a shared lock, so they run side by side;
+     * structure changes take it for update and so wait for them.
+     *
+     * @param self::LOCK_*|null $lock
+     */
+    private function structureHead(string $scopeRef, string $structureId, ?string $lock): stdClass
     {
         $query = $this->database->table('larena_storage_workbench_structures')
             ->where('scope_ref', $scopeRef)
             ->where('structure_id', $structureId);
-        if ($forUpdate) {
-            $query->lockForUpdate();
-        }
+        $this->applyLock($query, $lock);
         $head = $query->first();
         if (!$head instanceof stdClass) {
             throw new StorageRejected('storage_workbench_structure_unknown');
@@ -1551,15 +1612,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         return $head;
     }
 
-    private function hydrateStructureVersion(stdClass $head, bool $forUpdate = false): StorageWorkbenchStructure
+    /** @param self::LOCK_*|null $lock */
+    private function hydrateStructureVersion(stdClass $head, ?string $lock = null): StorageWorkbenchStructure
     {
         $query = $this->database->table('larena_storage_workbench_structure_versions')
             ->where('scope_ref', (string) $head->scope_ref)
             ->where('structure_id', (string) $head->structure_id)
             ->where('version', (int) $head->current_version);
-        if ($forUpdate) {
-            $query->lockForUpdate();
-        }
+        $this->applyLock($query, $lock);
         $row = $query->first();
         if (!$row instanceof stdClass) {
             throw new StorageRejected('storage_workbench_structure_corrupt');
@@ -1591,10 +1651,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             || (int) $head->current_schema_version !== (int) $row->schema_version) {
             throw new StorageRejected('storage_workbench_structure_corrupt');
         }
+        // A schema version never changes once written; only a structure change locks it.
         $schema = $this->storage->schemaVersion(new StorageSchemaVersionRef(
             (string) $row->storage_schema_id,
             (int) $row->schema_version,
-        ), $forUpdate);
+        ), $lock === self::LOCK_UPDATE);
         if ($schema->ownerPackage !== 'larena/storage') {
             throw new StorageRejected('storage_workbench_structure_corrupt');
         }
@@ -1631,6 +1692,16 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         try {
             $this->storage->pruneHistory($structure->schema->schemaId, $recordIds, $structure->historyKeep, $actor, $correlationId);
         } catch (Throwable) {
+        }
+    }
+
+    /** @param self::LOCK_*|null $lock */
+    private function applyLock(Builder $query, ?string $lock): void
+    {
+        if ($lock === self::LOCK_UPDATE) {
+            $query->lockForUpdate();
+        } elseif ($lock === self::LOCK_SHARED) {
+            $query->sharedLock();
         }
     }
 
