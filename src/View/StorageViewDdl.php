@@ -8,8 +8,8 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 
 /**
- * DDL for a storage's витрина: its table, its side table for multi-values, typed
- * columns and their indexes. Every operation is idempotent, so a step that was
+ * DDL for a storage's витрина: its table, its side tables for multi-values and
+ * for the search text, typed columns and their indexes. Every operation is idempotent, so a step that was
  * interrupted is simply run again.
  */
 abstract class StorageViewDdl
@@ -63,6 +63,46 @@ abstract class StorageViewDdl
     /** @return list<string> Every витрина table in the database, side tables included. */
     abstract public function viewTables(): array;
 
+    /** Whether the search table carries a FULLTEXT index (MySQL and MariaDB). */
+    public function fulltext(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Creates the search table when it is missing: `(record_id, search_text)`, one row
+     * per record, and on MySQL the FULLTEXT index on `search_text`. It is a table of its
+     * own because InnoDB adds no column in place (neither INSTANT nor INPLACE) to a
+     * table that has a FULLTEXT index; the main table keeps its online column changes.
+     */
+    abstract public function ensureSearchTable(string $table): void;
+
+    /**
+     * Empties the search table before its text is refilled from scratch. On MySQL it
+     * is truncated, which also gives the FULLTEXT index a fresh start: InnoDB keeps
+     * the ids of changed and deleted rows until the index is optimized, and every
+     * search reads them. Writers that are in a transaction finish first.
+     */
+    abstract public function clearSearchTable(string $table): void;
+
+    /** Drops the field indexes of columns the layout no longer indexes. */
+    public function dropStaleIndexes(string $table, StorageViewLayout $layout): void
+    {
+        $this->assertTable($table);
+        $indexes = $this->indexes($table);
+        foreach ($layout->physical() as $column) {
+            if (!$column->indexed && $column->state !== StorageViewColumn::STATE_DROPPING
+                && in_array(self::fieldIndexName($table, (string) $column->column), $indexes, true)) {
+                $this->dropIndex($table, (string) $column->column);
+            }
+        }
+    }
+
+    public static function searchIndexName(string $table): string
+    {
+        return StorageViewNaming::index(StorageViewNaming::searchTable($table), 'search');
+    }
+
     public static function fieldIndexName(string $table, string $column): string
     {
         return StorageViewNaming::index($table, 'field:' . $column);
@@ -98,6 +138,9 @@ abstract class StorageViewDdl
             if ($column->indexed) {
                 $this->createIndex($table, $column);
             }
+        }
+        if ($layout->searchTable()) {
+            $this->ensureSearchTable($table);
         }
     }
 

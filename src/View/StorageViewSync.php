@@ -30,6 +30,8 @@ final class StorageViewSync
     private readonly StorageViewWriter $writer;
     /** @var array<string, true> Schemas whose DDL waits for the transaction to commit. */
     private array $deferred = [];
+    /** @var array<string, StorageViewFieldOptions> The options a structure change in progress brings, by schema. */
+    private array $intended = [];
 
     public function __construct(
         private readonly ConnectionInterface $database,
@@ -142,7 +144,7 @@ final class StorageViewSync
         }
         $registration = $this->registry->find($schemaId, true);
         if ($registration !== null && $registration->written()) {
-            $this->writer->delete($registration->tableName, $recordIds);
+            $this->writer->delete($registration->tableName, $recordIds, $registration->layout->searchTable());
         }
     }
 
@@ -152,7 +154,7 @@ final class StorageViewSync
      *
      * @param list<array<string, mixed>> $fields
      */
-    public function prepareCreate(string $schemaId, array $fields): void
+    public function prepareCreate(string $schemaId, array $fields, ?StorageViewFieldOptions $options = null): void
     {
         try {
             if (!$this->enabled() || !$this->canRunDdl() || $this->ddl === null
@@ -164,20 +166,35 @@ final class StorageViewSync
             // No registration names the table, so nothing writes it: a table left by an
             // earlier attempt that did not commit is replaced.
             $this->ddl->dropTables($table);
-            $this->ddl->ensureTable($table, $this->planner->plan($fields, 1)->promoted());
+            $this->ddl->ensureTable($table, $this->newLayout($fields, 1, $options));
         } catch (Throwable) {
         }
     }
 
+    /**
+     * The options a structure change brings, for the schema apply inside it (which
+     * knows the fields, not their options). The workbench names them before the
+     * change and forgets them after it.
+     */
+    public function intend(string $schemaId, ?StorageViewFieldOptions $options): void
+    {
+        if ($options === null) {
+            unset($this->intended[$schemaId]);
+
+            return;
+        }
+        $this->intended[$schemaId] = $options;
+    }
+
     /** In the transaction that created the structure's schema. */
-    public function structureCreated(StorageSchemaVersion $schema): void
+    public function structureCreated(StorageSchemaVersion $schema, ?StorageViewFieldOptions $options = null): void
     {
         if (!$this->enabled() || $this->ddl === null) {
             return;
         }
         $schemaId = $schema->ref->schemaId;
         $table = StorageViewNaming::table($schemaId);
-        $layout = $this->planner->plan($schema->fields, $schema->ref->version)->promoted();
+        $layout = $this->newLayout($schema->fields, $schema->ref->version, $options);
         $verifier = new StorageViewShapeVerifier($this->ddl);
         if (!$verifier->matches($table, $layout) && $this->canRunDdl()) {
             $this->ddl->dropTables($table);
@@ -198,9 +215,13 @@ final class StorageViewSync
      * fields need are added (and reserved in the layout, unwritten) so the change
      * itself needs no DDL. Best effort.
      *
+     * The same runs for a change of the fields' options alone: a string that becomes
+     * indexed gets its new column and index here, a VARCHAR that becomes indexed again
+     * gets its index.
+     *
      * @param list<array<string, mixed>> $targetFields
      */
-    public function prepareChange(string $schemaId, array $targetFields): void
+    public function prepareChange(string $schemaId, array $targetFields, ?StorageViewFieldOptions $options = null): void
     {
         try {
             if (!$this->enabled() || !$this->canRunDdl() || $this->ddl === null) {
@@ -210,22 +231,49 @@ final class StorageViewSync
             if ($registration === null || !$registration->written()) {
                 return;
             }
-            $target = $this->planner->plan($targetFields, $registration->layout->schemaVersion + 1, $registration->layout);
-            $reserved = $registration->layout->reserving($target);
-            if ($reserved->hash !== $registration->layout->hash
-                && !$this->replaceLayout($registration, $reserved)) {
-                return;
-            }
-            foreach ($reserved->inState(StorageViewColumn::STATE_ADDING) as $column) {
-                if ($column->column !== null) {
-                    $this->ddl->addColumn($registration->tableName, $column);
-                    if ($column->indexed) {
-                        $this->ddl->createIndex($registration->tableName, $column);
-                    }
-                }
-            }
+            $target = $this->planner->plan($targetFields, $registration->layout->schemaVersion + 1, $registration->layout, $options);
+            $this->reserve($registration, $target);
         } catch (Throwable) {
         }
+    }
+
+    /**
+     * Adds the columns and indexes a target layout needs to the table, reserving
+     * the new columns in the registered layout first (so a failed step is retried
+     * and an unused column is dropped). Outside a MySQL transaction.
+     */
+    private function reserve(StorageViewRegistration $registration, StorageViewLayout $target): bool
+    {
+        if ($this->ddl === null) {
+            return false;
+        }
+        $reserved = $registration->layout->reserving($target);
+        if ($reserved->hash !== $registration->layout->hash
+            && !$this->replaceLayout($registration, $reserved)) {
+            return false;
+        }
+        if ($target->searchTable()) {
+            // A table built before the search table gets it, empty; the backfill fills it.
+            $this->ddl->ensureSearchTable($registration->tableName);
+        }
+        foreach ($reserved->inState(StorageViewColumn::STATE_ADDING) as $column) {
+            if ($column->column !== null) {
+                $this->ddl->addColumn($registration->tableName, $column);
+                if ($column->indexed) {
+                    $this->ddl->createIndex($registration->tableName, $column);
+                }
+            }
+        }
+        foreach ($target->physical() as $column) {
+            // A kept column that becomes indexed (a string indexed again) gets its index now.
+            $before = $registration->layout->column((string) $column->column);
+            if ($column->indexed && $column->state !== StorageViewColumn::STATE_DROPPING
+                && $before !== null && !$before->indexed && $before->state !== StorageViewColumn::STATE_DROPPING) {
+                $this->ddl->createIndex($registration->tableName, $column);
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -245,17 +293,10 @@ final class StorageViewSync
         if ($registration === null || !$registration->written()) {
             return null;
         }
-        $layout = $this->planner->plan($target->fields, $target->ref->version, $registration->layout);
+        $layout = $this->planner->plan($target->fields, $target->ref->version, $registration->layout, $this->intended[$schemaId] ?? null);
         $verifier = new StorageViewShapeVerifier($this->ddl);
         if (!$verifier->matches($registration->tableName, $layout) && $this->canRunDdl()) {
-            foreach ($layout->physical() as $column) {
-                if ($column->state !== StorageViewColumn::STATE_DROPPING) {
-                    $this->ddl->addColumn($registration->tableName, $column);
-                    if ($column->indexed) {
-                        $this->ddl->createIndex($registration->tableName, $column);
-                    }
-                }
-            }
+            $this->ddl->materialize($registration->tableName, $layout->withoutDropped());
         }
         if (!$verifier->matches($registration->tableName, $layout)) {
             $this->registry->put($registration->withLayout($layout)->withState(StorageViewRegistration::STATE_PENDING));
@@ -263,11 +304,13 @@ final class StorageViewSync
 
             return null;
         }
+        // Every record is rewritten here, so every column and the search text are filled
+        // with it: a backfill under way has nothing left to do (a build goes on).
         $promoted = $layout->promoted();
         $next = $registration->withLayout($promoted);
         if ($registration->state === StorageViewRegistration::STATE_READY) {
             // Every record is rewritten in this transaction, so the витрина stays in sync.
-            $next = $next->withBuiltVersion($target->ref->version);
+            $next = $next->withState(StorageViewRegistration::STATE_READY, $target->ref->version);
         }
         $this->registry->put($next);
         if ($promoted->inState(StorageViewColumn::STATE_DROPPING) !== []) {
@@ -275,6 +318,146 @@ final class StorageViewSync
         }
 
         return new StorageViewApply($this->projector, $this->writer, $registration->tableName, $promoted, self::hasMulti($promoted));
+    }
+
+    /**
+     * In the transaction of a structure change, after its schema version (if any)
+     * is in place: the витрина takes the fields' options. Nothing is rewritten.
+     * New columns (prepared before the transaction) become backfilling and the
+     * search text of a changed set of search fields is marked for refilling; the
+     * rows written before are filled by the rebuild, and the old columns are dropped
+     * once the new ones are filled. Returns true when the витрина needs that
+     * rebuild (a backfill, or a build when the columns could not be added).
+     */
+    public function applyOptions(StorageSchemaVersion $schema, StorageViewFieldOptions $options): bool
+    {
+        if (!$this->enabled() || $this->ddl === null) {
+            return false;
+        }
+        $schemaId = $schema->ref->schemaId;
+        $registration = $this->registry->findForUpdate($schemaId);
+        if ($registration === null || !$registration->written() || $registration->layout->schemaVersion !== $schema->ref->version) {
+            return false;
+        }
+        $target = $this->planner->plan($schema->fields, $schema->ref->version, $registration->layout, $options);
+        // Columns reserved before the transaction are part of the layout already: the change is
+        // whether they are written now.
+        if ($target->backfilling()->hash === $registration->layout->hash) {
+            return false;
+        }
+        $verifier = new StorageViewShapeVerifier($this->ddl);
+        if (!$verifier->matches($registration->tableName, $target) && $this->canRunDdl()) {
+            $this->ddl->materialize($registration->tableName, $target->withoutDropped());
+        }
+        if (!$verifier->matches($registration->tableName, $target)) {
+            // The columns could not be added now: nothing writes the витрина until it is rebuilt.
+            $this->registry->put($registration->withLayout($target)->withState(StorageViewRegistration::STATE_PENDING));
+            $this->defer($schemaId);
+
+            return true;
+        }
+        $this->registry->put($this->backfillFrom($registration, $target));
+        $this->defer($schemaId);
+
+        return $target->backfilling()->needsBackfill();
+    }
+
+    /**
+     * Outside a transaction (the rebuild): brings a ready витрина to the options
+     * its structure declares now, with the DDL first, as a structure change does.
+     * Returns the registration to backfill, or null when it could not be reshaped.
+     *
+     * @param list<array<string, mixed>> $fields The current schema version's fields.
+     */
+    public function reshape(StorageViewRegistration $registration, array $fields, ?StorageViewFieldOptions $options): ?StorageViewRegistration
+    {
+        if (!$this->enabled() || $this->ddl === null || $this->database->transactionLevel() > 0) {
+            return null;
+        }
+        $target = $this->planner->plan($fields, $registration->layout->schemaVersion, $registration->layout, $options);
+        if ($target->backfilling()->hash === $registration->layout->hash) {
+            return $registration;
+        }
+        if (!$this->reserve($registration, $target)) {
+            return null;
+        }
+        $verifier = new StorageViewShapeVerifier($this->ddl);
+        $reshaped = $this->database->transaction(function () use ($registration, $fields, $options, $verifier): ?StorageViewRegistration {
+            $current = $this->registry->findForUpdate($registration->schemaId);
+            if ($current === null || $current->state !== StorageViewRegistration::STATE_READY
+                || $current->layout->schemaVersion !== $registration->layout->schemaVersion) {
+                return null;
+            }
+            $target = $this->planner->plan($fields, $current->layout->schemaVersion, $current->layout, $options);
+            if (!$verifier->matches($current->tableName, $target)) {
+                return null;
+            }
+            $next = $this->backfillFrom($current, $target);
+            $this->registry->put($next);
+
+            return $next;
+        });
+        $this->settleSchema($registration->schemaId);
+
+        return $reshaped instanceof StorageViewRegistration ? $this->registry->find($registration->schemaId, true) : null;
+    }
+
+    /**
+     * Once a build or a backfill reached the last row: the витрина is ready, every
+     * column and the search text are complete, and the columns they replace go
+     * (dropped by settleSchema).
+     */
+    public static function completed(StorageViewRegistration $registration): StorageViewRegistration
+    {
+        return $registration->withLayout($registration->layout->promoted())
+            ->withState(StorageViewRegistration::STATE_READY, $registration->layout->schemaVersion);
+    }
+
+    /**
+     * Marks a ready витрина's search text for refilling: the next rebuild (or job)
+     * empties the search table and fills it again, in place. On MySQL that gives the
+     * FULLTEXT index a fresh start after heavy editing. False when there is nothing
+     * to refill (no ready витрина with a search table).
+     */
+    public function refreshSearch(string $schemaId): bool
+    {
+        if (!$this->enabled() || $this->database->transactionLevel() > 0) {
+            return false;
+        }
+        $registration = $this->registry->find($schemaId, true);
+        if ($registration === null || $registration->state !== StorageViewRegistration::STATE_READY
+            || !$registration->layout->searchTable() || $registration->layout->searchState === StorageViewLayout::SEARCH_BACKFILLING) {
+            return false;
+        }
+        $layout = $registration->layout->withSearch($registration->layout->searchFields, StorageViewLayout::SEARCH_BACKFILLING);
+
+        return (bool) $this->database->transaction(function () use ($registration, $layout): bool {
+            $current = $this->registry->findForUpdate($registration->schemaId);
+            if ($current === null || $current->state !== StorageViewRegistration::STATE_READY || $current->layout->hash !== $registration->layout->hash) {
+                return false;
+            }
+            // The walk starts from the first record.
+            $this->registry->put($current->withLayout($layout)->withState(StorageViewRegistration::STATE_READY, $current->builtSchemaVersion));
+
+            return true;
+        });
+    }
+
+    /** The registration with the target layout, its new columns written from now on and its walk restarted. */
+    private function backfillFrom(StorageViewRegistration $registration, StorageViewLayout $target): StorageViewRegistration
+    {
+        // A walk under way did not fill the new columns of the rows behind it: it starts again.
+        return $registration->withLayout($target->backfilling())->withState($registration->state, $registration->builtSchemaVersion);
+    }
+
+    /**
+     * The layout of a new, empty table: everything is filled (there is no row).
+     *
+     * @param list<array<string, mixed>> $fields
+     */
+    private function newLayout(array $fields, int $schemaVersion, ?StorageViewFieldOptions $options): StorageViewLayout
+    {
+        return $this->planner->plan($fields, $schemaVersion, null, $options)->promoted();
     }
 
     /** In the transaction that purges a structure: its витрина goes with it. */
@@ -329,6 +512,7 @@ final class StorageViewSync
 
                 return;
             }
+            $this->ddl->dropStaleIndexes($registration->tableName, $registration->layout);
             $dropping = $registration->layout->inState(StorageViewColumn::STATE_DROPPING);
             if ($dropping === []) {
                 return;

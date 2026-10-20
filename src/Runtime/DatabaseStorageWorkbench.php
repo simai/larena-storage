@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Runtime;
 
+use Closure;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
@@ -35,10 +36,12 @@ use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 use Larena\Storage\View\StorageViewColumn;
 use Larena\Storage\View\StorageViewCounter;
+use Larena\Storage\View\StorageViewFieldOptions;
 use Larena\Storage\View\StorageViewKeyset;
 use Larena\Storage\View\StorageViewQuery;
 use Larena\Storage\View\StorageViewQueryCompiler;
 use Larena\Storage\View\StorageViewRegistration;
+use Larena\Storage\View\StorageViewSearch;
 use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
@@ -104,6 +107,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         ?StorageViewCounter $counter = null,
         // Times record lists for larena/monitoring when it is installed; a no-op otherwise.
         ?StorageMetrics $metrics = null,
+        // Queues the витрина rebuild a change of field options needs (storage.view.rebuild).
+        private ?Closure $viewBuilds = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
@@ -130,17 +135,18 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $storageSchemaId = ScopedStorageWorkbenchSchemaIdentity::derive($scopeRef, $normalized['structure_id']);
         $definition = $this->schemaDefinition($storageSchemaId, $normalized['fields']);
         // The витрина table is created before the transaction: MySQL cannot run DDL inside one.
-        $this->views?->prepareCreate($storageSchemaId, $definition['fields']);
+        $options = StorageViewFieldOptions::resolve($normalized['fields']);
+        $this->views?->prepareCreate($storageSchemaId, $definition['fields'], $options);
 
         try {
-            $created = $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $definition, $actor, $correlationId): StorageWorkbenchStructure {
+            $created = $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $definition, $actor, $correlationId, $options): StorageWorkbenchStructure {
                 $schema = $this->storage->registerSchemaVersion(
                     $definition,
                     null,
                     $actor,
                     $correlationId,
                 );
-                $this->views?->structureCreated($schema);
+                $this->views?->structureCreated($schema, $options);
                 $now = $this->timestamp();
                 $hash = $this->descriptorHash(
                     $normalized['structure_id'],
@@ -224,6 +230,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], false);
 
         try {
+            $viewBuild = false;
             $updated = $this->database->transaction(function () use (
                 $scopeRef,
                 $structureId,
@@ -231,6 +238,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $normalized,
                 $actor,
                 $correlationId,
+                &$viewBuild,
             ): StorageWorkbenchStructure {
                 $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
@@ -243,10 +251,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $currentSchema = $this->storage->schemaVersion($current->schema, true);
                 $candidateDefinition = $this->schemaDefinitionForUpdate($currentSchema, $normalized['fields']);
                 $schemaVersion = $current->schema->version;
+                $targetSchema = $currentSchema;
+                $options = StorageViewFieldOptions::resolve($normalized['fields']);
                 if ($this->canonicalJson($candidateDefinition) !== $this->canonicalJson(
                     $this->schemaDefinitionFromVersion($currentSchema),
                 )) {
-                    $result = $this->ownerPolicies->withinTransaction(
+                    // The schema apply plans the витрина of the target version with the fields' new options.
+                    $result = $this->withViewIntent($current->schema->schemaId, $options, fn () => $this->ownerPolicies->withinTransaction(
                         $this->database,
                         function ($transactionScope) use ($current, $candidateDefinition, $actor, $correlationId) {
                             $plan = $this->schemaEvolution->plan(
@@ -267,9 +278,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                                 $this,
                             );
                         },
-                    );
+                    ));
                     $schemaVersion = $result->target->version;
+                    $targetSchema = $this->storage->schemaVersion($result->target, true);
                 }
+                // Options alone change the витрина, never a record version.
+                $viewBuild = $this->views?->applyOptions($targetSchema, $options) ?? false;
 
                 $nextVersion = $expectedVersion + 1;
                 $now = $this->timestamp();
@@ -323,6 +337,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 );
             });
             $this->views?->settle();
+            if ($viewBuild) {
+                $this->requestViewBuild($updated->schema->schemaId);
+            }
 
             return $updated;
         } catch (StorageRejected $exception) {
@@ -364,6 +381,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], true);
 
         try {
+            $viewBuild = false;
             $migrated = $this->database->transaction(function () use (
                 $scopeRef,
                 $structureId,
@@ -371,6 +389,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $normalized,
                 $actor,
                 $correlationId,
+                &$viewBuild,
             ): StorageWorkbenchStructure {
                 $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
@@ -383,10 +402,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $currentSchema = $this->storage->schemaVersion($current->schema, true);
                 $candidateDefinition = $this->schemaDefinition($current->schema->schemaId, $normalized['fields']);
                 $schemaVersion = $current->schema->version;
+                $targetSchema = $currentSchema;
+                $options = StorageViewFieldOptions::resolve($normalized['fields']);
                 if ($this->canonicalJson($candidateDefinition) !== $this->canonicalJson(
                     $this->schemaDefinitionFromVersion($currentSchema),
                 )) {
-                    $result = $this->ownerPolicies->withinTransaction(
+                    // The schema apply plans the витрина of the target version with the fields' new options.
+                    $result = $this->withViewIntent($current->schema->schemaId, $options, fn () => $this->ownerPolicies->withinTransaction(
                         $this->database,
                         function ($transactionScope) use ($current, $candidateDefinition, $actor, $correlationId) {
                             $plan = $this->schemaEvolution->plan(
@@ -408,9 +430,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                                 $this,
                             );
                         },
-                    );
+                    ));
                     $schemaVersion = $result->target->version;
+                    $targetSchema = $this->storage->schemaVersion($result->target, true);
                 }
+                // Options alone change the витрина, never a record version.
+                $viewBuild = $this->views?->applyOptions($targetSchema, $options) ?? false;
 
                 $nextVersion = $expectedVersion + 1;
                 $now = $this->timestamp();
@@ -464,6 +489,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 );
             });
             $this->views?->settle();
+            if ($viewBuild) {
+                $this->requestViewBuild($migrated->schema->schemaId);
+            }
 
             return $migrated;
         } catch (StorageRejected $exception) {
@@ -1173,10 +1201,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $candidate = $migrate
                 ? $this->schemaDefinition($current->schema->schemaId, $fields)
                 : $this->schemaDefinitionForUpdate($currentSchema, $fields);
-            if ($this->canonicalJson($candidate) === $this->canonicalJson($this->schemaDefinitionFromVersion($currentSchema))) {
-                return;
-            }
-            $this->views->prepareChange($current->schema->schemaId, $candidate['fields']);
+            // Also when nothing changes: a витрина built before the search table gets it here, outside
+            // the transaction, and takes the options in it.
+            $this->views->prepareChange($current->schema->schemaId, $candidate['fields'], StorageViewFieldOptions::resolve($fields));
         } catch (Throwable) {
         }
     }
@@ -1391,8 +1418,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 return new StorageWorkbenchRecordPage($items, $continuation, $passed, true);
             }
             $count = $this->counter->count($compiled, $query->countMode);
+            // An estimate is never below the rows the list has already shown.
+            $matched = $count['exact'] ? $count['count'] : max($count['count'], $passed + ($more ? 1 : 0));
 
-            return new StorageWorkbenchRecordPage($items, $continuation, $count['count'], $count['exact']);
+            return new StorageWorkbenchRecordPage($items, $continuation, $matched, $count['exact']);
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -1612,6 +1641,40 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         return $decision;
     }
 
+    /**
+     * Runs a schema apply with the fields' витрина options known to the витрина sync.
+     *
+     * @template T
+     * @param Closure(): T $apply
+     * @return T
+     */
+    private function withViewIntent(string $schemaId, StorageViewFieldOptions $options, Closure $apply): mixed
+    {
+        $this->views?->intend($schemaId, $options);
+        try {
+            return $apply();
+        } finally {
+            $this->views?->intend($schemaId, null);
+        }
+    }
+
+    /**
+     * After a structure change that left rows of its витрина to fill: queues the
+     * rebuild that fills them. Best effort; without a queue the витрина stays as it
+     * is (lists keep reading it, a search goes to the PHP list) until
+     * `larena:storage:view:rebuild` runs.
+     */
+    private function requestViewBuild(string $schemaId): void
+    {
+        if ($this->viewBuilds === null) {
+            return;
+        }
+        try {
+            ($this->viewBuilds)($schemaId);
+        } catch (Throwable) {
+        }
+    }
+
     /** @param array<string, mixed> $descriptor
      * @return array{structure_id: string, label: string, fields: list<array<string, mixed>>}
      */
@@ -1642,7 +1705,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             // installed base means today.
             // `hidden` is optional in the same way: a field that says nothing is shown.
             // Hiding is presentation only; the field and its values stay.
-            $optional = array_values(array_intersect($fieldKeys, ['hidden', 'localized']));
+            // `searchable` and `indexed` are the field's витрина options (StorageViewFieldOptions),
+            // optional in the same way: a field that says nothing has the defaults.
+            $optional = array_values(array_intersect($fieldKeys, ['hidden', 'indexed', 'localized', 'searchable']));
             $expected = array_merge(['constraints', 'key', 'label', 'position', 'required', 'type', 'type_version', 'visibility'], $optional);
             sort($expected, SORT_STRING);
             if ($fieldKeys !== $expected) {
@@ -1651,7 +1716,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
 
             foreach ($optional as $flag) {
                 if (!is_bool($field[$flag])) {
-                    throw new StorageRejected('storage_workbench_structure_field_invalid');
+                    throw new StorageRejected(in_array($flag, StorageViewFieldOptions::KEYS, true)
+                        ? StorageViewFieldOptions::REASON_OPTION_INVALID
+                        : 'storage_workbench_structure_field_invalid');
                 }
             }
             $key = is_string($field['key'] ?? null) ? trim($field['key']) : '';
@@ -1677,7 +1744,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 'visibility' => $field['visibility'] ?? null,
                 'constraints' => $field['constraints'] ?? null,
                 'localized' => $field['localized'] ?? false,
-            ] + (($field['hidden'] ?? false) === true ? ['hidden' => true] : []);
+            ] + (($field['hidden'] ?? false) === true ? ['hidden' => true] : [])
+                // The витрина options are kept as given (true or false) and only when given.
+                + array_intersect_key($field, array_flip(StorageViewFieldOptions::KEYS));
         }
         usort($normalized, static fn (array $left, array $right): int => [$left['position'], $left['key']] <=> [$right['position'], $right['key']]);
         // The localized flag also goes into the storage schema, where the localized
@@ -1710,6 +1779,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             }
         }
         unset($field);
+        StorageViewFieldOptions::validate($normalized);
 
         return ['structure_id' => $structureId, 'label' => $label, 'fields' => $normalized];
     }
@@ -2139,18 +2209,16 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         if ($query['search'] === null) {
             return true;
         }
-        $needle = $this->lower($query['search']);
-        foreach ($structure->fields as $field) {
-            if (!in_array($field['type'] ?? null, ['string', 'text'], true)) {
-                continue;
-            }
-            $value = $record->values[(string) $field['key']] ?? null;
-            if (is_string($value) && str_contains($this->lower($value), $needle)) {
-                return true;
+        // Every term at the start of a word of the searchable fields (StorageViewSearch), as the витрина searches.
+        $texts = [];
+        foreach (StorageViewFieldOptions::resolve($structure->fields)->searchable as $key) {
+            $value = $record->values[$key] ?? null;
+            if (is_string($value)) {
+                $texts[] = $value;
             }
         }
 
-        return false;
+        return StorageViewSearch::matches(StorageViewSearch::text($texts), StorageViewSearch::terms($query['search']));
     }
 
     /**

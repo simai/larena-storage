@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\View\StorageViewColumn;
+use Larena\Storage\View\StorageViewFieldOptions;
 use Larena\Storage\View\StorageViewLayout;
 use Larena\Storage\View\StorageViewLayoutPlanner;
 use Larena\Storage\View\StorageViewNaming;
@@ -71,7 +72,7 @@ $fields = [
     viewField('doc', 'file'),
     viewField('related', 'relation'),
 ];
-$layout = $planner->plan($fields, 1, null, ['code']);
+$layout = $planner->plan($fields, 1, null, new StorageViewFieldOptions(['title'], ['code']));
 $byKey = [];
 foreach ($layout->columns as $column) {
     $byKey[$column->fieldKey] = $column;
@@ -79,7 +80,7 @@ foreach ($layout->columns as $column) {
 viewLayoutExpect(!isset($byKey['larena_scope_ref']) && !isset($byKey['larena_record_state']), 'system fields got field columns');
 $expected = [
     'title' => [StorageViewColumn::SQL_TEXT, false],
-    'code' => [StorageViewColumn::SQL_VARCHAR, true],
+    'code' => [StorageViewColumn::varchar(40), true],
     'body' => [StorageViewColumn::SQL_TEXT, false],
     'qty' => [StorageViewColumn::SQL_BIGINT, true],
     'price' => [StorageViewColumn::SQL_DECIMAL, true],
@@ -146,15 +147,18 @@ viewLayoutExpect($capped->columns[39]->indexed && !$capped->columns[40]->indexed
 
 // Row budget: indexed strings beyond MySQL's 65 535-byte row turn into long text.
 $strings = [];
-for ($i = 1; $i <= 80; $i++) {
+for ($i = 1; $i <= 40; $i++) {
     $strings[] = viewField('s' . $i, 'string', ['max_length' => 255]);
 }
-$budgeted = $planner->plan($strings, 1, null, array_map(static fn (array $f): string => $f['key'], $strings));
+for ($i = 1; $i <= 100; $i++) {
+    $strings[] = viewField('f' . $i, 'file');
+}
+$budgeted = $planner->plan($strings, 1, null, new StorageViewFieldOptions([], array_map(static fn (array $f): string => $f['key'], array_slice($strings, 0, 40))));
 $varchars = array_filter($budgeted->columns, static fn ($c) => $c->sqlType === StorageViewColumn::SQL_VARCHAR);
 viewLayoutExpect(StorageViewLayoutPlanner::rowBytes($budgeted->columns) <= StorageViewLayoutPlanner::ROW_BYTES_LIMIT, 'the row budget is exceeded');
-viewLayoutExpect(count($varchars) > 40 && count($varchars) < 80, 'the budget did not demote only the newest strings');
-$budgetedColumns = $budgeted->columns;
-viewLayoutExpect($budgetedColumns[count($budgetedColumns) - 1]->sqlType === StorageViewColumn::SQL_TEXT && $budgeted->columns[0]->sqlType === StorageViewColumn::SQL_VARCHAR, 'the wrong strings were demoted');
+viewLayoutExpect(count($varchars) > 30 && count($varchars) < 40, 'the budget did not demote only the newest strings');
+viewLayoutExpect($budgeted->columns[39]->sqlType === StorageViewColumn::SQL_TEXT && !$budgeted->columns[39]->indexed
+    && $budgeted->columns[0]->sqlType === StorageViewColumn::SQL_VARCHAR && $budgeted->columns[0]->indexed, 'the wrong strings were demoted');
 viewLayoutExpect(StorageViewLayoutPlanner::rowBytes($planner->plan($fields, 1)->columns) < 8000, 'a typical layout counts too many bytes');
 
 // Projection.
@@ -177,7 +181,7 @@ $projected = $projector->project($ready, 'record-' . str_repeat('a', 32), 3, 1, 
 $row = $projected['row'];
 viewLayoutExpect($row['scope_ref'] === 'scope:alpha' && $row['state'] === 'active' && $row['revision'] === 3, 'system columns are wrong');
 viewLayoutExpect($row['title'] === 'Красный Стол', 'the title field was not picked');
-viewLayoutExpect($row['search_text'] === "красный стол\x1Ft-1\x1Fline one\nline two", 'search text is not the lowercased strings joined by \\x1F');
+viewLayoutExpect($row['search_text'] === null && $projected['search'] === ['record_id' => 'record-' . str_repeat('a', 32), 'search_text' => ' красный стол'], 'the search row is not the text of the layout search fields');
 viewLayoutExpect($row['c4'] === 7 && $row['c5'] === '12.50' && $row['c7'] === '2026-10-20 08:30:00' && $row['c8'] === 0, 'typed values are wrong');
 viewLayoutExpect($row['c11'] === null && array_key_exists('c13', $row), 'a missing value is not null');
 viewLayoutExpect(array_map(static fn (array $m): string => $m['field_key'] . '=' . $m['value'], $projected['multi']) === ['tags=a', 'tags=b'], 'side rows are wrong');

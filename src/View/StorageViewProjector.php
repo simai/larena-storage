@@ -15,7 +15,7 @@ final readonly class StorageViewProjector
 {
     public const SCOPE_FIELD = 'larena_scope_ref';
     public const STATE_FIELD = 'larena_record_state';
-    public const SEARCH_SEPARATOR = "\x1F";
+    public const SEARCH_SEPARATOR = StorageViewSearch::FIELD_SEPARATOR;
     // DECIMAL(65,30): 35 digits before the point, 30 after.
     private const DECIMAL_INTEGER_DIGITS = 35;
     private const DECIMAL_FRACTION_DIGITS = 30;
@@ -23,8 +23,12 @@ final readonly class StorageViewProjector
     private const TITLE_LENGTH = 255;
 
     /**
+     * The row, the side rows of multi-values and the search row. A layout with search
+     * fields writes the search text to the search table and leaves the main table's
+     * `search_text` empty; one stored before them keeps writing it there.
+     *
      * @param array<string, mixed> $values
-     * @return array{row: array<string, mixed>, multi: list<array{record_id: string, field_key: string, value: string}>}
+     * @return array{row: array<string, mixed>, multi: list<array{record_id: string, field_key: string, value: string}>, search: array{record_id: string, search_text: ?string}|null}
      */
     public function project(
         StorageViewLayout $layout,
@@ -48,8 +52,14 @@ final readonly class StorageViewProjector
             'scope_ref' => is_string($scope) ? $scope : null,
             'state' => is_string($state) ? $state : null,
             'title' => $this->title($layout, $values),
-            'search_text' => $this->searchText($layout, $values),
+            'search_text' => null,
         ];
+        $search = null;
+        if ($layout->searchTable()) {
+            $search = ['record_id' => $recordId, 'search_text' => $this->searchText($layout, $values)];
+        } else {
+            $row['search_text'] = $this->searchText($layout, $values);
+        }
         $multi = [];
         foreach ($layout->written() as $column) {
             $value = $values[$column->fieldKey] ?? null;
@@ -62,7 +72,7 @@ final readonly class StorageViewProjector
             $row[$column->column] = $this->columnValue($column, $value);
         }
 
-        return ['row' => $row, 'multi' => $multi];
+        return ['row' => $row, 'multi' => $multi, 'search' => $search];
     }
 
     /** @param array<string, mixed> $values */
@@ -90,18 +100,33 @@ final readonly class StorageViewProjector
         return function_exists('mb_substr') ? mb_substr($value, 0, self::TITLE_LENGTH, 'UTF-8') : substr($value, 0, self::TITLE_LENGTH);
     }
 
-    /** Lowercased string and text values, joined by the unit separator. @param array<string, mixed> $values */
+    /**
+     * The search text (StorageViewSearch::text) of the layout's search fields, in
+     * key order. A layout stored before the search fields existed takes every string
+     * and text column.
+     *
+     * @param array<string, mixed> $values
+     */
     public function searchText(StorageViewLayout $layout, array $values): ?string
     {
-        $parts = [];
-        foreach ($layout->written() as $column) {
-            $value = $values[$column->fieldKey] ?? null;
-            if (in_array($column->kind, ['string', 'text'], true) && is_string($value) && $value !== '') {
-                $parts[] = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+        $keys = $layout->searchFields;
+        if ($keys === null) {
+            $keys = [];
+            foreach ($layout->written() as $column) {
+                if (in_array($column->kind, ['string', 'text'], true) && !in_array($column->fieldKey, $keys, true)) {
+                    $keys[] = $column->fieldKey;
+                }
+            }
+        }
+        $texts = [];
+        foreach ($keys as $key) {
+            $value = $values[$key] ?? null;
+            if (is_string($value)) {
+                $texts[] = $value;
             }
         }
 
-        return $parts === [] ? null : implode(self::SEARCH_SEPARATOR, $parts);
+        return StorageViewSearch::text($texts);
     }
 
     private function columnValue(StorageViewColumn $column, mixed $value): mixed
@@ -117,8 +142,12 @@ final readonly class StorageViewProjector
             // Property datetimes are YYYY-MM-DDTHH:MM:SS; the column takes a space.
             StorageViewColumn::SQL_DATETIME => is_string($value) ? str_replace('T', ' ', $value) : throw new StorageRejected('storage_view_value_invalid'),
             StorageViewColumn::SQL_TINYINT => is_bool($value) ? ($value ? 1 : 0) : throw new StorageRejected('storage_view_value_invalid'),
-            StorageViewColumn::SQL_REF, StorageViewColumn::SQL_USER_REF, StorageViewColumn::SQL_VARCHAR => $this->bounded($column, $value),
-            default => is_string($value) ? $value : json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            StorageViewColumn::SQL_REF, StorageViewColumn::SQL_USER_REF => $this->bounded($column, $value),
+            default => match (true) {
+                $column->isVarchar() => $this->bounded($column, $value),
+                is_string($value) => $value,
+                default => json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            },
         };
     }
 
@@ -143,7 +172,7 @@ final readonly class StorageViewProjector
         $limit = match ($column->sqlType) {
             StorageViewColumn::SQL_REF => 64,
             StorageViewColumn::SQL_USER_REF => 96,
-            default => 255,
+            default => StorageViewColumn::varcharLength($column->sqlType) ?? StorageViewColumn::VARCHAR_MAX,
         };
         $length = function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
         if ($length > $limit) {

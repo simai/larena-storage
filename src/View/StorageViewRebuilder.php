@@ -22,6 +22,14 @@ use stdClass;
  * витрина is ready. Between chunks the caller's checkpoint runs (the queue job's
  * cancel and timeout check); whatever it throws stops the build after a committed
  * chunk, and the next build resumes from there.
+ *
+ * A ready витрина whose rows lack something a change of the fields' options
+ * brought (a new column of a string that became indexed, the search text of a
+ * changed set of search fields, the search table of a table built before it)
+ * is not rebuilt but backfilled: it stays ready and keeps answering lists (from
+ * the old column, and the PHP list for a search meanwhile), the walk rewrites its
+ * rows in chunks the same way, resumable, and at the end the new columns become
+ * ready and the ones they replace are dropped.
  */
 final readonly class StorageViewRebuilder
 {
@@ -60,31 +68,67 @@ final readonly class StorageViewRebuilder
             throw new StorageRejected('storage_view_rebuild_in_transaction');
         }
         [$version, $fields] = $this->currentSchema($database, $schemaId);
-        $registration = $registry->find($schemaId, true);
-        $resumed = !$restart
-            && $registration !== null
-            && $registration->state === StorageViewRegistration::STATE_BUILDING
-            && $registration->layout->schemaVersion === $version
-            && $registration->layout->inState(StorageViewColumn::STATE_ADDING) === []
-            && $registration->layout->inState(StorageViewColumn::STATE_DROPPING) === []
-            && (new StorageViewShapeVerifier($ddl))->matches($registration->tableName, $registration->layout);
+        // The options the structure declares now; without a structure, the layout's own.
+        $options = StorageViewFieldOptions::load($database, $schemaId);
         $runRef = 'storage-view-build-' . bin2hex(random_bytes(12));
-        if ($resumed) {
-            // Take the build over; a run that is still going stops at its next chunk.
-            $registry->put($registration->withState(StorageViewRegistration::STATE_BUILDING, null, $registration->buildCursor, $runRef));
+        $backfill = $restart ? null : $this->backfillable($schemaId, $version, $fields, $options);
+        $resumed = false;
+        if ($backfill !== null) {
+            // The витрина stays ready and answers lists; the walk fills what its rows lack.
+            $resumed = $backfill->buildCursor !== null;
+            $cleared = false;
+            if (!$resumed && $backfill->layout->searchState === StorageViewLayout::SEARCH_BACKFILLING) {
+                // Nothing searches the old text: the walk refills an empty search table.
+                $ddl->clearSearchTable($backfill->tableName);
+                $cleared = true;
+            }
+            $database->transaction(static function () use ($registry, $backfill, $runRef, $cleared): void {
+                $current = $registry->findForUpdate($backfill->schemaId);
+                if ($cleared && $current !== null && $current->state === StorageViewRegistration::STATE_READY && $current->layout->searchTable()) {
+                    // The search table is empty now, whatever happened meanwhile (a schema apply may have
+                    // filled it and called it complete): its text is refilled from the first record.
+                    $layout = $current->layout->withSearch($current->layout->searchFields, StorageViewLayout::SEARCH_BACKFILLING);
+                    $registry->put($current->withLayout($layout)->withState(StorageViewRegistration::STATE_READY, $current->builtSchemaVersion, null, $runRef));
+
+                    return;
+                }
+                if ($current === null || $current->state !== StorageViewRegistration::STATE_READY || $current->layout->hash !== $backfill->layout->hash
+                    || $current->buildCursor !== $backfill->buildCursor) {
+                    // Another change came first; the build it asked for goes on from there.
+                    throw new StorageConflict('storage_view_rebuild_interrupted');
+                }
+                // Take the walk over; a run that is still going stops at its next chunk.
+                $registry->put($current->withState(StorageViewRegistration::STATE_READY, $current->builtSchemaVersion, $current->buildCursor, $runRef));
+            });
+            $walkState = StorageViewRegistration::STATE_READY;
         } else {
-            $layout = $this->views->planner()->plan($fields, $version, $registration?->layout)->promoted()->withoutDropped();
-            $pending = $registration === null
-                ? StorageViewRegistration::create($schemaId, $layout, StorageViewRegistration::STATE_PENDING)
-                : $registration->withLayout($layout)->withState(StorageViewRegistration::STATE_PENDING);
-            $registry->put($pending);
-            // Writers that still remember the earlier state stop before the tables go.
-            $this->waitForWriters();
-            $ddl->dropTables($pending->tableName);
-            $ddl->ensureTable($pending->tableName, $layout);
-            $registry->put($pending->withState(StorageViewRegistration::STATE_BUILDING, null, null, $runRef));
-            // Writers that still remember "pending" finish before the walk reads their records.
-            $this->waitForWriters();
+            $walkState = StorageViewRegistration::STATE_BUILDING;
+            $registration = $registry->find($schemaId, true);
+            $resumed = !$restart
+                && $registration !== null
+                && $registration->state === StorageViewRegistration::STATE_BUILDING
+                && $registration->layout->schemaVersion === $version
+                && $registration->layout->inState(StorageViewColumn::STATE_ADDING) === []
+                && $registration->layout->inState(StorageViewColumn::STATE_DROPPING) === []
+                && (new StorageViewShapeVerifier($ddl))->matches($registration->tableName, $registration->layout);
+            if ($resumed) {
+                // Take the build over; a run that is still going stops at its next chunk.
+                $registry->put($registration->withState(StorageViewRegistration::STATE_BUILDING, null, $registration->buildCursor, $runRef));
+            } else {
+                $layout = $this->views->planner()->plan($fields, $version, $registration?->layout, $options)
+                    ->promoted()->withoutDropped();
+                $pending = $registration === null
+                    ? StorageViewRegistration::create($schemaId, $layout, StorageViewRegistration::STATE_PENDING)
+                    : $registration->withLayout($layout)->withState(StorageViewRegistration::STATE_PENDING);
+                $registry->put($pending);
+                // Writers that still remember the earlier state stop before the tables go.
+                $this->waitForWriters();
+                $ddl->dropTables($pending->tableName);
+                $ddl->ensureTable($pending->tableName, $layout);
+                $registry->put($pending->withState(StorageViewRegistration::STATE_BUILDING, null, null, $runRef));
+                // Writers that still remember "pending" finish before the walk reads their records.
+                $this->waitForWriters();
+            }
         }
 
         $records = 0;
@@ -95,11 +139,11 @@ final readonly class StorageViewRebuilder
             }
             $first = false;
             $started = hrtime(true);
-            $written = (int) $database->transaction(function () use ($database, $registry, $schemaId, $chunk, $runRef): int {
+            $written = (int) $database->transaction(function () use ($database, $registry, $schemaId, $chunk, $runRef, $walkState): int {
                 // Lock order as everywhere: schema, record heads, then the registry row.
                 $database->table('larena_storage_schemas')->where('schema_id', $schemaId)->sharedLock()->first();
                 $current = $registry->peek($schemaId);
-                if ($current === null || $current->state !== StorageViewRegistration::STATE_BUILDING || $current->buildRunRef !== $runRef) {
+                if ($current === null || $current->state !== $walkState || $current->buildRunRef !== $runRef) {
                     throw new StorageConflict('storage_view_rebuild_interrupted');
                 }
                 $query = $database->table('larena_storage_records as heads')
@@ -121,12 +165,12 @@ final readonly class StorageViewRebuilder
                 }
                 $rows = $query->get()->all();
                 $locked = $registry->findForUpdate($schemaId);
-                if ($locked === null || $locked->state !== StorageViewRegistration::STATE_BUILDING
+                if ($locked === null || $locked->state !== $walkState
                     || $locked->buildRunRef !== $runRef || $locked->buildCursor !== $current->buildCursor) {
                     throw new StorageConflict('storage_view_rebuild_interrupted');
                 }
                 if ($rows === []) {
-                    $registry->put($locked->withState(StorageViewRegistration::STATE_READY, $locked->layout->schemaVersion));
+                    $registry->put(StorageViewSync::completed($locked));
 
                     return -1;
                 }
@@ -134,8 +178,11 @@ final readonly class StorageViewRebuilder
                 $last = null;
                 foreach ($rows as $row) {
                     if ((int) $row->schema_version !== $locked->layout->schemaVersion) {
-                        // A record is at a schema version the layout does not describe.
-                        $registry->put($locked->withState(StorageViewRegistration::STATE_FAILED));
+                        // A record is at a schema version the layout does not describe. A build fails;
+                        // a backfill stops and leaves the ready витрина to the schema apply that moved it.
+                        if ($walkState === StorageViewRegistration::STATE_BUILDING) {
+                            $registry->put($locked->withState(StorageViewRegistration::STATE_FAILED));
+                        }
 
                         return -2;
                     }
@@ -154,7 +201,7 @@ final readonly class StorageViewRebuilder
                 $this->views->writer()->upsert($locked->tableName, $projections);
                 // A short chunk is the last one: the витрина is ready in the same transaction.
                 $registry->put(count($rows) < $chunk
-                    ? $locked->withState(StorageViewRegistration::STATE_READY, $locked->layout->schemaVersion)
+                    ? StorageViewSync::completed($locked)
                     : $locked->withCursor($last));
 
                 return count($projections);
@@ -174,16 +221,48 @@ final readonly class StorageViewRebuilder
                 break;
             }
         }
+        // Columns a backfill replaced, and indexes no longer wanted, go now.
+        $this->views->settleSchema($schemaId);
         // A freshly filled table gets its index statistics now, so the first lists are planned on them.
         if ($ddl instanceof MySqlStorageViewDdl && $records > 0) {
             $table = StorageViewNaming::table($schemaId);
             try {
-                $database->select('ANALYZE TABLE `' . $table . '`, `' . StorageViewNaming::multiTable($table) . '`');
+                $tables = [$table, StorageViewNaming::multiTable($table)];
+                if ($ddl->tableExists(StorageViewNaming::searchTable($table))) {
+                    $tables[] = StorageViewNaming::searchTable($table);
+                }
+                $database->select('ANALYZE TABLE `' . implode('`, `', $tables) . '`');
             } catch (\Throwable) {
             }
         }
 
         return ['schema_id' => $schemaId, 'state' => StorageViewRegistration::STATE_READY, 'records' => $records, 'resumed' => $resumed];
+    }
+
+    /**
+     * The ready витрина of the current schema version, reshaped to the declared
+     * options and given its FULLTEXT index, when its rows only lack columns or
+     * search text the walk can fill in place; null when it needs a build instead.
+     *
+     * @param list<array<string, mixed>> $fields
+     */
+    private function backfillable(string $schemaId, int $version, array $fields, ?StorageViewFieldOptions $options): ?StorageViewRegistration
+    {
+        $ddl = $this->views->ddl();
+        $registration = $this->views->registry()->find($schemaId, true);
+        if ($ddl === null || $registration === null || $registration->state !== StorageViewRegistration::STATE_READY
+            || $registration->builtSchemaVersion !== $version || $registration->layout->schemaVersion !== $version) {
+            return null;
+        }
+        $this->views->settleSchema($schemaId);
+        $registration = $this->views->registry()->find($schemaId, true);
+        if ($registration === null || $registration->state !== StorageViewRegistration::STATE_READY
+            || !(new StorageViewShapeVerifier($ddl))->matches($registration->tableName, $registration->layout, false)) {
+            return null;
+        }
+        $registration = $this->views->reshape($registration, $fields, $options);
+
+        return $registration !== null && $registration->layout->needsBackfill() ? $registration : null;
     }
 
     /** @return array{0: int, 1: list<array<string, mixed>>} */

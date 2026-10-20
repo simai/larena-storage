@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\View;
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use PDO;
@@ -43,6 +44,10 @@ final class StorageViewCounter
     {
         $connection = $query->connection;
         $mysql = in_array($connection->getDriverName(), ['mysql', 'mariadb'], true);
+        // A FULLTEXT search counted its matches with its page.
+        if ($query->knownTotal() !== null) {
+            return ['count' => $query->knownTotal(), 'exact' => true];
+        }
         if ($mode === StorageWorkbenchCountMode::Exact || (!$mysql && $this->exactOnSqlite)) {
             return ['count' => $query->filtered()->count(), 'exact' => true];
         }
@@ -70,10 +75,29 @@ final class StorageViewCounter
         return ['count' => max($estimate, $counted ?? 0), 'exact' => false];
     }
 
-    /** The optimizer's estimate of the matched rows: EXPLAIN's rows × filtered of the витрина table. */
+    /**
+     * The optimizer's estimate of the matched rows: EXPLAIN's rows × filtered of the
+     * витрина table. The optimizer cannot estimate a search, so a searched list is
+     * estimated as the list without it, scaled by the share of the first rows the
+     * search matches.
+     */
     private function estimate(StorageViewQuery $query): int
     {
-        $select = $query->filtered()->selectRaw('1');
+        if ($query->hasSearch()) {
+            try {
+                $share = $query->searchShare();
+            } catch (Throwable) {
+                return 0;
+            }
+
+            return (int) round($this->explained($query->unsearched()->selectRaw('1'), $query) * $share);
+        }
+
+        return $this->explained($query->filtered()->selectRaw('1'), $query);
+    }
+
+    private function explained(Builder $select, StorageViewQuery $query): int
+    {
         try {
             $rows = $query->connection->select('explain ' . $select->toSql(), $select->getBindings());
         } catch (Throwable) {

@@ -257,7 +257,7 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     $both(['active' => ['operator' => 'eq', 'value' => false]]);
     $both(['starts_at' => ['operator' => 'gte', 'value' => '2026-06-01T00:00']]);
 
-    // Search: lowercased string and text values, Unicode letters, literal wildcards.
+    // Search (every string and text field by default): word prefixes, Unicode letters, literal wildcards.
     foreach (['alpha', 'ÄPF', 'ёл', 'strasse', 'straße', '%', '_', 'line', 'nothing-like-this', '0'] as $needle) {
         $both([], $needle);
         $both([], $needle, [], true);
@@ -338,8 +338,9 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     $estimating = storageViewListWorkbench($connection, $runtime, $actor, $scope, $views, new StorageViewCounter(5, 250, false));
     $active = $php->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, limit: 1), $actor)->matchedCount;
     $auto = $estimating->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, limit: 10), $actor);
-    // At the cap the count is the optimizer's estimate on MySQL, at least the cap.
-    storageViewExpect(!$auto->countExact && ($mysql ? $auto->matchedCount >= 6 : $auto->matchedCount === 6), 'a large count was not an estimate');
+    // At the cap the count is the optimizer's estimate on MySQL, at least the cap, and never below
+    // the rows the page has shown (10 and one more).
+    storageViewExpect(!$auto->countExact && ($mysql ? $auto->matchedCount >= 11 : $auto->matchedCount === 11), 'a large count was not an estimate');
     $exact = $estimating->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, limit: 10, countMode: StorageWorkbenchCountMode::Exact), $actor);
     storageViewExpect($exact->countExact && $exact->matchedCount === $active, 'Exact did not count exactly');
     $skip = $estimating->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, limit: 10, countMode: StorageWorkbenchCountMode::Skip), $actor);

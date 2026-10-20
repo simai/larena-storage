@@ -17,7 +17,13 @@ use WeakMap;
  * - contains/starts_with compare the lowercased column (Unicode, as mb_strtolower)
  *   with a LIKE whose wildcards in the value are escaped;
  * - choices match through EXISTS on the side table;
- * - search looks in `search_text`, the lowercased string and text values;
+ * - search looks in the search table's `search_text`, the words of the
+ *   searchable fields: every term of the query at the start of a word
+ *   (StorageViewSearch), checked row by row, or on MySQL found through the
+ *   FULLTEXT index first (MATCH ... AGAINST in boolean mode, `+word*`);
+ *   StorageViewQuery picks the form. The витрина answers a
+ *   search only while its search text holds exactly the structure's searchable
+ *   fields; while it is being refilled the PHP list answers;
  * - archived records are left out unless asked for. There is no scope condition:
  *   a витрина holds the records of one scope (its table is named from the scoped
  *   schema id), and the records read for a page are checked against the scope;
@@ -40,10 +46,14 @@ final class StorageViewQueryCompiler
 
     /** @var WeakMap<PDO, true> SQLite connections that have the lowercase function. */
     private WeakMap $lowered;
+    /** @var WeakMap<Connection, array{0: int, 1: int}> The FULLTEXT token sizes of each MySQL connection. */
+    private WeakMap $tokenSizes;
 
-    public function __construct()
+    /** @param array{0: int, 1: int}|null $fulltextTokens The server's minimum and maximum FULLTEXT token size; read from the server when null. */
+    public function __construct(private readonly ?array $fulltextTokens = null)
     {
         $this->lowered = new WeakMap();
+        $this->tokenSizes = new WeakMap();
     }
 
     /**
@@ -64,6 +74,8 @@ final class StorageViewQueryCompiler
 
         $conditions = [];
         $needsLower = false;
+        $searchCheck = null;
+        $searchIndexed = null;
         foreach ($query['filters'] as $key => $filter) {
             $type = (string) ($fields[$key]['type'] ?? '');
             $column = $columns[$key] ?? null;
@@ -104,6 +116,12 @@ final class StorageViewQueryCompiler
                     ? 'LOWER(' . $connection->getQueryGrammar()->wrap($name) . ') COLLATE utf8mb4_bin LIKE ? ESCAPE \'' . self::ESCAPE . '\''
                     : self::SQLITE_LOWER . '(' . $connection->getQueryGrammar()->wrap($name) . ') LIKE ? ESCAPE \'' . self::ESCAPE . '\'';
                 $conditions[] = static fn (Builder $where): Builder => $where->whereRaw($sql, [$pattern]);
+                if ($mysql && $operator === 'starts_with' && $column->indexed) {
+                    // The column's collation folds case, so a plain prefix LIKE reads a range of its index;
+                    // the lowercased binary LIKE above keeps the result exact.
+                    $range = $connection->getQueryGrammar()->wrap($name) . ' LIKE ? ESCAPE \'' . self::ESCAPE . '\'';
+                    $conditions[] = static fn (Builder $where): Builder => $where->whereRaw($range, [$pattern]);
+                }
                 continue;
             }
             $values = array_key_exists('values', $filter) ? $filter['values'] : [$filter['value'] ?? null];
@@ -143,9 +161,42 @@ final class StorageViewQueryCompiler
 
         $search = $query['search'];
         if ($search !== null) {
-            $pattern = '%' . self::escapeLike(self::lower($search)) . '%';
-            $sql = $connection->getQueryGrammar()->wrap($alias . '.search_text') . ($mysql ? ' COLLATE utf8mb4_bin' : '') . ' LIKE ? ESCAPE \'' . self::ESCAPE . '\'';
-            $conditions[] = static fn (Builder $where): Builder => $where->whereRaw($sql, [$pattern]);
+            if (!$view->layout->searchesExactly(StorageViewFieldOptions::resolve(array_values($fields))->searchable)) {
+                return null;
+            }
+            $terms = StorageViewSearch::terms($search);
+            if ($terms === []) {
+                // A query of punctuation alone finds nothing.
+                $conditions[] = static fn (Builder $where): Builder => $where->whereRaw('1 = 0');
+            } else {
+                $searchTable = StorageViewNaming::searchTable($view->tableName);
+                $column = $connection->getQueryGrammar()->wrap('s.search_text');
+                $like = $column . ($mysql ? ' COLLATE utf8mb4_bin' : '') . ' LIKE ? ESCAPE \'' . self::ESCAPE . '\'';
+                $patterns = array_map(StorageViewSearch::likePattern(...), $terms);
+                $searchCheck = static function (Builder $where) use ($alias, $searchTable, $like, $patterns): void {
+                    $where->whereExists(static function (Builder $exists) use ($alias, $searchTable, $like, $patterns): void {
+                        $exists->selectRaw('1')->from($searchTable . ' as s')->whereColumn('s.record_id', '=', $alias . '.record_id');
+                        foreach ($patterns as $pattern) {
+                            $exists->whereRaw($like, [$pattern]);
+                        }
+                    });
+                };
+                if ($mysql) {
+                    [$minToken, $maxToken] = $this->tokenSizes($connection);
+                    $boolean = StorageViewSearch::booleanQuery($terms, $minToken, $maxToken);
+                    if ($boolean !== null) {
+                        $searchIndexed = static function (Builder $where) use ($alias, $searchTable, $column, $boolean, $like, $patterns): void {
+                            $where->whereIn($alias . '.record_id', static function (Builder $matched) use ($searchTable, $column, $boolean, $like, $patterns): void {
+                                $matched->select('s.record_id')->from($searchTable . ' as s')
+                                    ->whereRaw('MATCH(' . $column . ') AGAINST (? IN BOOLEAN MODE)', [$boolean]);
+                                foreach ($patterns as $pattern) {
+                                    $matched->whereRaw($like, [$pattern]);
+                                }
+                            });
+                        };
+                    }
+                }
+            }
         }
 
         $sort = [];
@@ -177,7 +228,7 @@ final class StorageViewQueryCompiler
             }
         };
 
-        return new StorageViewQuery($connection, $view->tableName, $where, $sort);
+        return new StorageViewQuery($connection, $view->tableName, $where, $sort, $searchCheck, $searchIndexed);
     }
 
     /** A LIKE pattern part that matches the value literally (escape character `!`). */
@@ -189,6 +240,27 @@ final class StorageViewQueryCompiler
     public static function lower(string $value): string
     {
         return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    }
+
+    /** @return array{0: int, 1: int} */
+    private function tokenSizes(Connection $connection): array
+    {
+        if ($this->fulltextTokens !== null) {
+            return $this->fulltextTokens;
+        }
+        if (!isset($this->tokenSizes[$connection])) {
+            $sizes = [StorageViewSearch::DEFAULT_MIN_TOKEN, StorageViewSearch::DEFAULT_MAX_TOKEN];
+            try {
+                $row = $connection->selectOne('select @@innodb_ft_min_token_size as min_size, @@innodb_ft_max_token_size as max_size');
+                if (is_object($row) && is_numeric($row->min_size ?? null) && is_numeric($row->max_size ?? null)) {
+                    $sizes = [(int) $row->min_size, (int) $row->max_size];
+                }
+            } catch (\Throwable) {
+            }
+            $this->tokenSizes[$connection] = $sizes;
+        }
+
+        return $this->tokenSizes[$connection];
     }
 
     /** A filter value as the витрина column holds it, or null when it cannot be one. */

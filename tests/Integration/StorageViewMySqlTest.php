@@ -141,6 +141,80 @@ try {
     $archived = $workbench->archiveStructure($scope, 'workbench.nested', $workbench->readStructure($scope, 'workbench.nested', $actor)->version, $actor);
     $workbench->purgeStructure($scope, 'workbench.nested', $archived->version, $actor);
     storageViewExpect(!$ddl->tableExists(StorageViewNaming::table($nestedSchema)), 'the purged structure kept its MySQL tables');
+    storageViewExpect(!$ddl->tableExists(StorageViewNaming::searchTable(StorageViewNaming::table($nestedSchema))), 'the purged structure kept its MySQL search table');
+
+    // Search through the FULLTEXT index: words that begin with each term, stopwords
+    // included, a short term as a substring; and an options change online.
+    $catalog = $workbench->createStructure($scope, ['structure_id' => 'workbench.catalog', 'label' => 'Catalog', 'fields' => [
+        storageViewField('title', 10, 'string', ['max_length' => 200]),
+        storageViewField('code', 20, 'string', ['max_length' => 40]),
+        storageViewField('body', 30, 'text'),
+    ]], $actor);
+    $catalogSchema = $catalog->schema->schemaId;
+    $catalogTable = StorageViewNaming::table($catalogSchema);
+    storageViewExpect(in_array(StorageViewDdl::searchIndexName($catalogTable), $ddl->indexes(StorageViewNaming::searchTable($catalogTable)), true)
+        && !in_array(StorageViewDdl::searchIndexName($catalogTable), $ddl->indexes($catalogTable), true), 'the FULLTEXT index is not on the search table alone');
+    $items = [];
+    foreach ([
+        ['title' => 'Oak Chair', 'code' => 'A-1', 'body' => 'The best chair'],
+        ['title' => 'Armchair', 'code' => 'B-2', 'body' => 'About leather'],
+        ['title' => 'Chairs, set of four', 'code' => 'C-3'],
+        ['title' => 'Ёлка искусственная', 'code' => 'D-4'],
+        ['title' => 'Café table', 'code' => 'E-5'],
+    ] as $values) {
+        $items[] = $workbench->createRecord($scope, 'workbench.catalog', $values, $actor)->recordId;
+    }
+    $find = static function (string $term) use ($workbench, $scope, $actor): array {
+        $ids = array_map(static fn ($record): string => $record->recordId, $workbench->listRecords(
+            new \Larena\Storage\Contracts\StorageWorkbenchRecordQuery($scope, 'workbench.catalog', [], $term, [], 100),
+            $actor,
+        )->items);
+        sort($ids, SORT_STRING);
+
+        return $ids;
+    };
+    $sorted = static function (array $ids): array {
+        sort($ids, SORT_STRING);
+
+        return $ids;
+    };
+    storageViewExpect($find('chair') === $sorted([$items[0], $items[2]]), 'a word prefix on MySQL does not find Chair and Chairs only: ' . json_encode($find('chair')));
+    storageViewExpect($find('CHAI') === $sorted([$items[0], $items[2]]), 'a prefix is not case-insensitive on MySQL');
+    storageViewExpect($find('ёлк') === [$items[3]] && $find('елк') === [], 'Cyrillic is not matched exactly (ё is not е)');
+    storageViewExpect($find('cafe') === [] && $find('café') === [$items[4]], 'an accent is folded by the collation instead of matched exactly');
+    storageViewExpect($find('ch') === $sorted([$items[0], $items[2]]), 'a two-letter term is not a word prefix');
+    storageViewExpect($find('hair') === [] && $find('armch') === [$items[1]], 'a term inside a word matched, or a word prefix did not');
+    storageViewExpect($find('set four') === [$items[2]], 'two words in another order do not match');
+    // Options change on MySQL: body searchable (stopwords included), code indexed; the main table stays INSTANT.
+    $catalog = $workbench->updateStructure($scope, 'workbench.catalog', $catalog->version, ['structure_id' => 'workbench.catalog', 'label' => 'Catalog', 'fields' => [
+        storageViewField('title', 10, 'string', ['max_length' => 200]),
+        storageViewField('code', 20, 'string', ['max_length' => 40]) + ['indexed' => true],
+        storageViewField('body', 30, 'text') + ['searchable' => true],
+    ]], $actor);
+    $registration = $views->registry()->find($catalogSchema, true);
+    storageViewExpect($registration?->state === 'ready' && $registration->layout->needsBackfill(), 'the MySQL options change left no backfill');
+    (new StorageViewRebuilder($views))->rebuild($catalogSchema, 2);
+    storageViewParity($connection, $views, $catalogSchema, 'mysql options backfilled');
+    storageViewExpect($find('the best') === [$items[0]] && $find('about') === [$items[1]], 'stopwords are not searchable');
+    $code = array_values(array_filter($views->registry()->find($catalogSchema, true)?->layout->columns ?? [], static fn ($c): bool => $c->fieldKey === 'code'));
+    storageViewExpect(count($code) === 1 && $code[0]->sqlType === 'varchar40' && $code[0]->indexed
+        && in_array(StorageViewDdl::fieldIndexName($catalogTable, (string) $code[0]->column), $ddl->indexes($catalogTable), true), 'the MySQL indexed string has no VARCHAR(40) column and index');
+    $explain = $connection->select('EXPLAIN SELECT record_id FROM `' . $catalogTable . '` WHERE state = ? ORDER BY `' . $code[0]->column . '`, record_id LIMIT 10', ['active']);
+    storageViewExpect(($explain[0]->key ?? null) === StorageViewDdl::fieldIndexName($catalogTable, (string) $code[0]->column), 'MySQL does not sort the indexed string by its index: ' . json_encode($explain));
+    // A витрина built before the search table: a structure change in the transaction leaves it ready
+    // (its search table is made before the transaction) and the rebuild backfills it in place.
+    $current = $views->registry()->find($catalogSchema, true);
+    storageViewExpect($current !== null, 'the catalog витрина is gone');
+    $views->registry()->put($current->withLayout(new \Larena\Storage\View\StorageViewLayout($current->layout->schemaVersion, $current->layout->nextOrdinal, $current->layout->columns)));
+    $connection->statement('DROP TABLE `' . StorageViewNaming::searchTable($catalogTable) . '`');
+    $catalog = $workbench->readStructure($scope, 'workbench.catalog', $actor);
+    $catalog = $workbench->updateStructure($scope, 'workbench.catalog', $catalog->version, ['structure_id' => 'workbench.catalog', 'label' => 'Catalog renamed', 'fields' => $catalog->fields], $actor);
+    $upgraded = $views->registry()->find($catalogSchema, true);
+    storageViewExpect($upgraded?->state === 'ready' && $upgraded->backfillPending() && $ddl->tableExists(StorageViewNaming::searchTable($catalogTable)),
+        'a legacy MySQL витрина did not stay ready with its search table made and a backfill pending');
+    (new StorageViewRebuilder($views))->rebuild($catalogSchema);
+    storageViewParity($connection, $views, $catalogSchema, 'mysql legacy upgraded');
+    storageViewExpect($find('the best') === [$items[0]], 'the upgraded MySQL витрина does not search');
     $capsuleB->getDatabaseManager()->disconnect();
 } finally {
     Facade::clearResolvedInstances();

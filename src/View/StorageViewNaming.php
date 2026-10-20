@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Larena\Storage\View;
 
 /**
- * Names of a storage's витрина: its table, the side table for multi-values, its
- * columns and its indexes. A name depends only on the schema id, so the same
+ * Names of a storage's витрина: its table, the side tables for multi-values and
+ * for the search text, its columns and its indexes. A name depends only on the schema id, so the same
  * storage always maps to the same table, and a column name only on an ordinal
  * that the layout never hands out twice.
  */
@@ -14,6 +14,7 @@ final class StorageViewNaming
 {
     public const TABLE_PREFIX = 'larena_storage_view_';
     public const MULTI_SUFFIX = '_m';
+    public const SEARCH_SUFFIX = '_s';
     private const INDEX_PREFIX = 'lsv_';
 
     public static function table(string $schemaId): string
@@ -24,6 +25,12 @@ final class StorageViewNaming
     public static function multiTable(string $table): string
     {
         return $table . self::MULTI_SUFFIX;
+    }
+
+    /** The side table of the search text: one row per record, with the FULLTEXT index on MySQL. */
+    public static function searchTable(string $table): string
+    {
+        return $table . self::SEARCH_SUFFIX;
     }
 
     public static function column(int $ordinal): string
@@ -46,7 +53,8 @@ final class StorageViewNaming
 
     public static function isTable(string $name): bool
     {
-        return preg_match('/\A' . preg_quote(self::TABLE_PREFIX, '/') . '[0-9a-f]{24}(?:' . preg_quote(self::MULTI_SUFFIX, '/') . ')?\z/D', $name) === 1;
+        return preg_match('/\A' . preg_quote(self::TABLE_PREFIX, '/') . '[0-9a-f]{24}(?:' . preg_quote(self::MULTI_SUFFIX, '/')
+            . '|' . preg_quote(self::SEARCH_SUFFIX, '/') . ')?\z/D', $name) === 1;
     }
 
     /**

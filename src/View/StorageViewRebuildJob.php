@@ -31,6 +31,8 @@ use Larena\Storage\Runtime\StorageMetrics;
  *   so cancel and timeout stop it after a committed chunk.
  * - Idempotent: a retry that finds the витрина ready (an earlier attempt
  *   finished) does nothing; the витрина is marked ready only at the end.
+ * - A ready витрина that a change of field options left rows to fill is
+ *   backfilled in place, resumably, and stays ready meanwhile.
  * - A newer build that took the storage over ends this one as a success
  *   (`taken_over`): the other run finishes it.
  */
@@ -112,7 +114,7 @@ final readonly class StorageViewRebuildJob implements QueueJobHandler
         }
         $context->checkpoint();
         $registration = $this->views->registry()->find($schemaId, true);
-        if ($context->attempt > 1 && $registration?->state === StorageViewRegistration::STATE_READY) {
+        if ($context->attempt > 1 && $registration?->state === StorageViewRegistration::STATE_READY && !$registration->backfillPending()) {
             // An earlier attempt finished the build.
             return QueueJobResult::success(['state' => StorageViewRegistration::STATE_READY, 'records' => 0, 'resumed' => false]);
         }

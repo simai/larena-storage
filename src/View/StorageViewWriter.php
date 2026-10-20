@@ -7,8 +7,8 @@ namespace Larena\Storage\View;
 use Illuminate\Database\ConnectionInterface;
 
 /**
- * Writes витрина rows: an upsert of the main row and a replacement of the record's
- * side rows. It runs inside the caller's transaction.
+ * Writes витрина rows: an upsert of the main row and of the search row, and a
+ * replacement of the record's side rows. It runs inside the caller's transaction.
  */
 final class StorageViewWriter
 {
@@ -23,7 +23,7 @@ final class StorageViewWriter
     }
 
     /**
-     * @param list<array{row: array<string, mixed>, multi: list<array{record_id: string, field_key: string, value: string}>}> $projections
+     * @param list<array{row: array<string, mixed>, multi: list<array{record_id: string, field_key: string, value: string}>, search?: array{record_id: string, search_text: ?string}|null}> $projections
      */
     public function upsert(string $table, array $projections, bool $replaceMulti = true, bool $newRecords = false): void
     {
@@ -31,14 +31,14 @@ final class StorageViewWriter
             return;
         }
         $rows = array_map(static fn (array $projection): array => $projection['row'], $projections);
-        if (count($rows) === 1) {
-            $this->upsertOne($table, $rows[0]);
-        } else {
-            $update = array_values(array_diff(array_keys($rows[0]), ['record_id']));
-            foreach (array_chunk($rows, self::CHUNK) as $chunk) {
-                $this->database->table($table)->upsert($chunk, ['record_id'], $update);
+        $this->upsertRows($table, $rows);
+        $search = [];
+        foreach ($projections as $projection) {
+            if (($projection['search'] ?? null) !== null) {
+                $search[] = $projection['search'];
             }
         }
+        $this->upsertRows(StorageViewNaming::searchTable($table), $search);
         // A layout without multi-value fields has no side rows to replace.
         if (!$replaceMulti) {
             return;
@@ -59,6 +59,23 @@ final class StorageViewWriter
         }
         foreach (array_chunk($multi, self::CHUNK) as $chunk) {
             $this->database->table($multiTable)->insert($chunk);
+        }
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function upsertRows(string $table, array $rows): void
+    {
+        if ($rows === []) {
+            return;
+        }
+        if (count($rows) === 1) {
+            $this->upsertOne($table, $rows[0]);
+
+            return;
+        }
+        $update = array_values(array_diff(array_keys($rows[0]), ['record_id']));
+        foreach (array_chunk($rows, self::CHUNK) as $chunk) {
+            $this->database->table($table)->upsert($chunk, ['record_id'], $update);
         }
     }
 
@@ -84,11 +101,17 @@ final class StorageViewWriter
         $this->database->affectingStatement($sql, array_values($row));
     }
 
-    /** @param list<string> $recordIds */
-    public function delete(string $table, array $recordIds): void
+    /**
+     * @param list<string> $recordIds
+     * @param bool $search Whether the table has a search table (its layout has search fields).
+     */
+    public function delete(string $table, array $recordIds, bool $search = true): void
     {
         foreach (array_chunk($recordIds, self::CHUNK) as $chunk) {
             $this->database->table(StorageViewNaming::multiTable($table))->whereIn('record_id', $chunk)->delete();
+            if ($search) {
+                $this->database->table(StorageViewNaming::searchTable($table))->whereIn('record_id', $chunk)->delete();
+            }
             $this->database->table($table)->whereIn('record_id', $chunk)->delete();
         }
     }
@@ -98,9 +121,12 @@ final class StorageViewWriter
         $this->database->table(StorageViewNaming::multiTable($table))->where('field_key', $fieldKey)->delete();
     }
 
-    public function truncate(string $table): void
+    public function truncate(string $table, bool $search = true): void
     {
         $this->database->table(StorageViewNaming::multiTable($table))->delete();
+        if ($search) {
+            $this->database->table(StorageViewNaming::searchTable($table))->delete();
+        }
         $this->database->table($table)->delete();
     }
 }

@@ -22,11 +22,12 @@ use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 $reflection = new ReflectionClass(DatabaseStorageWorkbench::class);
 $source = (string) file_get_contents((string) $reflection->getFileName());
 
-// `hidden` (a presentation flag) was later made optional the same way, so the
-// check now names the optional keys once instead of listing every combination.
+// `hidden` (a presentation flag) was later made optional the same way, and then
+// the витрина options `indexed` and `searchable`, so the check names the optional
+// keys once instead of listing every combination.
 larena_storage_role_assert(
-    str_contains($source, '$optional = array_values(array_intersect($fieldKeys, [\'hidden\', \'localized\']));'),
-    'only hidden and localized are optional',
+    str_contains($source, '$optional = array_values(array_intersect($fieldKeys, [\'hidden\', \'indexed\', \'localized\', \'searchable\']));'),
+    'only hidden, indexed, localized and searchable are optional',
 );
 larena_storage_role_assert(
     str_contains($source, '$expected = array_merge([\'constraints\', \'key\', \'label\', \'position\', \'required\', \'type\', \'type_version\', \'visibility\'], $optional);'),

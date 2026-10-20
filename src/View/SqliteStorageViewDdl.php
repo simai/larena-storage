@@ -21,7 +21,6 @@ final class SqliteStorageViewDdl extends StorageViewDdl
         StorageViewColumn::SQL_TINYINT => 'INTEGER',
         StorageViewColumn::SQL_REF => 'TEXT',
         StorageViewColumn::SQL_USER_REF => 'TEXT',
-        StorageViewColumn::SQL_VARCHAR => 'TEXT',
         StorageViewColumn::SQL_TEXT => 'TEXT',
     ];
 
@@ -68,6 +67,9 @@ final class SqliteStorageViewDdl extends StorageViewDdl
         $multi = StorageViewNaming::multiTable($table);
         $this->database->statement('CREATE TABLE IF NOT EXISTS "' . $multi . '" ("record_id" TEXT NOT NULL, "field_key" TEXT NOT NULL, "value" TEXT NOT NULL, PRIMARY KEY ("field_key", "value", "record_id"))');
         $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::multiRecordIndexName($table) . '" ON "' . $multi . '" ("record_id")');
+        if ($layout->searchTable()) {
+            $this->ensureSearchTable($table);
+        }
     }
 
     public function addColumn(string $table, StorageViewColumn $column): void
@@ -110,8 +112,21 @@ final class SqliteStorageViewDdl extends StorageViewDdl
     public function dropTables(string $table): void
     {
         $this->assertTable($table);
+        $this->database->statement('DROP TABLE IF EXISTS "' . StorageViewNaming::searchTable($table) . '"');
         $this->database->statement('DROP TABLE IF EXISTS "' . StorageViewNaming::multiTable($table) . '"');
         $this->database->statement('DROP TABLE IF EXISTS "' . $table . '"');
+    }
+
+    public function ensureSearchTable(string $table): void
+    {
+        $this->assertTable($table);
+        $this->database->statement('CREATE TABLE IF NOT EXISTS "' . StorageViewNaming::searchTable($table) . '" ("record_id" TEXT NOT NULL PRIMARY KEY, "search_text" TEXT NULL)');
+    }
+
+    public function clearSearchTable(string $table): void
+    {
+        $this->ensureSearchTable($table);
+        $this->database->table(StorageViewNaming::searchTable($table))->delete();
     }
 
     public function tableExists(string $table): bool
@@ -160,6 +175,6 @@ final class SqliteStorageViewDdl extends StorageViewDdl
     {
         $this->assertColumn((string) $column->column);
 
-        return '"' . $column->column . '" ' . self::TYPES[$column->sqlType] . ' NULL';
+        return '"' . $column->column . '" ' . ($column->isVarchar() ? 'TEXT' : self::TYPES[$column->sqlType]) . ' NULL';
     }
 }

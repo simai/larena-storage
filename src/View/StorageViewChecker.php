@@ -15,7 +15,9 @@ use stdClass;
  * record id.
  *
  * Problem codes: `schema_unknown`, `view_missing`, `view_pending`,
- * `view_building`, `view_failed`, `schema_version_behind`, `table_missing`,
+ * `view_building`, `view_failed`, `schema_version_behind`, `backfill_pending`
+ * (rows still lack a column or their search text after a change of field
+ * options, or the layout predates the declared options), `table_missing`,
  * `shape_mismatch`, `rows_missing`, `rows_extra`, `rows_stale`.
  */
 final readonly class StorageViewChecker
@@ -62,6 +64,8 @@ final readonly class StorageViewChecker
             $report['problems'][] = 'view_' . $registration->state;
         } elseif ($registration->builtSchemaVersion !== (int) $head->current_version) {
             $report['problems'][] = 'schema_version_behind';
+        } elseif ($registration->layout->needsBackfill() || !self::optionsApplied($database, $schemaId, $registration)) {
+            $report['problems'][] = 'backfill_pending';
         }
         $table = $registration->tableName;
         if (!$ddl->tableExists($table)) {
@@ -99,6 +103,18 @@ final readonly class StorageViewChecker
         }
 
         return $report;
+    }
+
+    /** The layout searches and indexes what the storage's workbench structure declares. */
+    private static function optionsApplied(\Illuminate\Database\ConnectionInterface $database, string $schemaId, StorageViewRegistration $registration): bool
+    {
+        $options = StorageViewFieldOptions::load($database, $schemaId);
+        if ($options === null) {
+            return true;
+        }
+        $carried = StorageViewLayoutPlanner::carried([], $registration->layout);
+
+        return $registration->layout->searchFields !== null && $carried->searchable === $options->searchable && $carried->indexed === $options->indexed;
     }
 
     /**

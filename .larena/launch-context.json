@@ -140,7 +140,8 @@
     "src/Runtime/PublishedKeyIndex.php",
     "src/Console/Commands/PublishedKeyRebuildCommand.php",
     "database/migrations/platform/2026_10_20_000002_create_larena_storage_published_key_tables.php",
-    "tests/Integration/PublishedReadBatchingTest.php"
+    "tests/Integration/PublishedReadBatchingTest.php",
+    "tests/Integration/StorageViewFieldOptionsTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

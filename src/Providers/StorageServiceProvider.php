@@ -387,6 +387,12 @@ final class StorageServiceProvider extends ServiceProvider
                 // A host may bind its own counter (a threshold, a time budget); the default counts as decided.
                 $app->bound(StorageViewCounter::class) ? $app->make(StorageViewCounter::class) : null,
                 $app->make(StorageMetrics::class),
+                // A change of field options queues the витрина backfill; the queue is resolved only then.
+                static function (string $schemaId) use ($app): void {
+                    if ($app->bound(JobTypeRegistry::class) && $app->bound(DurableQueueDispatcher::class) && $app->bound(QueueClock::class)) {
+                        $app->make(StorageViewRebuildQueue::class)->enqueue($schemaId);
+                    }
+                },
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);

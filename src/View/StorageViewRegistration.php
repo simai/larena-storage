@@ -32,7 +32,7 @@ final readonly class StorageViewRegistration
         public ?string $buildRunRef = null,
     ) {
         if (!in_array($state, self::STATES, true) || !StorageViewNaming::isTable($tableName)
-            || str_ends_with($tableName, StorageViewNaming::MULTI_SUFFIX)) {
+            || str_ends_with($tableName, StorageViewNaming::MULTI_SUFFIX) || str_ends_with($tableName, StorageViewNaming::SEARCH_SUFFIX)) {
             throw new StorageRejected('storage_view_registration_invalid');
         }
     }
@@ -46,6 +46,15 @@ final readonly class StorageViewRegistration
             $state,
             $state === self::STATE_READY ? $layout->schemaVersion : null,
         );
+    }
+
+    /**
+     * Ready, with rows still to fill in place: a change of field options left columns
+     * or search text to backfill, or the layout predates the search table.
+     */
+    public function backfillPending(): bool
+    {
+        return $this->state === self::STATE_READY && ($this->layout->needsBackfill() || !$this->layout->searchTable());
     }
 
     /** Writers keep the витрина current while it is ready or being built. */

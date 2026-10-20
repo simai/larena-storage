@@ -167,13 +167,25 @@ final class StorageBenchmark
         $seedStarted = hrtime(true);
         $recordIds = $this->seed($structure, $size, $sectionIds);
         $seedMs = (hrtime(true) - $seedStarted) / 1e6;
+        $optionsMs = null;
         if ($this->views->enabled()) {
             // Nothing else writes the benchmark storage, so the build does not wait for writers.
             $builder = new StorageViewSync($this->connection, new StorageViewRegistry($this->connection, 0.0), $this->views->ddl());
             (new StorageViewRebuilder($builder))->rebuild($structure->schema->schemaId, StorageViewRebuilder::DEFAULT_CHUNK, true);
             $this->views->registry()->forget($structure->schema->schemaId);
+            // The field options are switched on the way an owner does it on a filled storage:
+            // a structure change (no record rewritten) and the backfill of the витрина, timed.
+            $optionsStarted = hrtime(true);
+            $structure = $this->workbench->updateStructure($this->scopeRef, $structure->structureId, $structure->version, self::descriptor(
+                $structure->structureId,
+                $sections->structureId,
+                true,
+            ), self::ACTOR);
+            (new StorageViewRebuilder($builder))->rebuild($structure->schema->schemaId, StorageViewRebuilder::DEFAULT_CHUNK);
+            $this->views->registry()->forget($structure->schema->schemaId);
+            $optionsMs = (hrtime(true) - $optionsStarted) / 1e6;
         }
-        $progress(sprintf('Seeded %d records in %.1f s; measuring...', $size, $seedMs / 1000));
+        $progress(sprintf('Seeded %d records in %.1f s%s; measuring...', $size, $seedMs / 1000, $optionsMs === null ? '' : sprintf(', options backfilled in %.1f s', $optionsMs / 1000)));
 
         $list = fn (array $filters = [], ?string $search = null, array $sort = [], int $limit = 50, ?int $page = null,
             StorageWorkbenchCountMode $count = StorageWorkbenchCountMode::Auto): int => $this->workbench->listRecords(
@@ -193,8 +205,19 @@ final class StorageBenchmark
             'filter_number_range' => static fn (): Closure => $listing(['price' => ['operator' => 'between', 'values' => ['100', '250']]]),
             'filter_date_range' => static fn (): Closure => $listing(['day' => ['operator' => 'between', 'values' => ['2026-03-01', '2026-03-31']]]),
             'sort_number' => static fn (): Closure => $listing(sort: [['field' => 'price', 'direction' => 'desc']]),
+            // title is a string indexed on request (VARCHAR(200) with its index); subtitle is unindexed long text.
             'sort_title' => static fn (): Closure => $listing(sort: [['field' => 'title', 'direction' => 'asc']]),
+            'sort_title_desc_deep' => static fn (): Closure => $listing(sort: [['field' => 'title', 'direction' => 'desc']], page: $deepPage),
+            'sort_subtitle_unindexed' => static fn (): Closure => $listing(sort: [['field' => 'subtitle', 'direction' => 'asc']]),
+            'filter_title_prefix' => static fn (): Closure => $listing(['title' => ['operator' => 'starts_with', 'value' => 'river']]),
+            'filter_sku_eq' => static fn (): Closure => $listing(['sku' => ['operator' => 'eq', 'value' => sprintf('SKU-%08d', intdiv($size, 2))]]),
+            // Search over title, sku and body: a rare word (1 record in 100), its prefix, two words, a common
+            // title word, and a two-letter prefix below the FULLTEXT token size (checked row by row).
             'search_text' => static fn (): Closure => $listing(search: self::SEARCH_TOKEN),
+            'search_prefix' => static fn (): Closure => $listing(search: substr(self::SEARCH_TOKEN, 0, 6)),
+            'search_two_words' => static fn (): Closure => $listing(search: self::SEARCH_TOKEN . ' cedar'),
+            'search_common_word' => static fn (): Closure => $listing(search: 'harbor'),
+            'search_short_term' => static fn (): Closure => $listing(search: 'qu'),
             'matched_count' => static fn (): Closure => $listing(limit: 1),
             // The count a bulk action confirms: exact, however large.
             'matched_count_exact' => static fn (): Closure => $listing(limit: 1, count: StorageWorkbenchCountMode::Exact),
@@ -228,6 +251,8 @@ final class StorageBenchmark
             'deep_page' => $deepPage,
             'seed_ms' => round($seedMs, 1),
             'seed_records_per_second' => $seedMs > 0 ? (int) round($size / ($seedMs / 1000)) : null,
+            // Switching the field options on the filled storage: the structure change and the backfill.
+            'options_backfill_ms' => $optionsMs === null ? null : round($optionsMs, 1),
             'operations' => $results,
             'cleanup' => $cleanup,
         ];
@@ -286,7 +311,8 @@ final class StorageBenchmark
             'queries' => max($queries),
             'peak_memory_bytes' => max($memory),
             'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_')
-                || str_starts_with($name, 'sort_') || in_array($name, ['search_text', 'matched_count', 'matched_count_exact'], true) ? $value : null,
+                || str_starts_with($name, 'sort_') || str_starts_with($name, 'search_')
+                || in_array($name, ['matched_count', 'matched_count_exact'], true) ? $value : null,
         ];
     }
 
@@ -454,9 +480,10 @@ final class StorageBenchmark
 
     /**
      * @param array<string, mixed> $constraints
+     * @param array<string, bool> $options The витрина options (searchable, indexed).
      * @return array<string, mixed>
      */
-    private static function field(string $key, int $position, string $type, bool $required = false, array $constraints = []): array
+    private static function field(string $key, int $position, string $type, bool $required = false, array $constraints = [], array $options = []): array
     {
         return [
             'key' => $key,
@@ -467,12 +494,20 @@ final class StorageBenchmark
             'required' => $required,
             'visibility' => 'admin',
             'constraints' => $constraints,
-        ];
+        ] + $options;
     }
 
-    /** @return array<string, mixed> */
-    private static function descriptor(string $structureId, string $sectionsStructureId): array
+    /**
+     * The 20-field structure. Without $withOptions every option has its default (every
+     * string and text field searchable, no string indexed); with it, title and sku are
+     * indexed strings and subtitle and notes leave the search (title, sku and body stay).
+     *
+     * @return array<string, mixed>
+     */
+    private static function descriptor(string $structureId, string $sectionsStructureId, bool $withOptions = false): array
     {
+        $indexed = $withOptions ? ['indexed' => true] : [];
+        $unsearched = $withOptions ? ['searchable' => false] : [];
         $options = static fn (array $values): array => array_map(
             static fn (string $value): array => ['value' => $value, 'label' => ucfirst($value)],
             $values,
@@ -482,11 +517,11 @@ final class StorageBenchmark
             'structure_id' => $structureId,
             'label' => 'Benchmark items',
             'fields' => [
-                self::field('title', 10, 'string', true, ['max_length' => 200]),
-                self::field('subtitle', 20, 'string'),
-                self::field('sku', 30, 'string'),
+                self::field('title', 10, 'string', true, ['max_length' => 200], $indexed),
+                self::field('subtitle', 20, 'string', false, [], $unsearched),
+                self::field('sku', 30, 'string', false, ['max_length' => 32], $indexed),
                 self::field('body', 40, 'text'),
-                self::field('notes', 50, 'text'),
+                self::field('notes', 50, 'text', false, [], $unsearched),
                 self::field('qty', 60, 'integer', false, ['min' => 0, 'max' => 100_000]),
                 self::field('rank', 70, 'integer'),
                 self::field('price', 80, 'number'),

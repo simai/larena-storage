@@ -93,8 +93,11 @@ function storageViewInstall(Connection $connection): void
     }
 }
 
-/** @return array{workbench: DatabaseStorageWorkbench, storage: VersionedStorage, views: StorageViewSync, evolution: DatabaseStorageSchemaEvolution} */
-function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null): array
+/**
+ * @param Closure(string): void|null $viewBuilds Receives the storages whose витрина a structure change left to fill.
+ * @return array{workbench: DatabaseStorageWorkbench, storage: VersionedStorage, views: StorageViewSync, evolution: DatabaseStorageSchemaEvolution}
+ */
+function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null, ?Closure $viewBuilds = null): array
 {
     $metrics ??= new StorageMetrics();
     $properties = PropertyTypeRegistry::builtIns();
@@ -115,7 +118,7 @@ function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string 
     );
     $policies->seal();
     $evolution = new DatabaseStorageSchemaEvolution($connection, $properties, $access, $events, $policies, $views);
-    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $evolution, $policies, $cursorKey, $events, $views, null, $metrics);
+    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $evolution, $policies, $cursorKey, $events, $views, null, $metrics, $viewBuilds);
 
     return ['workbench' => $workbench, 'storage' => $storage, 'views' => $views, 'evolution' => $evolution];
 }
@@ -140,6 +143,7 @@ function storageViewParity(Connection $connection, StorageViewSync $views, strin
     $layout = $registration->layout;
     $expected = [];
     $expectedMulti = [];
+    $expectedSearch = [];
     foreach ($connection->table('larena_storage_records as heads')
         ->join('larena_storage_record_versions as versions', static function ($join): void {
             $join->on('versions.schema_id', '=', 'heads.schema_id')
@@ -162,6 +166,9 @@ function storageViewParity(Connection $connection, StorageViewSync $views, strin
         $expected[(string) $row->record_id] = $projection['row'];
         foreach ($projection['multi'] as $item) {
             $expectedMulti[] = $item['record_id'] . '|' . $item['field_key'] . '|' . $item['value'];
+        }
+        if ($projection['search'] !== null) {
+            $expectedSearch[$projection['search']['record_id']] = $projection['search']['search_text'];
         }
     }
     $decimals = [];
@@ -194,4 +201,13 @@ function storageViewParity(Connection $connection, StorageViewSync $views, strin
     sort($multi);
     sort($expectedMulti);
     storageViewExpect($multi === $expectedMulti, $message . ': the side rows are not the current multi-values');
+    // The search table holds one row per record with the text of the search fields.
+    storageViewExpect($layout->searchTable(), $message . ': the layout has no search fields');
+    $search = [];
+    foreach ($connection->table($registration->tableName . '_s')->get() as $row) {
+        $search[(string) $row->record_id] = $row->search_text === null ? null : (string) $row->search_text;
+    }
+    ksort($search, SORT_STRING);
+    ksort($expectedSearch, SORT_STRING);
+    storageViewExpect($search === $expectedSearch, $message . ': the search rows are not the search text of the current records');
 }

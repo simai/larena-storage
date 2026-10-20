@@ -23,7 +23,10 @@ final readonly class StorageViewColumn
     public const SQL_TINYINT = 'tinyint';
     public const SQL_REF = 'ref64';
     public const SQL_USER_REF = 'ref96';
+    // VARCHAR(255); a string indexed on request is VARCHAR(max_length): `varchar<N>`, N from 1 to 255.
     public const SQL_VARCHAR = 'varchar255';
+    public const VARCHAR_PREFIX = 'varchar';
+    public const VARCHAR_MAX = 255;
     public const SQL_TEXT = 'text';
     public const SQL_SIDE = 'side';
     public const SQL_TYPES = [
@@ -47,13 +50,38 @@ final readonly class StorageViewColumn
     ) {
         if (preg_match('/\A[a-z][a-z0-9_]{0,63}\z/D', $fieldKey) !== 1
             || preg_match('/\A[a-z][a-z0-9_]{0,63}\z/D', $kind) !== 1
-            || !in_array($sqlType, self::SQL_TYPES, true)
+            || (!in_array($sqlType, self::SQL_TYPES, true) && self::varcharLength($sqlType) === null)
             || !in_array($state, self::STATES, true)
             || ($sqlType === self::SQL_SIDE) !== ($column === null)
             || ($column !== null && preg_match('/\Ac[1-9][0-9]{0,8}\z/D', $column) !== 1)
             || ($indexed && $column === null)) {
             throw new StorageRejected('storage_view_layout_invalid');
         }
+    }
+
+    /** The SQL type of a string column of the given length. */
+    public static function varchar(int $length): string
+    {
+        if ($length < 1 || $length > self::VARCHAR_MAX) {
+            throw new StorageRejected('storage_view_layout_invalid');
+        }
+
+        return self::VARCHAR_PREFIX . $length;
+    }
+
+    /** The length of a `varchar<N>` SQL type, or null for any other type. */
+    public static function varcharLength(string $sqlType): ?int
+    {
+        if (preg_match('/\Avarchar([1-9][0-9]{0,2})\z/D', $sqlType, $match) !== 1 || (int) $match[1] > self::VARCHAR_MAX) {
+            return null;
+        }
+
+        return (int) $match[1];
+    }
+
+    public function isVarchar(): bool
+    {
+        return self::varcharLength($this->sqlType) !== null;
     }
 
     public function multiValued(): bool

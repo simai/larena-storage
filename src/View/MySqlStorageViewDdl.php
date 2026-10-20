@@ -11,6 +11,17 @@ use Illuminate\Database\QueryException;
  * (ALGORITHM=INSTANT, or INPLACE with LOCK=NONE where INSTANT is not available),
  * indexes are built INPLACE with LOCK=NONE, so writers are not blocked. MySQL
  * commits the open transaction on any DDL, so none of this runs inside one.
+ *
+ * Search: the search table's `search_text` carries a FULLTEXT index with InnoDB's default parser
+ * (words of letters, digits and underscores, at least innodb_ft_min_token_size
+ * characters; Russian and English alike), built without a stopword list so that
+ * "the" or "about" are words like any other. The ngram parser is not used: it
+ * indexes every pair of characters, which multiplies the index several times
+ * over and makes word-prefix queries slower, for no gain in Russian or English
+ * text. The index lives in a table of its own (`_s`): InnoDB cannot add a column
+ * to a table with a FULLTEXT index without copying it, and the main table's columns
+ * must stay INSTANT. The search table is created empty with its index, so no
+ * FULLTEXT index is ever built over existing rows (which would block writes).
  */
 final class MySqlStorageViewDdl extends StorageViewDdl
 {
@@ -22,7 +33,6 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         StorageViewColumn::SQL_TINYINT => 'TINYINT',
         StorageViewColumn::SQL_REF => 'VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin',
         StorageViewColumn::SQL_USER_REF => 'VARCHAR(96) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin',
-        StorageViewColumn::SQL_VARCHAR => 'VARCHAR(255)',
         // MEDIUMTEXT: a text value may be longer than TEXT's 64 KB.
         StorageViewColumn::SQL_TEXT => 'MEDIUMTEXT',
     ];
@@ -78,6 +88,9 @@ final class MySqlStorageViewDdl extends StorageViewDdl
                 . 'KEY `' . self::multiRecordIndexName($table) . '` (`record_id`)'
                 . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC');
         }
+        if ($layout->searchTable()) {
+            $this->ensureSearchTable($table);
+        }
     }
 
     public function addColumn(string $table, StorageViewColumn $column): void
@@ -125,9 +138,67 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         $this->database->statement('DROP INDEX `' . $name . '` ON `' . $table . '` ALGORITHM=INPLACE LOCK=NONE');
     }
 
+    public function fulltext(): bool
+    {
+        return true;
+    }
+
+    public function ensureSearchTable(string $table): void
+    {
+        $this->assertTable($table);
+        $search = StorageViewNaming::searchTable($table);
+        if ($this->tableExists($search)) {
+            return;
+        }
+        $this->withoutStopwords(fn () => $this->database->statement('CREATE TABLE IF NOT EXISTS `' . $search . '` ('
+            . '`record_id` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, '
+            . '`search_text` MEDIUMTEXT NULL, '
+            . 'PRIMARY KEY (`record_id`), '
+            . 'FULLTEXT KEY `' . self::searchIndexName($table) . '` (`search_text`)'
+            . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC'));
+    }
+
+    public function clearSearchTable(string $table): void
+    {
+        $this->assertTable($table);
+        $search = StorageViewNaming::searchTable($table);
+        if (!$this->tableExists($search)) {
+            $this->ensureSearchTable($table);
+
+            return;
+        }
+        $this->withoutStopwords(fn () => $this->database->statement('TRUNCATE TABLE `' . $search . '`'));
+    }
+
+    /**
+     * Runs DDL that builds a FULLTEXT index with the session's stopword list off: the
+     * index keeps the setting it was built with, so every word is searchable.
+     */
+    private function withoutStopwords(\Closure $ddl): void
+    {
+        $previous = null;
+        try {
+            $previous = $this->database->selectOne('select @@SESSION.innodb_ft_enable_stopword as enabled')?->enabled;
+            $this->database->statement('SET SESSION innodb_ft_enable_stopword = OFF');
+        } catch (QueryException) {
+            $previous = null;
+        }
+        try {
+            $ddl();
+        } finally {
+            if ($previous !== null) {
+                try {
+                    $this->database->statement('SET SESSION innodb_ft_enable_stopword = ' . ((int) $previous === 0 ? 'OFF' : 'ON'));
+                } catch (QueryException) {
+                }
+            }
+        }
+    }
+
     public function dropTables(string $table): void
     {
         $this->assertTable($table);
+        $this->database->statement('DROP TABLE IF EXISTS `' . StorageViewNaming::searchTable($table) . '`');
         $this->database->statement('DROP TABLE IF EXISTS `' . StorageViewNaming::multiTable($table) . '`');
         $this->database->statement('DROP TABLE IF EXISTS `' . $table . '`');
     }
@@ -189,6 +260,8 @@ final class MySqlStorageViewDdl extends StorageViewDdl
     {
         $this->assertColumn((string) $column->column);
 
-        return '`' . $column->column . '` ' . self::TYPES[$column->sqlType] . ' NULL';
+        $length = StorageViewColumn::varcharLength($column->sqlType);
+
+        return '`' . $column->column . '` ' . ($length !== null ? 'VARCHAR(' . $length . ')' : self::TYPES[$column->sqlType]) . ' NULL';
     }
 }

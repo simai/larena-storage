@@ -45,6 +45,14 @@ final readonly class StorageViewShapeVerifier
         if (!in_array(StorageViewDdl::stateIndexName($table), $indexes, true)) {
             $problems[] = 'state_index_missing';
         }
+        if ($layout->searchTable()) {
+            $search = StorageViewNaming::searchTable($table);
+            if (!$this->ddl->tableExists($search)) {
+                $problems[] = 'search_table_missing';
+            } elseif ($this->ddl->fulltext() && !in_array(StorageViewDdl::searchIndexName($table), $this->ddl->indexes($search), true)) {
+                $problems[] = 'search_index_missing';
+            }
+        }
         $expected = [];
         foreach ($layout->physical() as $column) {
             $name = (string) $column->column;

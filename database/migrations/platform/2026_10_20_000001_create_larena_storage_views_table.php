@@ -8,9 +8,10 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * The registry of витрины: one row per storage with its table, its column layout
- * and whether it is in sync with the versions. The витрина tables themselves are
- * created per storage at runtime; rolling this migration back drops every table
- * the registry names.
+ * and whether it is in sync with the versions. The витрина tables themselves (the
+ * main table, `_m` for multi-values, `_s` for the search text) are created per
+ * storage at runtime; rolling this migration back drops every table the registry
+ * names.
  */
 return new class extends Migration
 {
@@ -48,6 +49,7 @@ return new class extends Migration
         }
         foreach (array_unique($names) as $name) {
             if (preg_match('/\Alarena_storage_view_[0-9a-f]{24}\z/D', $name) === 1) {
+                Schema::dropIfExists($name . '_s');
                 Schema::dropIfExists($name . '_m');
                 Schema::dropIfExists($name);
             }

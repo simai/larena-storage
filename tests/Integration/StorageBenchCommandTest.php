@@ -67,7 +67,9 @@ try {
     benchExpect($run200['records'] === 200 && $run200['field_count'] === 20, 'the structure is not the realistic 20-field one');
     foreach ([
         'list_page_1', 'list_deep_page', 'filter_choice', 'filter_number_range', 'filter_date_range',
-        'sort_number', 'sort_title', 'search_text', 'matched_count', 'matched_count_exact', 'read_record', 'update_record', 'create_record',
+        'sort_number', 'sort_title', 'sort_title_desc_deep', 'sort_subtitle_unindexed', 'filter_title_prefix', 'filter_sku_eq',
+        'search_text', 'search_prefix', 'search_two_words', 'search_common_word', 'search_short_term',
+        'matched_count', 'matched_count_exact', 'read_record', 'update_record', 'create_record',
     ] as $operation) {
         $measured = $run200['operations'][$operation] ?? null;
         benchExpect(is_array($measured) && $measured['status'] === 'ok', $operation . ' was not measured');
@@ -78,6 +80,12 @@ try {
     benchExpect($run200['operations']['matched_count_exact']['matched_count'] === 200, 'exact count mismatch');
     benchExpect($run200['operations']['filter_choice']['matched_count'] === 40, 'choice filter mismatch');
     benchExpect($run200['operations']['search_text']['matched_count'] === 2, 'search mismatch');
+    // Subtitle and notes left the search and title and sku became indexed on the filled storage, without rewriting a record.
+    benchExpect(is_float($run200['options_backfill_ms']) || is_int($run200['options_backfill_ms']), 'the options backfill was not timed');
+    foreach (['search_prefix' => 2, 'search_two_words' => 2, 'search_short_term' => 2, 'filter_sku_eq' => 1] as $operation => $matched) {
+        benchExpect($run200['operations'][$operation]['matched_count'] === $matched, $operation . ' mismatch: ' . json_encode($run200['operations'][$operation]));
+    }
+    benchExpect($run200['operations']['filter_title_prefix']['matched_count'] > 0 && $run200['operations']['search_common_word']['matched_count'] > 0, 'title prefix or common word matched nothing');
     foreach ($run200['cleanup'] as $cleanup) {
         benchExpect($cleanup['method'] === 'engine_purge', 'a small structure was not purged through the engine');
     }

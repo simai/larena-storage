@@ -18,18 +18,20 @@ use Throwable;
  * --queue. A build that stops resumes where it was on the next run or job.
  *
  *   larena:storage:view:rebuild workbench.scope.x.y   one storage (from scratch, or resumed)
- *   larena:storage:view:rebuild --missing             every structure whose витрина is not ready
+ *   larena:storage:view:rebuild --missing             every structure whose витрина is not ready, or has rows to backfill
  *   larena:storage:view:rebuild --all                 every structure
  *   larena:storage:view:rebuild --missing --queue     enqueue the builds for the queue worker
+ *   larena:storage:view:rebuild --all --search        refill every search table in place (lists keep working)
  */
 final class StorageViewRebuildCommand extends Command
 {
     protected $signature = 'larena:storage:view:rebuild
         {schema? : The storage schema id to build}
         {--all : Every workbench structure}
-        {--missing : Every workbench structure whose витрина is missing or not ready}
+        {--missing : Every workbench structure whose витрина is missing, not ready, or has rows to backfill}
         {--chunk=1000 : Records per transaction}
-        {--queue : Enqueue a storage.view.rebuild job per storage instead of building inline}';
+        {--queue : Enqueue a storage.view.rebuild job per storage instead of building inline}
+        {--search : Refill only the search text, into an emptied search table (a fresh FULLTEXT index after heavy editing); the витрина stays ready}';
 
     protected $description = 'Build Larena Storage витрины (the typed read tables) from the record versions; resumable.';
 
@@ -66,13 +68,19 @@ final class StorageViewRebuildCommand extends Command
                     continue;
                 }
                 $registration = $missing ? $views->registry()->find($id, true) : null;
-                if ($missing && $registration?->state === StorageViewRegistration::STATE_READY) {
+                if ($missing && $registration?->state === StorageViewRegistration::STATE_READY && !$registration->backfillPending()) {
                     continue;
                 }
                 $targets[] = $id;
             }
         }
 
+        if ((bool) $this->option('search')) {
+            foreach ($targets as $target) {
+                // The search text is refilled into an emptied search table; the витрина stays ready.
+                $views->refreshSearch($target);
+            }
+        }
         if ((bool) $this->option('queue')) {
             return $this->enqueue($targets, $chunk);
         }
@@ -84,12 +92,12 @@ final class StorageViewRebuildCommand extends Command
         $failed = 0;
         foreach ($targets as $target) {
             try {
-                // An explicit schema or --all builds from scratch unless a build is under way.
+                // An explicit schema or --all builds from scratch unless a build or a backfill is under way.
                 $current = $views->registry()->find($target, true);
                 $result = $rebuilder->rebuild(
                     $target,
                     $chunk,
-                    $current !== null && $current->state === StorageViewRegistration::STATE_READY,
+                    $current !== null && $current->state === StorageViewRegistration::STATE_READY && !$current->backfillPending(),
                     fn (string $line) => $this->line($line, null, 'v'),
                 );
                 $this->line(sprintf('%s: ready, %d records%s', $result['schema_id'], $result['records'], $result['resumed'] ? ' (resumed)' : ''));
