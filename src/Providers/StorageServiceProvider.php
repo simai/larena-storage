@@ -8,6 +8,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
+use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewSync;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\PublicationObserver;
@@ -343,6 +344,8 @@ final class StorageServiceProvider extends ServiceProvider
                     : '',
                 $app->make(StorageSecurityEventSink::class),
                 $app->make(StorageViewSync::class),
+                // A host may bind its own counter (a threshold, a time budget); the default counts as decided.
+                $app->bound(StorageViewCounter::class) ? $app->make(StorageViewCounter::class) : null,
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);

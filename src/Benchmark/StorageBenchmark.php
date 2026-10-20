@@ -12,6 +12,7 @@ use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
+use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
@@ -29,8 +30,8 @@ use Throwable;
  * twenty fields: list pages, filters, sorting, search, the matched count, and
  * single-record read, update and create. Every operation reports p50/p95/max
  * milliseconds, peak memory and the SQL query count of one call. An operation
- * the engine refuses (for example the 5000-record list scan limit) is recorded
- * as failed with its reason; the run goes on.
+ * the engine refuses (for example the 5000-record scan limit of a list without
+ * a ready витрина) is recorded as failed with its reason; the run goes on.
  *
  * Records are seeded by writing exactly the rows the engine's create writes:
  * values normalized against the stored schema version, canonical JSON, a
@@ -174,14 +175,16 @@ final class StorageBenchmark
         }
         $progress(sprintf('Seeded %d records in %.1f s; measuring...', $size, $seedMs / 1000));
 
-        $list = fn (array $filters = [], ?string $search = null, array $sort = [], int $limit = 50, ?int $page = null): int => $this->workbench->listRecords(
-            new StorageWorkbenchRecordQuery($this->scopeRef, $structure->structureId, $filters, $search, $sort, $limit, null, false, $page),
-            self::ACTOR,
-        )->matchedCount;
+        $list = fn (array $filters = [], ?string $search = null, array $sort = [], int $limit = 50, ?int $page = null,
+            StorageWorkbenchCountMode $count = StorageWorkbenchCountMode::Auto): int => $this->workbench->listRecords(
+                new StorageWorkbenchRecordQuery($this->scopeRef, $structure->structureId, $filters, $search, $sort, $limit, null, false, $page, $count),
+                self::ACTOR,
+            )->matchedCount;
         $pick = static fn (int $iteration): string => $recordIds[($iteration * 7919) % count($recordIds)];
         $deepPage = min(50, intdiv($size - 1, 50) + 1);
         // Each operation prepares outside the timer and returns the timed call.
-        $listing = static fn (array $filters = [], ?string $search = null, array $sort = [], int $limit = 50, ?int $page = null): Closure => static fn (): int => $list($filters, $search, $sort, $limit, $page);
+        $listing = static fn (array $filters = [], ?string $search = null, array $sort = [], int $limit = 50, ?int $page = null,
+            StorageWorkbenchCountMode $count = StorageWorkbenchCountMode::Auto): Closure => static fn (): int => $list($filters, $search, $sort, $limit, $page, $count);
         $operations = [
             'list_page_1' => static fn (): Closure => $listing(),
             // Page 50 of 50 records, or the last page of a smaller structure.
@@ -193,6 +196,8 @@ final class StorageBenchmark
             'sort_title' => static fn (): Closure => $listing(sort: [['field' => 'title', 'direction' => 'asc']]),
             'search_text' => static fn (): Closure => $listing(search: self::SEARCH_TOKEN),
             'matched_count' => static fn (): Closure => $listing(limit: 1),
+            // The count a bulk action confirms: exact, however large.
+            'matched_count_exact' => static fn (): Closure => $listing(limit: 1, count: StorageWorkbenchCountMode::Exact),
             'read_record' => fn (int $iteration): Closure => fn (): int => $this->workbench
                 ->readRecord($this->scopeRef, $structure->structureId, $pick($iteration), self::ACTOR)->revision,
             'update_record' => function (int $iteration) use ($structure, $pick): Closure {
@@ -281,7 +286,7 @@ final class StorageBenchmark
             'queries' => max($queries),
             'peak_memory_bytes' => max($memory),
             'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_')
-                || str_starts_with($name, 'sort_') || in_array($name, ['search_text', 'matched_count'], true) ? $value : null,
+                || str_starts_with($name, 'sort_') || in_array($name, ['search_text', 'matched_count', 'matched_count_exact'], true) ? $value : null,
         ];
     }
 

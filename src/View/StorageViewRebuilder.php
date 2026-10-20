@@ -150,6 +150,14 @@ final readonly class StorageViewRebuilder
                 $progress(sprintf('%s: %d records', $schemaId, $records));
             }
         }
+        // A freshly filled table gets its index statistics now, so the first lists are planned on them.
+        if ($ddl instanceof MySqlStorageViewDdl && $records > 0) {
+            $table = StorageViewNaming::table($schemaId);
+            try {
+                $database->select('ANALYZE TABLE `' . $table . '`, `' . StorageViewNaming::multiTable($table) . '`');
+            } catch (\Throwable) {
+            }
+        }
 
         return ['schema_id' => $schemaId, 'state' => StorageViewRegistration::STATE_READY, 'records' => $records, 'resumed' => $resumed];
     }

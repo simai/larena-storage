@@ -118,7 +118,11 @@
     "tests/Integration/StorageViewWritePathTest.php",
     "tests/Integration/StorageViewMySqlTest.php",
     "tests/Support/storage-view-fixture.php",
-    "tests/Integration/StorageCurrentReadLockingTest.php"
+    "tests/Integration/StorageCurrentReadLockingTest.php",
+    "src/Contracts/StorageWorkbenchRecordPage.php",
+    "src/Contracts/StorageWorkbenchRecordQuery.php",
+    "src/Enums/StorageWorkbenchCountMode.php",
+    "tests/Integration/StorageViewListTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

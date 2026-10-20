@@ -24,7 +24,7 @@ final readonly class StorageViewLayoutPlanner
     public const SYSTEM_FIELDS = ['larena_scope_ref', 'larena_record_state'];
     public const AUTO_INDEX_KINDS = ['choice', 'record', 'user', 'date', 'datetime', 'number', 'integer', 'boolean'];
     public const MAX_AUTO_INDEXES = 40;
-    // MySQL allows 64 indexes; the primary key and the (state, updated_at) index take two.
+    // MySQL allows 64 indexes; the primary key and the (state, updated_at) and (state, record_id) indexes take three.
     public const MAX_FIELD_INDEXES = 60;
     public const ROW_BYTES_LIMIT = 65535;
     public const STRING_INDEX_MAX_LENGTH = 255;

@@ -30,8 +30,15 @@ use Larena\Storage\Contracts\VersionedStorage;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
+use Larena\Storage\View\StorageViewColumn;
+use Larena\Storage\View\StorageViewCounter;
+use Larena\Storage\View\StorageViewKeyset;
+use Larena\Storage\View\StorageViewQuery;
+use Larena\Storage\View\StorageViewQueryCompiler;
+use Larena\Storage\View\StorageViewRegistration;
 use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
@@ -48,6 +55,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const MAX_FIELDS = 100;
     // Memory budget: one list call decodes and may retain up to ~5000 current records (rows are streamed by cursor).
     private const MAX_SCAN = 5000;
+    // Lists read from the витрина keep page numbers while the offset stays at or under this.
+    private const MAX_OFFSET = 10000;
     private const MAX_FILTERS = 8;
     private const MAX_SORTS = 3;
     // One bulk archive runs in a single transaction; 1000 records keeps "archive all matching" bounded.
@@ -75,6 +84,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
 
     private SchemaDefinitionNormalizer $normalizer;
     private StorageSecurityEventSink $events;
+    private StorageViewQueryCompiler $compiler;
+    private StorageViewCounter $counter;
 
     public function __construct(
         private ConnectionInterface $database,
@@ -88,9 +99,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         ?StorageSecurityEventSink $events = null,
         // Builds each structure's витрина and keeps its columns in step with the fields.
         private ?StorageViewSync $views = null,
+        // Counts lists read from the витрина: exact under a threshold, an estimate above it.
+        ?StorageViewCounter $counter = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
+        $this->compiler = new StorageViewQueryCompiler();
+        $this->counter = $counter ?? new StorageViewCounter();
     }
 
     public function filterOperators(): array
@@ -1026,6 +1041,15 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if ($keys === [] || ($wanted === null && $source->structureId === $structureId)) {
                 continue;
             }
+            // Indexed: the record columns of the source's витрина, when it is ready.
+            $fromView = $this->viewReferencedIds($source, $keys, $wanted,
+                $source->structureId === $structureId && $wanted !== null ? $wanted : []);
+            if ($fromView !== null) {
+                foreach ($fromView as $value) {
+                    $referenced[$value] = true;
+                }
+                continue;
+            }
             $rows = $this->database->table('larena_storage_records as heads')
                 ->join('larena_storage_record_versions as versions', static function ($join): void {
                     $join->on('versions.schema_id', '=', 'heads.schema_id')
@@ -1200,12 +1224,29 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'target' => $decision->target,
             'reason_code' => $decision->reasonCode,
         ]));
+        // A storage whose витрина is ready for its current schema answers in SQL; any other keeps the PHP list.
+        $view = $this->listView($structure);
+        $compiled = null;
+        if ($view !== null) {
+            $fields = [];
+            foreach ($structure->fields as $field) {
+                $fields[(string) $field['key']] = $field;
+            }
+            try {
+                $compiled = $this->compiler->compile($this->viewConnection(), $view, $fields, $normalizedQuery);
+            } catch (Throwable $exception) {
+                throw StoragePersistenceFailed::from($exception);
+            }
+        }
+        if ($compiled !== null) {
+            return $this->listFromView($compiled, $query, $structure, $queryHash, $scopeHash);
+        }
         if ($query->page !== null && ($query->continuation !== null || $query->page < 1
             || $query->page > (int) ceil(self::MAX_SCAN / $query->limit))) {
             throw new StorageRejected('storage_workbench_record_page_invalid');
         }
         $offset = $query->page === null
-            ? $this->decodeContinuation($query->continuation, $queryHash, $scopeHash)
+            ? $this->decodeContinuation($query->continuation, $queryHash, $scopeHash, self::MAX_SCAN)
             : ($query->page - 1) * $query->limit;
 
         try {
@@ -1274,6 +1315,207 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw StoragePersistenceFailed::from($exception);
         }
     }
+
+    /**
+     * One page of a list from the витрина: ids in list order (one more than the
+     * page to know whether there is more), then the records from their current
+     * versions in one query, without recomputing their hashes.
+     */
+    private function listFromView(
+        StorageViewQuery $compiled,
+        StorageWorkbenchRecordQuery $query,
+        StorageWorkbenchStructure $structure,
+        string $queryHash,
+        string $scopeHash,
+    ): StorageWorkbenchRecordPage {
+        if ($query->page !== null && ($query->continuation !== null || $query->page < 1
+            || ($query->page - 1) * $query->limit > self::MAX_OFFSET)) {
+            throw new StorageRejected('storage_workbench_record_page_invalid');
+        }
+        $keyset = new StorageViewKeyset($this->cursorKey, $this->canonicalJson(...));
+        $offset = 0;
+        $after = null;
+        if ($query->page !== null) {
+            $offset = ($query->page - 1) * $query->limit;
+        } elseif ($query->continuation !== null) {
+            if (StorageViewKeyset::version($query->continuation) === StorageViewKeyset::VERSION) {
+                $after = $keyset->decode($query->continuation, $queryHash, $scopeHash, count($compiled->sort));
+                $offset = $after['offset'];
+            } else {
+                // An offset continuation: issued before the витрина, or for a sort key too long to carry.
+                $offset = $this->decodeContinuation($query->continuation, $queryHash, $scopeHash, StorageViewKeyset::MAX_OFFSET);
+            }
+        }
+
+        try {
+            $rows = $compiled->page($query->limit, $after === null ? $offset : 0, $after);
+            $more = count($rows) > $query->limit;
+            $rows = array_slice($rows, 0, $query->limit);
+            $items = $this->listedRecords($structure, $query, array_column($rows, 'record_id'));
+            $passed = $offset + count($rows);
+            $continuation = null;
+            if ($more && $rows !== []) {
+                $last = $rows[count($rows) - 1];
+                // A sort key too long to carry (long text) continues by offset: slower, still complete.
+                $continuation = $keyset->encode($queryHash, $scopeHash, $last['keys'], $last['record_id'], $passed)
+                    ?? $this->encodeContinuation($passed, $queryHash, $scopeHash);
+            }
+            if ($query->countMode === StorageWorkbenchCountMode::Skip) {
+                return new StorageWorkbenchRecordPage($items, $continuation, $passed + ($more ? 1 : 0), !$more);
+            }
+            // The last page read by offset knows the total already.
+            if ($query->countMode === StorageWorkbenchCountMode::Auto && !$more && $after === null && ($rows !== [] || $offset === 0)) {
+                return new StorageWorkbenchRecordPage($items, $continuation, $passed, true);
+            }
+            $count = $this->counter->count($compiled, $query->countMode);
+
+            return new StorageWorkbenchRecordPage($items, $continuation, $count['count'], $count['exact']);
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /**
+     * The records of the listed ids, in that order, from their current versions.
+     *
+     * @param list<string> $recordIds
+     * @return list<StorageWorkbenchRecord>
+     */
+    private function listedRecords(StorageWorkbenchStructure $structure, StorageWorkbenchRecordQuery $query, array $recordIds): array
+    {
+        if ($recordIds === []) {
+            return [];
+        }
+        $rows = $this->database->table('larena_storage_records as heads')
+            ->join('larena_storage_record_versions as versions', static function ($join): void {
+                $join->on('versions.schema_id', '=', 'heads.schema_id')
+                    ->on('versions.record_id', '=', 'heads.record_id')
+                    ->on('versions.revision', '=', 'heads.current_revision');
+            })
+            ->where('heads.schema_id', $structure->schema->schemaId)
+            ->whereIn('heads.record_id', $recordIds)
+            ->select([
+                'versions.schema_id', 'versions.record_id', 'versions.revision', 'versions.owner_ref',
+                'versions.schema_version', 'versions.values_json', 'versions.content_hash',
+                'versions.operation', 'versions.created_by', 'versions.correlation_id', 'versions.created_at',
+                'heads.current_hash as head_hash',
+            ])
+            ->get();
+        $records = [];
+        foreach ($rows as $row) {
+            if (!hash_equals((string) $row->content_hash, (string) $row->head_hash)) {
+                throw new StorageRejected('storage_workbench_record_head_corrupt');
+            }
+            $version = $this->hydrateRawRecordVersion($row, false);
+            if (($version->values[self::SCOPE_FIELD] ?? null) !== $query->scopeRef) {
+                continue;
+            }
+            $record = $this->workbenchRecord($structure, $version);
+            if (!$query->includeArchived && $record->state === self::STATE_ARCHIVED) {
+                continue;
+            }
+            $records[$record->recordId] = $record;
+        }
+        $ordered = [];
+        foreach ($recordIds as $recordId) {
+            if (isset($records[$recordId])) {
+                $ordered[] = $records[$recordId];
+            }
+        }
+
+        return $ordered;
+    }
+
+    /** The structure's витрина when it is ready and built for the structure's current schema version. */
+    private function listView(StorageWorkbenchStructure $structure): ?StorageViewRegistration
+    {
+        if ($this->views === null || !$this->database instanceof Connection) {
+            return null;
+        }
+        try {
+            if (!$this->views->enabled()) {
+                return null;
+            }
+            $view = $this->views->registry()->find($structure->schema->schemaId);
+        } catch (Throwable) {
+            return null;
+        }
+        if ($view === null || $view->state !== StorageViewRegistration::STATE_READY
+            || $view->builtSchemaVersion !== $structure->schema->version
+            || $view->layout->schemaVersion !== $structure->schema->version) {
+            return null;
+        }
+
+        return $view;
+    }
+
+    private function viewConnection(): Connection
+    {
+        if (!$this->database instanceof Connection) {
+            throw new StorageRejected('storage_view_connection_unavailable');
+        }
+
+        return $this->database;
+    }
+
+    /**
+     * The records a record@1 field of one structure names, from that structure's
+     * витрина; null when the витрина cannot answer (not ready, or a field without
+     * a written column), and the caller scans the versions instead.
+     *
+     * @param list<string> $keys
+     * @param array<string, true>|null $wanted
+     * @param array<string, true> $excluded Records whose own references do not count.
+     * @return list<string>|null
+     */
+    private function viewReferencedIds(StorageWorkbenchStructure $source, array $keys, ?array $wanted, array $excluded): ?array
+    {
+        $view = $this->listView($source);
+        if ($view === null) {
+            return null;
+        }
+        $columns = [];
+        foreach ($keys as $key) {
+            $found = null;
+            foreach ($view->layout->columns as $column) {
+                if ($column->fieldKey === $key && $column->kind === 'record' && $column->column !== null
+                    && $column->state === StorageViewColumn::STATE_READY) {
+                    $found = $column->column;
+                }
+            }
+            if ($found === null) {
+                return null;
+            }
+            $columns[] = $found;
+        }
+        $referenced = [];
+        $wantedChunks = $wanted === null ? [null] : array_chunk(array_map('strval', array_keys($wanted)), 500);
+        $excludedIds = array_map('strval', array_keys($excluded));
+        foreach ($columns as $column) {
+            foreach ($wantedChunks as $chunk) {
+                // The витрина holds this scope's records only (its table is named from the scoped schema id).
+                $select = $this->viewConnection()->table($view->tableName)
+                    ->whereNotNull($column)
+                    ->distinct();
+                if ($chunk !== null) {
+                    $select->whereIn($column, $chunk);
+                }
+                foreach (array_chunk($excludedIds, 500) as $excludedChunk) {
+                    $select->whereNotIn('record_id', $excludedChunk);
+                }
+                foreach ($select->pluck($column) as $value) {
+                    if (is_string($value)) {
+                        $referenced[$value] = true;
+                    }
+                }
+            }
+        }
+
+        return array_map('strval', array_keys($referenced));
+    }
+
 
     public function recordHistory(
         string $scopeRef,
@@ -1771,7 +2013,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         );
     }
 
-    private function hydrateRawRecordVersion(stdClass $row): StorageRecordVersion
+    /** A list hydrates without recomputing each record's hash; a single read verifies it. */
+    private function hydrateRawRecordVersion(stdClass $row, bool $verify = true): StorageRecordVersion
     {
         try {
             $values = json_decode((string) $row->values_json, true, 512, JSON_THROW_ON_ERROR);
@@ -1781,8 +2024,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         if (!is_array($values) || array_is_list($values)) {
             throw new StorageRejected('storage_workbench_record_corrupt');
         }
-        $hash = hash('sha256', $this->canonicalJson($values));
-        if (!hash_equals((string) $row->content_hash, $hash)) {
+        $hash = $verify ? hash('sha256', $this->canonicalJson($values)) : (string) $row->content_hash;
+        if ($verify && !hash_equals((string) $row->content_hash, $hash)) {
             throw new StorageRejected('storage_workbench_record_corrupt');
         }
 
@@ -2051,8 +2294,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 return $item['direction'] === 'desc' ? -$comparison : $comparison;
             }
         }
+        // Equal keys follow the record id in the direction of the last key, as the витрина's indexes read.
+        $tiebreak = strcmp($left->recordId, $right->recordId);
 
-        return strcmp($left->recordId, $right->recordId);
+        return ($sort[count($sort) - 1]['direction'] ?? 'asc') === 'desc' ? -$tiebreak : $tiebreak;
     }
 
     private function compareValues(mixed $left, mixed $right, ?string $type): int
@@ -2100,7 +2345,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         return $leftNegative ? -$integer : $integer;
     }
 
-    private function decodeContinuation(?string $continuation, string $queryHash, string $scopeHash): int
+    private function decodeContinuation(?string $continuation, string $queryHash, string $scopeHash, int $maxOffset): int
     {
         if ($continuation === null) {
             return 0;
@@ -2128,7 +2373,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             || ($payload['version'] ?? null) !== 1
             || !is_int($payload['offset'] ?? null)
             || $payload['offset'] < 0
-            || $payload['offset'] > self::MAX_SCAN
+            || $payload['offset'] > $maxOffset
             || !is_string($payload['query'] ?? null)
             || !is_string($payload['scope'] ?? null)
             || !is_string($payload['signature'] ?? null)) {

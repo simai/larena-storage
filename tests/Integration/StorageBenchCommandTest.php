@@ -14,8 +14,8 @@ use Symfony\Component\Console\Output\BufferedOutput;
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 // `larena:storage:bench` on a tiny throwaway SQLite database: every operation is
-// measured, the engine's refusal above its list scan limit is a result rather than
-// a crash, the default connection is refused, and nothing is left behind.
+// measured, lists above the PHP list's 5000-record scan work from the витрина,
+// the default connection is refused, and nothing is left behind.
 function benchExpect(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -67,7 +67,7 @@ try {
     benchExpect($run200['records'] === 200 && $run200['field_count'] === 20, 'the structure is not the realistic 20-field one');
     foreach ([
         'list_page_1', 'list_deep_page', 'filter_choice', 'filter_number_range', 'filter_date_range',
-        'sort_number', 'sort_title', 'search_text', 'matched_count', 'read_record', 'update_record', 'create_record',
+        'sort_number', 'sort_title', 'search_text', 'matched_count', 'matched_count_exact', 'read_record', 'update_record', 'create_record',
     ] as $operation) {
         $measured = $run200['operations'][$operation] ?? null;
         benchExpect(is_array($measured) && $measured['status'] === 'ok', $operation . ' was not measured');
@@ -75,6 +75,7 @@ try {
         benchExpect($measured['queries'] > 0 && $measured['peak_memory_bytes'] >= 0, $operation . ' has no query count');
     }
     benchExpect($run200['operations']['matched_count']['matched_count'] === 200, 'matched count mismatch');
+    benchExpect($run200['operations']['matched_count_exact']['matched_count'] === 200, 'exact count mismatch');
     benchExpect($run200['operations']['filter_choice']['matched_count'] === 40, 'choice filter mismatch');
     benchExpect($run200['operations']['search_text']['matched_count'] === 2, 'search mismatch');
     foreach ($run200['cleanup'] as $cleanup) {
@@ -85,12 +86,12 @@ try {
     benchExpect($connection->table('larena_storage_record_versions')->count() === 0, 'versions were left behind');
     benchExpect($connection->table('larena_storage_workbench_structures')->count() === 0, 'structures were left behind');
 
-    // Above the scan limit the list is refused; the run records it and goes on.
+    // Above the PHP list's 5000-record scan the list reads the витрина and still works.
     [$status, $output] = $run(['--connection' => 'benchmark', '--records' => '5001', '--repeat' => '1', '--json' => $json]);
     benchExpect($status === 0, 'the over-limit run failed: ' . $output);
     $large = json_decode((string) file_get_contents($json), true, 64, JSON_THROW_ON_ERROR)['runs'][0];
-    benchExpect($large['operations']['list_page_1']['status'] === 'fails'
-        && $large['operations']['list_page_1']['reason'] === 'storage_workbench_record_scan_limit_exceeded', 'the scan limit was not recorded as a failure');
+    benchExpect($large['operations']['list_page_1']['status'] === 'ok'
+        && $large['operations']['matched_count']['matched_count'] === 5001, 'a list above 5000 records did not work: ' . json_encode($large['operations']['list_page_1']));
     benchExpect($large['operations']['read_record']['status'] === 'ok' && $large['operations']['create_record']['status'] === 'ok', 'single-record operations stopped');
     benchExpect(in_array('owned_rows_deleted', array_column($large['cleanup'], 'method'), true), 'a structure above the purge limit was not cleaned up');
     benchExpect($connection->table('larena_storage_records')->count() === 0, 'over-limit records were left behind');

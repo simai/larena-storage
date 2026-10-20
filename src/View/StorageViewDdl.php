@@ -73,6 +73,12 @@ abstract class StorageViewDdl
         return StorageViewNaming::index($table, 'state_updated');
     }
 
+    /** (state, record_id): the list's default order, and the order of a sort's ties. */
+    public static function stateRecordIndexName(string $table): string
+    {
+        return StorageViewNaming::index($table, 'state_record');
+    }
+
     public static function multiRecordIndexName(string $table): string
     {
         return StorageViewNaming::index(StorageViewNaming::multiTable($table), 'record');

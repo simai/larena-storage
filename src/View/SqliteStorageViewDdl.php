@@ -59,6 +59,7 @@ final class SqliteStorageViewDdl extends StorageViewDdl
             $this->database->statement('CREATE TABLE "' . $table . '" (' . implode(', ', $columns) . ')');
         }
         $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::stateIndexName($table) . '" ON "' . $table . '" ("state", "updated_at", "record_id")');
+        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::stateRecordIndexName($table) . '" ON "' . $table . '" ("state", "record_id")');
         foreach ($layout->physical() as $column) {
             if ($column->indexed && $column->state !== StorageViewColumn::STATE_DROPPING) {
                 $this->createIndex($table, $column);

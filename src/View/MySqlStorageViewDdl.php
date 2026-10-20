@@ -51,6 +51,7 @@ final class MySqlStorageViewDdl extends StorageViewDdl
             $indexes = [
                 'PRIMARY KEY (`record_id`)',
                 'KEY `' . self::stateIndexName($table) . '` (`state`, `updated_at`, `record_id`)',
+                'KEY `' . self::stateRecordIndexName($table) . '` (`state`, `record_id`)',
             ];
             foreach ($layout->physical() as $column) {
                 if ($column->state === StorageViewColumn::STATE_DROPPING) {
@@ -63,6 +64,9 @@ final class MySqlStorageViewDdl extends StorageViewDdl
             }
             $this->database->statement('CREATE TABLE IF NOT EXISTS `' . $table . '` (' . implode(', ', array_merge($columns, $indexes))
                 . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC');
+        } elseif (!in_array(self::stateRecordIndexName($table), $this->indexes($table), true)) {
+            // A table built before the list read it gains its default-order index in place.
+            $this->database->statement('CREATE INDEX `' . self::stateRecordIndexName($table) . '` ON `' . $table . '` (`state`, `record_id`) ALGORITHM=INPLACE LOCK=NONE');
         }
         $multi = StorageViewNaming::multiTable($table);
         if (!$this->tableExists($multi)) {

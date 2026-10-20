@@ -51,6 +51,7 @@ function storageViewDdlChecks(Connection $connection, StorageViewDdl $ddl): void
     storageViewExpect($ddl->columns($first . '_m') === ['record_id', 'field_key', 'value'], 'the side table columns are wrong');
     $indexes = $ddl->indexes($first);
     storageViewExpect(in_array(StorageViewDdl::stateIndexName($first), $indexes, true), 'the (state, updated_at) index is missing');
+    storageViewExpect(in_array(StorageViewDdl::stateRecordIndexName($first), $indexes, true), 'the (state, record_id) index is missing');
     foreach ($layout->physical() as $column) {
         $name = StorageViewDdl::fieldIndexName($first, (string) $column->column);
         storageViewExpect(in_array($name, $indexes, true) === $column->indexed, 'index presence of ' . $column->column . ' is wrong');
