@@ -159,9 +159,26 @@ record of the same structure, scope and locale already holds
 scheduled and lists it under `refused`. Without a binding, `NoPublishedKeys`
 declares no key and only `resolveKey` refuses a duplicate, as `ambiguous_key`.
 
-Key lookups read every published record of the scope and locale page by page;
-past `DatabaseReadContracts::KEY_SCAN_LIMIT` (50,000) they refuse with
-`key_scan_limit_exceeded` rather than miss a key.
+The declared key is indexed. `PublishedKeyIndex` keeps
+`larena_storage_published_keys` (unique per structure, scope, locale, key
+field and key) inside every publication transition and every translation of a
+published revision, and `larena_storage_published_key_sets` says, per
+structure, scope, locale and key field, whether the table is complete
+(`ready`) and along which locale chain it was built. A key lookup reads the
+table when its set is ready for the current chain and checks that the holder
+is still published with that key; otherwise it reads every published record
+of the scope and locale page by page, each page in a constant number of
+queries, and past `DatabaseReadContracts::KEY_SCAN_LIMIT` (50,000) refuses
+with `key_scan_limit_exceeded` rather than miss a key. A new set is built in
+its first publish when the scope and locale hold at most 500 other published
+records; otherwise, after the migration, after a change of the locale
+fallback, or after a conflict, run `larena:storage:published-keys:rebuild`
+(chunked, resumable, idempotent). A publication through a lifecycle built
+without the index is seen only after that rebuild.
+
+Site reads are batched: a projection page reads its versions, localized values
+and projection versions with one `whereIn` per chunk of 500 records, never one
+query per record.
 
 ## Localized Fields Live In The Schema
 

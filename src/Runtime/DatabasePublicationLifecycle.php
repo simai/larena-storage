@@ -8,6 +8,7 @@ use Illuminate\Database\Connection;
 use Larena\Storage\Audit\PublicationAuditEventCatalog;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\PublicationGuard;
+use Larena\Storage\Contracts\PublicationIndex;
 use Larena\Storage\Contracts\PublicationObserver;
 use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\PublicationState;
@@ -65,6 +66,8 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
      * @param callable(string $schemaId, string $recordId, int $revision): bool|null $revisionExists
      *        an optional check that a revision really belongs to the record; absent in
      *        a package test, bound in the composed application
+     * @param PublicationIndex|null $index a derived index written in the transition's own
+     *        transaction, such as the published-key table; it may refuse the transition
      */
     public function __construct(
         private readonly Connection $connection,
@@ -72,6 +75,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         private readonly ?PublicationObserver $observer = null,
         private readonly ?StorageSecurityEventSink $securityEvents = null,
         private readonly ?PublicationGuard $guard = null,
+        private readonly ?PublicationIndex $index = null,
     ) {
     }
 
@@ -451,6 +455,10 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                     ->where('publication_id', $publicationId)
                     ->update($payload);
             }
+
+            // The published-key table moves with the head, in this transaction: a
+            // key another publish took in the meantime refuses the transition here.
+            $this->index?->publicationWritten($next);
 
             // One log row per transition, in the same transaction as the state write:
             // a state change nobody can account for is not acceptable in a system whose

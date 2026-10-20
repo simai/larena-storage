@@ -9,12 +9,15 @@ use Larena\Storage\Audit\LocalizedValueAuditEventCatalog;
 use Larena\Storage\Contracts\LocaleCoverageReport;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocalizedValue;
+use Larena\Storage\Contracts\LocalizedValueObserver;
 use Larena\Storage\Contracts\LocalizedValues;
+use Larena\Storage\Contracts\LocalizedValuesBatch;
 use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\LocalizedValueRejected;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Property\Runtime\PropertyTypeRegistry as BuiltInPropertyTypes;
+use Closure;
 use Throwable;
 
 /**
@@ -27,20 +30,26 @@ use Throwable;
  * page's German title is an empty string", and folding the two together would make
  * coverage meaningless.
  */
-final class DatabaseLocalizedValues implements LocalizedValues
+final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesBatch
 {
     public const TABLE = 'larena_storage_localized_values';
+
+    /** How many revisions one batched read asks for at most. */
+    public const BATCH = 500;
 
     private PropertyTypeRegistry $types;
 
     /**
      * @param string|null $primaryLocale the language of the shared values, from the application
+     * @param (Closure(): LocalizedValueObserver)|null $observer gives the index that hears of every write;
+     *        a closure so that the index, which reads through this class, is built only when a write happens
      */
     public function __construct(
         private readonly Connection $connection,
         ?PropertyTypeRegistry $types = null,
         private readonly ?string $primaryLocale = null,
         private readonly ?StorageSecurityEventSink $securityEvents = null,
+        private readonly ?Closure $observer = null,
     ) {
         $this->types = $types ?? BuiltInPropertyTypes::builtIns();
     }
@@ -233,6 +242,12 @@ final class DatabaseLocalizedValues implements LocalizedValues
                 $written[] = (string) $fieldKey;
             }
 
+            // A translation of a published revision changes what it shows; the
+            // derived index learns of it in the same transaction.
+            if ($written !== [] && $this->observer !== null) {
+                ($this->observer)()->localizedValuesWritten($schemaId, $recordId, $revision, $locale);
+            }
+
             // One audit event per write, in its transaction: a translation whose
             // audit cannot be written is not written. Field keys, never values.
             $this->securityEvents?->emit(new StorageSecurityEvent(
@@ -320,6 +335,61 @@ final class DatabaseLocalizedValues implements LocalizedValues
             $byFieldAndLocale[(string) $row['field_key']][(string) $row['locale']] = $row['value_json'];
         }
 
+        return $this->resolveRows($byFieldAndLocale, $chain);
+    }
+
+    /**
+     * @param list<array{record_id: string, revision: int}> $heads
+     * @param list<string> $fieldKeys
+     * @return array<string, array<string, LocalizedValue>>
+     * @phpstan-impure
+     */
+    public function resolveMany(string $schemaId, array $heads, LocaleFallbackChain $chain, array $fieldKeys = []): array
+    {
+        $this->assertSchema();
+
+        $resolved = [];
+        // One query per chunk of revisions instead of one per record: the rows of
+        // other revisions of the same records are dropped here, not asked for apart.
+        foreach (array_chunk($heads, self::BATCH) as $chunk) {
+            $wanted = [];
+            foreach ($chunk as $head) {
+                $wanted[$head['record_id']] = $head['revision'];
+            }
+            $query = $this->connection->table(self::TABLE)
+                ->select(['record_id', 'revision', 'locale', 'field_key', 'value_json'])
+                ->where('schema_id', $schemaId)
+                ->whereIn('record_id', array_values(array_unique(array_column($chunk, 'record_id'))))
+                ->whereIn('revision', array_values(array_unique(array_column($chunk, 'revision'))))
+                ->whereIn('locale', $chain->locales);
+            if ($fieldKeys !== []) {
+                $query->whereIn('field_key', $fieldKeys);
+            }
+
+            $byRecord = [];
+            foreach ($query->get() as $row) {
+                $row = (array) $row;
+                $recordId = (string) $row['record_id'];
+                if (($wanted[$recordId] ?? null) !== (int) $row['revision']) {
+                    continue;
+                }
+                $byRecord[$recordId][(string) $row['field_key']][(string) $row['locale']] = $row['value_json'];
+            }
+
+            foreach ($chunk as $head) {
+                $resolved[$head['record_id']] = $this->resolveRows($byRecord[$head['record_id']] ?? [], $chain);
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $byFieldAndLocale
+     * @return array<string, LocalizedValue>
+     */
+    private function resolveRows(array $byFieldAndLocale, LocaleFallbackChain $chain): array
+    {
         $requested = $chain->requested();
         $resolved = [];
 

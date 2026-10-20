@@ -6,6 +6,7 @@ namespace Larena\Storage\Providers;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
+use Larena\Storage\Console\Commands\PublishedKeyRebuildCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
 use Larena\Storage\Console\Commands\StorageViewCheckCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
@@ -37,6 +38,7 @@ use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
+use Larena\Storage\Contracts\LocalizedValueObserver;
 use Larena\Storage\Contracts\PublishedKeyPolicy;
 use Larena\Storage\Contracts\PublishedReadVisibility;
 use Larena\Storage\Contracts\ReadContracts;
@@ -66,6 +68,7 @@ use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
 use Larena\Storage\Runtime\NoPublishedKeys;
+use Larena\Storage\Runtime\PublishedKeyIndex;
 use Larena\Storage\Runtime\PublishedKeyUniqueness;
 use Larena\Storage\Runtime\PublishedRecordsArePublic;
 use Larena\Storage\Runtime\ReadContractOperationHandlers;
@@ -137,6 +140,9 @@ final class StorageServiceProvider extends ServiceProvider
                 // The shared values are written in the application's locale.
                 is_string($primary) && $primary !== '' ? $primary : null,
                 $app->make(StorageSecurityEventSink::class),
+                // A translation of a published revision moves its published key. The
+                // index reads through this class, so it is built at the first write.
+                static fn (): LocalizedValueObserver => $app->make(PublishedKeyIndex::class),
             );
         });
         $this->app->alias(DatabaseLocalizedValues::class, LocalizedValues::class);
@@ -165,8 +171,15 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(StorageSecurityEventSink::class),
                 // A key the application routes by stays unique among published records.
                 new PublishedKeyUniqueness($app->make(DatabaseReadContracts::class), $app->make(PublishedKeyPolicy::class)),
+                // The indexed published keys move with the head, in its transaction.
+                $app->make(PublishedKeyIndex::class),
             );
         });
+        $this->app->singleton(PublishedKeyIndex::class, static fn (Application $app): PublishedKeyIndex => new PublishedKeyIndex(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(DatabaseReadContracts::class),
+            $app->make(PublishedKeyPolicy::class),
+        ));
         $this->app->alias(DatabasePublicationLifecycle::class, PublicationLifecycle::class);
 
         $this->app->singleton(PublicationOperationHandlers::class, static function (Application $app): PublicationOperationHandlers {
@@ -178,6 +191,7 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(DatabaseManager::class)->connection(),
                 $app->make(LocalizedValues::class),
                 $app->make(LocaleFallbackResolver::class),
+                $app->make(StorageMetrics::class),
             );
         });
         $this->app->alias(DatabaseReadContracts::class, ReadContracts::class);
@@ -406,6 +420,7 @@ final class StorageServiceProvider extends ServiceProvider
             // (inline or as queue jobs); the check compares them with the versions.
             $this->commands([
                 PublicationSweepCommand::class,
+                PublishedKeyRebuildCommand::class,
                 StorageBenchCommand::class,
                 StorageViewRebuildCommand::class,
                 StorageViewCheckCommand::class,

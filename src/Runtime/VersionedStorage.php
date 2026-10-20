@@ -534,6 +534,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                         'larena_storage_localized_values',
                         'larena_storage_publication_states',
                         'larena_storage_publication_log',
+                        'larena_storage_published_keys',
                     ] as $table) {
             if ($this->tableExists($table)) {
                             $this->database->table($table)

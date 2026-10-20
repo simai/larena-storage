@@ -132,7 +132,15 @@
     "tests/Support/storage-view-queue-fixture.php",
     "tests/Integration/StorageViewRebuildJobTest.php",
     "tests/Integration/StorageViewCheckTest.php",
-    "tests/Integration/StorageMetricsTest.php"
+    "tests/Integration/StorageMetricsTest.php",
+    "src/Contracts/PublicationIndex.php",
+    "src/Contracts/LocalizedValueObserver.php",
+    "src/Contracts/LocalizedValuesBatch.php",
+    "src/Runtime/PublishedKeyTable.php",
+    "src/Runtime/PublishedKeyIndex.php",
+    "src/Console/Commands/PublishedKeyRebuildCommand.php",
+    "database/migrations/platform/2026_10_20_000002_create_larena_storage_published_key_tables.php",
+    "tests/Integration/PublishedReadBatchingTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
