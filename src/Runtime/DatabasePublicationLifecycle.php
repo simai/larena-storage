@@ -458,7 +458,13 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
 
             // The published-key table moves with the head, in this transaction: a
             // key another publish took in the meantime refuses the transition here.
-            $this->index?->publicationWritten($next);
+            // Without the index the table cannot follow this change, so it stops answering
+            // for this storage and scope: reads scan until the rebuild command runs.
+            if ($this->index !== null) {
+                $this->index->publicationWritten($next);
+            } else {
+                (new PublishedKeyTable($this->connection))->silenceScope($schemaId, $scopeRef);
+            }
 
             // One log row per transition, in the same transaction as the state write:
             // a state change nobody can account for is not acceptable in a system whose

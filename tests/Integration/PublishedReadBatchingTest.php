@@ -274,6 +274,9 @@ publishedReadExpect($read->resolveKey('site.pages', 'site:main', 'en', 'slug', '
 // --- Duplicates published around the index (a lifecycle built without it): the
 // rebuild finds them, the set stops answering and the read fails closed. ---
 $plain->publish('site.pages', 'copy', 'site:main', 'en', 1, 'actor:importer');
+// At once, before any rebuild: the set the index could not follow stops answering.
+publishedReadExpect($set('site:main', 'en')['state'] === PublishedKeyTable::STATE_CONFLICTED, 'a publish around the index left the set answering');
+publishedReadRefused(static fn () => $read->resolveKey('site.pages', 'site:main', 'en', 'slug', 'about'), ReadContractRejected::class, 'ambiguous_key');
 [$status, $printed] = $run(['--schema' => 'site.pages', '--scope' => 'site:main', '--fresh' => true]);
 publishedReadExpect($status === 0 && str_contains($printed, 'site.pages site:main/en: conflicted by slug, 2 records, 1 conflicting keys'), 'the rebuild hid a conflict: ' . $printed);
 publishedReadRefused(static fn () => $read->resolveKey('site.pages', 'site:main', 'en', 'slug', 'about'), ReadContractRejected::class, 'ambiguous_key');

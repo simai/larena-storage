@@ -207,6 +207,22 @@ final class PublishedKeyTable
             ->increment('conflicts');
     }
 
+    /**
+     * A publication written without the index (a lifecycle built without it) may hold
+     * a key the index does not know: every set of the storage and scope stops
+     * answering, in every locale a fallback chain may reach, until it is rebuilt.
+     */
+    public function silenceScope(string $schemaId, string $scopeRef): void
+    {
+        if (!$this->available()) {
+            return;
+        }
+        $sets = $this->connection->table(self::SETS_TABLE)->where('schema_id', $schemaId)->where('scope_ref', $scopeRef);
+        (clone $sets)->where('state', '!=', self::STATE_BUILDING)
+            ->update(['state' => self::STATE_CONFLICTED, 'updated_at' => $this->now()]);
+        (clone $sets)->where('state', self::STATE_BUILDING)->increment('conflicts');
+    }
+
     /** Removes a set and its rows. */
     public function dropSet(string $schemaId, string $scopeRef, string $locale, string $keyField): void
     {
