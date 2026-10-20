@@ -54,6 +54,8 @@ final readonly class VersionedStorage implements VersionedStorageContract
         private ?DatabaseRecordRelations $relations = null,
         // Keeps each storage's витрина row in the write's transaction; without it no витрина is written.
         private ?StorageViewSync $views = null,
+        // Times reads and writes for larena/monitoring when it is installed; a no-op otherwise.
+        private StorageMetrics $metrics = new StorageMetrics(),
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
@@ -176,6 +178,72 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $actor,
         ?string $correlationId = null,
     ): StorageWriteResult {
+        return $this->metrics->timeWrite(
+            'create',
+            fn (): StorageWriteResult => $this->createVersion($ownerRef, $schema, $values, $actor, $correlationId),
+        );
+    }
+
+    public function compareAndSwap(
+        string $ownerRef,
+        StorageRecordVersionRef $expected,
+        StorageSchemaVersionRef $schema,
+        array $values,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWriteResult {
+        return $this->metrics->timeWrite(
+            'update',
+            fn (): StorageWriteResult => $this->compareAndSwapVersion($ownerRef, $expected, $schema, $values, $actor, $correlationId),
+        );
+    }
+
+    public function transition(
+        string $ownerRef,
+        StorageRecordVersionRef $expected,
+        StorageSchemaVersionRef $schema,
+        array $values,
+        string $operation,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWriteResult {
+        return $this->metrics->timeWrite(
+            $operation === 'delete' ? 'archive' : $operation,
+            fn (): StorageWriteResult => $this->transitionVersion($ownerRef, $expected, $schema, $values, $operation, $actor, $correlationId),
+        );
+    }
+
+    public function purge(array $current, string $actor, ?string $correlationId = null): int
+    {
+        return $this->metrics->timeWrite('purge', fn (): int => $this->purgeVersions($current, $actor, $correlationId));
+    }
+
+    public function readAdminVersion(
+        StorageRecordVersionRef $ref,
+        string $actor,
+        bool $forUpdate = false,
+    ): StorageRecordVersion {
+        return $this->metrics->timeRead(fn (): StorageRecordVersion => $this->readVersion($ref, $actor, $forUpdate));
+    }
+
+    public function readAdminCurrentVersion(
+        string $schemaId,
+        string $ownerRef,
+        string $actor,
+        bool $forUpdate = false,
+    ): ?StorageRecordVersion {
+        return $this->metrics->timeRead(
+            fn (): ?StorageRecordVersion => $this->readCurrentVersion($schemaId, $ownerRef, $actor, $forUpdate),
+        );
+    }
+
+    private function createVersion(
+        string $ownerRef,
+        StorageSchemaVersionRef $schema,
+        array $values,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWriteResult {
         $this->assertOwnerRef($ownerRef);
         $this->assertActor($actor);
         $this->authorizer->assertAllowed($actor, 'storage.record.create');
@@ -252,7 +320,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
-    public function compareAndSwap(
+    private function compareAndSwapVersion(
         string $ownerRef,
         StorageRecordVersionRef $expected,
         StorageSchemaVersionRef $schema,
@@ -275,7 +343,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         );
     }
 
-    public function transition(
+    private function transitionVersion(
         string $ownerRef,
         StorageRecordVersionRef $expected,
         StorageSchemaVersionRef $schema,
@@ -391,7 +459,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
-    public function purge(array $current, string $actor, ?string $correlationId = null): int
+    private function purgeVersions(array $current, string $actor, ?string $correlationId = null): int
     {
         $this->assertActor($actor);
         if ($current === [] || !array_is_list($current) || count($current) > self::PURGE_LIMIT) {
@@ -541,7 +609,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
-    public function readAdminVersion(
+    private function readVersion(
         StorageRecordVersionRef $ref,
         string $actor,
         bool $forUpdate = false,
@@ -552,7 +620,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         return $this->recordVersionInternal($ref, $forUpdate);
     }
 
-    public function readAdminCurrentVersion(
+    private function readCurrentVersion(
         string $schemaId,
         string $ownerRef,
         string $actor,

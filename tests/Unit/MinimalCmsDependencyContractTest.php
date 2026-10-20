@@ -12,7 +12,8 @@ $larena = static function (array $dependencies): array {
 
 $actualRequire = $larena($composer['require'] ?? []);
 $actualRequireDev = $larena($composer['require-dev'] ?? []);
-$expectedRequire = ['larena/access','larena/core','larena/property'];
+// larena/queue runs the витрина rebuild as a durable job (storage.view.rebuild).
+$expectedRequire = ['larena/access','larena/core','larena/property','larena/queue'];
 $expectedRequireDev = ['larena/audit'];
 
 if ($actualRequire !== $expectedRequire) {

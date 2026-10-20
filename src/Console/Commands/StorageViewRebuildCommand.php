@@ -5,18 +5,22 @@ declare(strict_types=1);
 namespace Larena\Storage\Console\Commands;
 
 use Illuminate\Console\Command;
+use Larena\Storage\Runtime\StorageMetrics;
 use Larena\Storage\View\StorageViewRebuilder;
+use Larena\Storage\View\StorageViewRebuildQueue;
 use Larena\Storage\View\StorageViewRegistration;
 use Larena\Storage\View\StorageViewSync;
 use Throwable;
 
 /**
- * Builds the витрина of existing storages from their versions, synchronously and
- * in chunks. A build that stops resumes where it was on the next run.
+ * Builds the витрина of existing storages from their versions, in chunks:
+ * inline by default, or as one `storage.view.rebuild` queue job per storage with
+ * --queue. A build that stops resumes where it was on the next run or job.
  *
  *   larena:storage:view:rebuild workbench.scope.x.y   one storage (from scratch, or resumed)
  *   larena:storage:view:rebuild --missing             every structure whose витрина is not ready
  *   larena:storage:view:rebuild --all                 every structure
+ *   larena:storage:view:rebuild --missing --queue     enqueue the builds for the queue worker
  */
 final class StorageViewRebuildCommand extends Command
 {
@@ -24,7 +28,8 @@ final class StorageViewRebuildCommand extends Command
         {schema? : The storage schema id to build}
         {--all : Every workbench structure}
         {--missing : Every workbench structure whose витрина is missing or not ready}
-        {--chunk=1000 : Records per transaction}';
+        {--chunk=1000 : Records per transaction}
+        {--queue : Enqueue a storage.view.rebuild job per storage instead of building inline}';
 
     protected $description = 'Build Larena Storage витрины (the typed read tables) from the record versions; resumable.';
 
@@ -68,7 +73,14 @@ final class StorageViewRebuildCommand extends Command
             }
         }
 
-        $rebuilder = new StorageViewRebuilder($views);
+        if ((bool) $this->option('queue')) {
+            return $this->enqueue($targets, $chunk);
+        }
+
+        $rebuilder = new StorageViewRebuilder(
+            $views,
+            $this->laravel->bound(StorageMetrics::class) ? $this->laravel->make(StorageMetrics::class) : new StorageMetrics(),
+        );
         $failed = 0;
         foreach ($targets as $target) {
             try {
@@ -81,6 +93,33 @@ final class StorageViewRebuildCommand extends Command
                     fn (string $line) => $this->line($line, null, 'v'),
                 );
                 $this->line(sprintf('%s: ready, %d records%s', $result['schema_id'], $result['records'], $result['resumed'] ? ' (resumed)' : ''));
+            } catch (Throwable $exception) {
+                $failed++;
+                $this->error($target . ': ' . $exception->getMessage());
+            }
+        }
+        if ($targets === []) {
+            $this->line('Nothing to build.');
+        }
+
+        return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /** @param list<string> $targets */
+    private function enqueue(array $targets, int $chunk): int
+    {
+        try {
+            $queue = $this->laravel->make(StorageViewRebuildQueue::class);
+        } catch (Throwable $exception) {
+            $this->error('The queue is not available: ' . $exception->getMessage());
+
+            return self::FAILURE;
+        }
+        $failed = 0;
+        foreach ($targets as $target) {
+            try {
+                $result = $queue->enqueue($target, $chunk);
+                $this->line(sprintf('%s: queued, job %s%s', $target, $result->jobId, $result->duplicate ? ' (already queued)' : ''));
             } catch (Throwable $exception) {
                 $failed++;
                 $this->error($target . ': ' . $exception->getMessage());

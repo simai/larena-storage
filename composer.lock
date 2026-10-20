@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "41791b863be969ee4db9d4fa11b34f3f",
+    "content-hash": "03740bc4b7de2668a9f9f74fa80e566b",
     "packages": [
         {
             "name": "brick/math",
@@ -764,6 +764,68 @@
                 "source": "https://github.com/laravel/framework"
             },
             "time": "2026-06-24T01:52:43+00:00"
+        },
+        {
+            "name": "illuminate/cache",
+            "version": "v13.38.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/illuminate/cache.git",
+                "reference": "b14313548f1336dbd1a66c1227c424b89819e8c2"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/illuminate/cache/zipball/b14313548f1336dbd1a66c1227c424b89819e8c2",
+                "reference": "b14313548f1336dbd1a66c1227c424b89819e8c2",
+                "shasum": ""
+            },
+            "require": {
+                "illuminate/collections": "^13.0",
+                "illuminate/contracts": "^13.0",
+                "illuminate/macroable": "^13.0",
+                "illuminate/support": "^13.0",
+                "php": "^8.3"
+            },
+            "provide": {
+                "psr/simple-cache-implementation": "1.0 || 2.0 || 3.0"
+            },
+            "suggest": {
+                "ext-apcu": "Required to use the APC cache driver.",
+                "ext-filter": "Required to use the DynamoDb cache driver.",
+                "ext-memcached": "Required to use the memcache cache driver.",
+                "illuminate/database": "Required to use the database cache driver (^13.0).",
+                "illuminate/filesystem": "Required to use the file cache driver (^13.0).",
+                "illuminate/redis": "Required to use the redis cache driver (^13.0).",
+                "symfony/cache": "Required to use PSR-6 cache bridge (^7.4 || ^8.0)."
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "13.0.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Illuminate\\Cache\\": ""
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Taylor Otwell",
+                    "email": "taylor@laravel.com"
+                }
+            ],
+            "description": "The Illuminate Cache package.",
+            "homepage": "https://laravel.com",
+            "support": {
+                "issues": "https://github.com/laravel/framework/issues",
+                "source": "https://github.com/laravel/framework"
+            },
+            "time": "2026-10-19T14:11:57+00:00"
         },
         {
             "name": "illuminate/collections",
@@ -1834,7 +1896,7 @@
             "dist": {
                 "type": "path",
                 "url": "../access",
-                "reference": "85e3e8ee7866e5e17e59c6a1d61d2ff0e7c7f224"
+                "reference": "0a16adb5fe91a1058dee55ce4446a8d3c4b315f1"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -1848,8 +1910,12 @@
             },
             "require-dev": {
                 "larena/audit": "dev-main",
+                "larena/rest": "dev-main",
                 "larena/ui": "dev-main",
                 "phpstan/phpstan": "^2.0"
+            },
+            "suggest": {
+                "larena/rest": "Serves the administrator and role-policy API over HTTP."
             },
             "type": "library",
             "extra": {
@@ -1871,7 +1937,16 @@
             },
             "scripts": {
                 "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MachineSubjectAccessTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LazyMachineSubjectDirectoryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminUserManagementAccessIntegrationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdministratorGovernanceServiceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FirstAdministratorSetupServiceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdministratorApiOperationHandlerTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AccessRolePolicyApiOperationHandlerTest.php",
                     "@php tests/Unit/AccessDecisionContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminApiContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/NodeGrantOperationExecutionTest.php",
                     "@php tests/Unit/AccessFailsClosedTest.php",
                     "@php tests/Unit/AccessGrantDecisionRuntimeTest.php",
                     "@php tests/Unit/AccessGrantDecisionFailsClosedTest.php",
@@ -1891,10 +1966,13 @@
                     "@php tests/Unit/PersistentGlobalRoleQueryScopeProviderBindingIsolationTest.php",
                     "@php tests/Unit/MinimalCmsDependencyContractTest.php",
                     "@php tests/Unit/MinimalCmsOperationMatrixTest.php",
-                    "@php tests/Unit/MinimalCmsAccessBoundaryTest.php"
+                    "@php tests/Unit/MinimalCmsAccessBoundaryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ScopeMembershipQueryScopeProviderTest.php"
                 ],
                 "test:unit": [
                     "@php tests/Unit/AccessDecisionContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminApiContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/NodeGrantOperationExecutionTest.php",
                     "@php tests/Unit/AccessFailsClosedTest.php",
                     "@php tests/Unit/AccessGrantDecisionRuntimeTest.php",
                     "@php tests/Unit/AccessGrantDecisionFailsClosedTest.php",
@@ -1969,10 +2047,11 @@
             "version": "dev-main",
             "dist": {
                 "type": "path",
-                "url": "../auth",
-                "reference": "8e8a2b33a24ef6d0c6c21d2c34d3c3a2f455cdf1"
+                "url": "../auth-login-receipt",
+                "reference": "56964f289db4c8a88704a9918886acab9c90c031"
             },
             "require": {
+                "illuminate/cache": "^13.0",
                 "illuminate/console": "^13.0",
                 "illuminate/contracts": "^13.0",
                 "illuminate/database": "^13.0",
@@ -1980,16 +2059,23 @@
                 "illuminate/routing": "^13.0",
                 "illuminate/support": "^13.0",
                 "larena/core": "dev-main",
-                "php": "^8.3"
+                "php": "^8.3",
+                "symfony/yaml": "^7.4|^8.0"
             },
             "require-dev": {
                 "larena/access": "dev-main",
                 "larena/admin": "dev-main",
                 "larena/audit": "dev-main",
                 "larena/dataview": "dev-main",
+                "larena/licensing": "dev-main",
+                "larena/mcp": "dev-main",
                 "larena/rest": "dev-main",
                 "larena/ui": "dev-main",
                 "phpstan/phpstan": "^2.0"
+            },
+            "suggest": {
+                "larena/notification": "Provides explicit password-reset and invitation delivery adapters.",
+                "larena/secret": "Provides an application-managed protector for TOTP secrets."
             },
             "type": "library",
             "extra": {
@@ -2010,6 +2096,9 @@
                 }
             },
             "scripts": {
+                "preflight": [
+                    "@php scripts/preflight.php"
+                ],
                 "test": [
                     "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
                     "@php tests/Unit/MinimalCmsDependencyContractTest.php",
@@ -2024,8 +2113,7 @@
                     "@php -d zend.assertions=1 -d assert.exception=1 scripts/test-persistent-admin-sessions.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 scripts/test-durable-password-recovery.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 scripts/test-durable-user-invitation.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/test-durable-mfa-lifecycle.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/test-administrator-access-governance.php"
+                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/test-durable-mfa-lifecycle.php"
                 ],
                 "lint": [
                     "@php scripts/lint.php"
@@ -2043,6 +2131,7 @@
                     "@php tools/larena-scope-check.php"
                 ],
                 "quality:gate": [
+                    "@preflight",
                     "@validate:larena",
                     "@lint",
                     "@analyse",
@@ -2073,13 +2162,14 @@
             "dist": {
                 "type": "path",
                 "url": "../core",
-                "reference": "4a7a9af7400f816443e8a1285ec9da52977e45da"
+                "reference": "163f8936a107cda5238ea6fb9b6b5ca2aad4cb23"
             },
             "require": {
                 "illuminate/console": "^13.0",
                 "illuminate/database": "^13.0",
                 "illuminate/support": "^13.0",
-                "php": "^8.3"
+                "php": "^8.3",
+                "symfony/yaml": "^7.4|^8.0"
             },
             "require-dev": {
                 "larena/access": "dev-main",
@@ -2108,6 +2198,7 @@
             "scripts": {
                 "test": [
                     "@php tests/Unit/OperationRuntimeContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/CatalogOperationExecutionTest.php",
                     "@php tests/Unit/OperationRuntimeFailsClosedTest.php",
                     "@php tests/Unit/SyncOperationRuntimeTest.php",
                     "@php tests/Unit/SyncOperationRuntimeFailsClosedTest.php",
@@ -2133,10 +2224,43 @@
                     "@php tests/Unit/WebInstallStateStoreTest.php",
                     "@php tests/Unit/WebInstallCoordinatorRecoveryTest.php",
                     "@php tests/Unit/MinimalCmsDependencyContractTest.php",
-                    "@php tests/Unit/MinimalCmsCoreBoundaryTest.php"
+                    "@php tests/Unit/MinimalCmsCoreBoundaryTest.php",
+                    "@php tests/Unit/ScopeRefTest.php",
+                    "@php tests/Unit/SchemaNameTest.php",
+                    "@php tests/Unit/ScopeRegistryTest.php",
+                    "@php tests/Unit/ScopeRegistryFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ScopeMembershipRegistryTest.php",
+                    "@php tests/Unit/PlaneRegistryTest.php",
+                    "@php tests/Unit/PlaneNodeMoveTest.php",
+                    "@php tests/Unit/PlaneNodeMoveFailsClosedTest.php",
+                    "@php tests/Unit/MembershipResolverTest.php",
+                    "@php tests/Unit/MembershipResolverDescendantsTest.php",
+                    "@php tests/Unit/ScopeBaselineInstallerIdempotencyTest.php",
+                    "@php tests/Unit/ScopePlaneAuditEventTest.php",
+                    "@php tests/Unit/OperationDescriptorRiskClassDefaultTest.php",
+                    "@php tests/Unit/OperationDeclarationLoaderTest.php",
+                    "@php tests/Unit/OperationDeclarationLoaderFailsClosedTest.php",
+                    "@php tests/Unit/DeclaredOperationRegistryTest.php",
+                    "@php tests/Unit/DescriptorPolicyTest.php",
+                    "@php tests/Unit/ConfirmationPolicyTest.php",
+                    "@php tests/Unit/ProposalAndApprovalTest.php",
+                    "@php tests/Unit/ProposalFailsClosedTest.php",
+                    "@php tests/Unit/TransportResolutionTest.php",
+                    "@php tests/Unit/TransportGateMatrixTest.php",
+                    "@php tests/Unit/PackageDescriptorFileValidatorTest.php",
+                    "@php tests/Unit/OperationCoverageReportTest.php",
+                    "@php tests/Unit/EnvironmentProfileTest.php",
+                    "@php tests/Unit/EnvironmentDetectionTest.php",
+                    "@php tests/Unit/EnvironmentVerificationTest.php",
+                    "@php tests/Unit/EnvironmentFailsClosedTest.php",
+                    "@php tests/Unit/SolutionManifestValidationTest.php",
+                    "@php tests/Unit/SolutionPlannerConflictTest.php",
+                    "@php tests/Unit/SolutionTopologyTest.php",
+                    "@php tests/Unit/SolutionFailsClosedTest.php"
                 ],
                 "test:unit": [
                     "@php tests/Unit/OperationRuntimeContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/CatalogOperationExecutionTest.php",
                     "@php tests/Unit/OperationRuntimeFailsClosedTest.php",
                     "@php tests/Unit/SyncOperationRuntimeTest.php",
                     "@php tests/Unit/SyncOperationRuntimeFailsClosedTest.php",
@@ -2213,7 +2337,7 @@
             "dist": {
                 "type": "path",
                 "url": "../property",
-                "reference": "b0253f5f2546ea8bcb8e52b47f31f9f71ae627c7"
+                "reference": "580e7c5a84117a88099b37e2c6f3dbd5748c9325"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2253,8 +2377,12 @@
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyFailsClosedTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyTypeRegistryTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyNormalizationValidationTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyFieldTypesTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyDisplayProjectorTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyPresentationRegistryTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsPropertyStorageContractTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryPropertyRuntimeTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegistryPropertyRuntimeTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryPropertyRuntimeFailsClosedTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PropertyCommandProviderMigrationTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PropertyServiceProviderRegistrationTest.php",
@@ -2303,6 +2431,90 @@
                 }
             ],
             "description": "Larena Property: Universal property layer for field type registry, field definitions, structured render models, validation, templates and typed value interaction across settings, admin, storage and future content models.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/queue",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../queue",
+                "reference": "db4d1370d5222a24aa0c7e7f219bd0d819860fa5"
+            },
+            "require": {
+                "ext-json": "*",
+                "illuminate/database": "^13.0",
+                "illuminate/support": "^13.0",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "ext-pdo": "*",
+                "ext-pdo_sqlite": "*",
+                "laravel/framework": "^13.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Queue\\Providers\\QueueServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Queue\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Queue\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "php scripts/test-placeholder.php"
+                ],
+                "test:unit": [
+                    "php scripts/test-placeholder.php"
+                ],
+                "lint": [
+                    "php scripts/lint.php"
+                ],
+                "analyse": [
+                    "php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@evidence:check",
+                    "@scope:check"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov"
+                }
+            ],
+            "description": "Larena Queue: Mandatory system package for governed background execution, load smoothing, retry, timeout, worker supervision and hosting-safe operation scheduling across Larena packages.",
             "transport-options": {
                 "symlink": true,
                 "relative": true
@@ -5232,6 +5444,82 @@
             "time": "2026-06-08T20:24:16+00:00"
         },
         {
+            "name": "symfony/yaml",
+            "version": "v7.4.21",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/symfony/yaml.git",
+                "reference": "044907929c7999814378be22da34722c7a86bad4"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/symfony/yaml/zipball/044907929c7999814378be22da34722c7a86bad4",
+                "reference": "044907929c7999814378be22da34722c7a86bad4",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.2",
+                "symfony/deprecation-contracts": "^2.5|^3",
+                "symfony/polyfill-ctype": "^1.8"
+            },
+            "conflict": {
+                "symfony/console": "<6.4"
+            },
+            "require-dev": {
+                "symfony/console": "^6.4|^7.0|^8.0"
+            },
+            "bin": [
+                "Resources/bin/yaml-lint"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\Yaml\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabien Potencier",
+                    "email": "fabien@symfony.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Loads and dumps YAML files",
+            "homepage": "https://symfony.com",
+            "support": {
+                "source": "https://github.com/symfony/yaml/tree/v7.4.21"
+            },
+            "funding": [
+                {
+                    "url": "https://symfony.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/fabpot",
+                    "type": "github"
+                },
+                {
+                    "url": "https://github.com/nicolas-grekas",
+                    "type": "github"
+                },
+                {
+                    "url": "https://tidelift.com/funding/github/packagist/symfony/symfony",
+                    "type": "tidelift"
+                }
+            ],
+            "time": "2026-10-12T12:34:30+00:00"
+        },
+        {
             "name": "voku/portable-ascii",
             "version": "2.1.1",
             "source": {
@@ -5313,20 +5601,26 @@
             "dist": {
                 "type": "path",
                 "url": "../audit",
-                "reference": "cc6ba3ccf279eefdef3fa3973249629a3a100feb"
+                "reference": "0dc92b8eb96daef885608b4aa9d8b9f441599a93"
             },
             "require": {
                 "illuminate/database": "^13.0",
                 "illuminate/routing": "^13.0",
                 "illuminate/support": "^13.0",
                 "illuminate/view": "^13.0",
-                "larena/ui": "dev-main",
                 "php": "^8.3"
             },
             "require-dev": {
                 "laravel/framework": "^13.0",
+                "larena/core": "dev-main",
+                "larena/ui": "dev-main",
                 "orchestra/testbench": "^11.0",
                 "phpstan/phpstan": "^2.0"
+            },
+            "suggest": {
+                "larena/access": "Makes the history read an access operation (audit.history.read).",
+                "larena/admin": "Hosts the history screen in its shell; with larena/ui, the screen appears.",
+                "larena/ui": "Renders the administrator audit history screen. Audit records, reads and pipelines events without it."
             },
             "type": "library",
             "extra": {
@@ -5403,176 +5697,6 @@
             }
         },
         {
-            "name": "larena/dataview",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../dataview",
-                "reference": "b9c5f9456c5b773d730484f6e9d201e87c378bfd"
-            },
-            "require": {
-                "larena/core": "dev-main",
-                "larena/property": "dev-main",
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Larena\\Dataview\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Larena\\Dataview\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewContractTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewFailsClosedTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadOnlyDataviewTableAdapterTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewTableRuntimeTest.php",
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
-                ],
-                "test:unit": [
-                    "@test"
-                ],
-                "lint": [
-                    "php scripts/lint.php"
-                ],
-                "analyse": [
-                    "php scripts/analyse.php"
-                ],
-                "validate:larena": [
-                    "php scripts/validate-larena-package.php"
-                ],
-                "evidence:check": [
-                    "php scripts/check-evidence.php"
-                ],
-                "scope:check": [
-                    "php tools/larena-scope-check.php"
-                ],
-                "quality:gate": [
-                    "@validate:larena",
-                    "@lint",
-                    "@analyse",
-                    "@test",
-                    "@evidence:check",
-                    "@scope:check"
-                ]
-            },
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
-                }
-            ],
-            "description": "Larena Dataview: Universal data presentation layer that can render the same structured dataset as table, kanban, calendar, gantt, cards, tree or other reusable views without reimplementing the same UI for every package.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "larena/ui",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../ui",
-                "reference": "6343e306d3b7a3af40aca3f75d3b198e9e61cb26"
-            },
-            "require": {
-                "larena/core": "dev-main",
-                "larena/dataview": "dev-main",
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "larena/layout": "dev-main",
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Larena\\Ui\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Larena\\Ui\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminDataviewRendererTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminUiLabReferenceBehaviorTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedComponentRegistryTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkContractRegistryTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeLockTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedAssetProvenanceLockTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartManagerTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartFacadeTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentReferenceTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartCatalogProjectionTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartAiCatalogProjectionTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentLibraryTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SfActionLinkTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeAssetResolverTest.php"
-                ],
-                "test:unit": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php"
-                ],
-                "test:dependency": [
-                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
-                ],
-                "lint": [
-                    "@php scripts/lint.php"
-                ],
-                "analyse": [
-                    "@php scripts/analyse.php"
-                ],
-                "validate:larena": [
-                    "@php scripts/validate-larena-package.php"
-                ],
-                "evidence:check": [
-                    "@php scripts/check-evidence.php"
-                ],
-                "scope:check": [
-                    "@php tools/larena-scope-check.php"
-                ],
-                "quality:gate": [
-                    "@validate:larena",
-                    "@lint",
-                    "@analyse",
-                    "@test",
-                    "@test:dependency",
-                    "@evidence:check",
-                    "@scope:check"
-                ]
-            },
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
-                }
-            ],
-            "description": "Larena UI: Universal UI/frontend package for Larena smart components, backend-first rendering, hydration, design packs, UI asset graph, component registry, playground and frontend behavior contracts.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
             "name": "phpstan/phpstan",
             "version": "2.2.5",
             "dist": {
@@ -5643,6 +5767,7 @@
         "larena/access": 20,
         "larena/core": 20,
         "larena/property": 20,
+        "larena/queue": 20,
         "larena/audit": 20
     },
     "prefer-stable": true,

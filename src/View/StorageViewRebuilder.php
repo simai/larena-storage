@@ -9,6 +9,7 @@ use Illuminate\Database\ConnectionInterface;
 use JsonException;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Runtime\StorageMetrics;
 use stdClass;
 
 /**
@@ -18,24 +19,34 @@ use stdClass;
  * витрина building: from then on every write keeps its row current while the
  * build walks the records in record id order. The position is saved with each
  * chunk, so a build that stops resumes where it was. When it reaches the end the
- * витрина is ready.
+ * витрина is ready. Between chunks the caller's checkpoint runs (the queue job's
+ * cancel and timeout check); whatever it throws stops the build after a committed
+ * chunk, and the next build resumes from there.
  */
 final readonly class StorageViewRebuilder
 {
     public const DEFAULT_CHUNK = 1000;
     public const MAX_CHUNK = 10000;
 
-    public function __construct(private StorageViewSync $views)
-    {
+    public function __construct(
+        private StorageViewSync $views,
+        private StorageMetrics $metrics = new StorageMetrics(),
+    ) {
     }
 
     /**
      * @param bool $restart Build from scratch even when a build can be resumed.
      * @param Closure(string): void|null $progress
+     * @param Closure(): void|null $checkpoint Runs between chunks, after one is committed and before the next.
      * @return array{schema_id: string, state: string, records: int, resumed: bool}
      */
-    public function rebuild(string $schemaId, int $chunk = self::DEFAULT_CHUNK, bool $restart = false, ?Closure $progress = null): array
-    {
+    public function rebuild(
+        string $schemaId,
+        int $chunk = self::DEFAULT_CHUNK,
+        bool $restart = false,
+        ?Closure $progress = null,
+        ?Closure $checkpoint = null,
+    ): array {
         $database = $this->views->connection();
         $ddl = $this->views->ddl();
         $registry = $this->views->registry();
@@ -77,7 +88,13 @@ final readonly class StorageViewRebuilder
         }
 
         $records = 0;
+        $first = true;
         while (true) {
+            if (!$first && $checkpoint !== null) {
+                $checkpoint();
+            }
+            $first = false;
+            $started = hrtime(true);
             $written = (int) $database->transaction(function () use ($database, $registry, $schemaId, $chunk, $runRef): int {
                 // Lock order as everywhere: schema, record heads, then the registry row.
                 $database->table('larena_storage_schemas')->where('schema_id', $schemaId)->sharedLock()->first();
@@ -135,7 +152,10 @@ final readonly class StorageViewRebuilder
                     $last = (string) $row->record_id;
                 }
                 $this->views->writer()->upsert($locked->tableName, $projections);
-                $registry->put($locked->withCursor($last));
+                // A short chunk is the last one: the витрина is ready in the same transaction.
+                $registry->put(count($rows) < $chunk
+                    ? $locked->withState(StorageViewRegistration::STATE_READY, $locked->layout->schemaVersion)
+                    : $locked->withCursor($last));
 
                 return count($projections);
             });
@@ -145,9 +165,13 @@ final readonly class StorageViewRebuilder
             if ($written < 0) {
                 break;
             }
+            $this->metrics->rebuildChunk(StorageMetrics::elapsedMs($started), $written);
             $records += $written;
             if ($progress !== null) {
                 $progress(sprintf('%s: %d records', $schemaId, $records));
+            }
+            if ($written < $chunk) {
+                break;
             }
         }
         // A freshly filled table gets its index statistics now, so the first lists are planned on them.

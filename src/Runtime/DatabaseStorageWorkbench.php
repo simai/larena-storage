@@ -86,6 +86,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private StorageSecurityEventSink $events;
     private StorageViewQueryCompiler $compiler;
     private StorageViewCounter $counter;
+    private StorageMetrics $metrics;
 
     public function __construct(
         private ConnectionInterface $database,
@@ -101,11 +102,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         private ?StorageViewSync $views = null,
         // Counts lists read from the витрина: exact under a threshold, an estimate above it.
         ?StorageViewCounter $counter = null,
+        // Times record lists for larena/monitoring when it is installed; a no-op otherwise.
+        ?StorageMetrics $metrics = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
         $this->compiler = new StorageViewQueryCompiler();
         $this->counter = $counter ?? new StorageViewCounter();
+        $this->metrics = $metrics ?? new StorageMetrics();
     }
 
     public function filterOperators(): array
@@ -1212,6 +1216,23 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
 
     public function listRecords(StorageWorkbenchRecordQuery $query, string $actor): StorageWorkbenchRecordPage
     {
+        $started = hrtime(true);
+        $mode = 'legacy';
+        try {
+            $page = $this->listRecordsFrom($query, $actor, $mode);
+        } catch (Throwable $exception) {
+            $this->metrics->list($mode, null, StorageMetrics::outcomeOf($exception), StorageMetrics::elapsedMs($started));
+            throw $exception;
+        }
+        $count = $query->countMode === StorageWorkbenchCountMode::Skip ? 'skip' : ($page->countExact ? 'exact' : 'approx');
+        $this->metrics->list($mode, $count, 'ok', StorageMetrics::elapsedMs($started));
+
+        return $page;
+    }
+
+    // $mode is set to the path the list took: sql (the витрина) or legacy (the versions scan).
+    private function listRecordsFrom(StorageWorkbenchRecordQuery $query, string $actor, string &$mode): StorageWorkbenchRecordPage
+    {
         $this->assertStructureId($query->structureId);
         $decision = $this->assertScope($actor, 'storage.workbench.record.list', $query->scopeRef, self::RECORD_RESOURCE);
         $structure = $this->readStructureInternal($query->scopeRef, $query->structureId);
@@ -1239,6 +1260,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             }
         }
         if ($compiled !== null) {
+            $mode = 'sql';
+
             return $this->listFromView($compiled, $query, $structure, $queryHash, $scopeHash);
         }
         if ($query->page !== null && ($query->continuation !== null || $query->page < 1

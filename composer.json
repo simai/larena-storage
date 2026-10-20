@@ -15,6 +15,7 @@
         "larena/access": "dev-main",
         "larena/core": "dev-main",
         "larena/property": "dev-main",
+        "larena/queue": "dev-main",
         "php": "^8.3",
         "symfony/yaml": "^7.4|^8.0"
     },
@@ -120,6 +121,9 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewWritePathTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewListTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewMySqlTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewRebuildJobTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewCheckTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageMetricsTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageDatabaseTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageRecordListTest.php",

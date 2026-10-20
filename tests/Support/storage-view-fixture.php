@@ -12,6 +12,7 @@ use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
+use Larena\Storage\Runtime\StorageMetrics;
 use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
@@ -93,14 +94,15 @@ function storageViewInstall(Connection $connection): void
 }
 
 /** @return array{workbench: DatabaseStorageWorkbench, storage: VersionedStorage, views: StorageViewSync, evolution: DatabaseStorageSchemaEvolution} */
-function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef): array
+function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null): array
 {
+    $metrics ??= new StorageMetrics();
     $properties = PropertyTypeRegistry::builtIns();
     $access = new StorageViewFixtureAccess($actor, $scopeRef);
     $events = new NullStorageSecurityEventSink();
     $views = new StorageViewSync($connection, new StorageViewRegistry($connection, 0.0), $ddl);
     $cursorKey = 'storage-view-fixture-cursor-key-minimum-32-bytes';
-    $storage = new VersionedStorage($connection, $properties, $access, $events, $access, $cursorKey, null, $views);
+    $storage = new VersionedStorage($connection, $properties, $access, $events, $access, $cursorKey, null, $views, $metrics);
     $policies = new StorageSchemaEvolutionOwnerPolicyRegistry();
     $policies->protect(
         'larena/storage',
@@ -113,7 +115,7 @@ function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string 
     );
     $policies->seal();
     $evolution = new DatabaseStorageSchemaEvolution($connection, $properties, $access, $events, $policies, $views);
-    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $evolution, $policies, $cursorKey, $events, $views);
+    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $evolution, $policies, $cursorKey, $events, $views, null, $metrics);
 
     return ['workbench' => $workbench, 'storage' => $storage, 'views' => $views, 'evolution' => $evolution];
 }

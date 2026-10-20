@@ -122,7 +122,17 @@
     "src/Contracts/StorageWorkbenchRecordPage.php",
     "src/Contracts/StorageWorkbenchRecordQuery.php",
     "src/Enums/StorageWorkbenchCountMode.php",
-    "tests/Integration/StorageViewListTest.php"
+    "tests/Integration/StorageViewListTest.php",
+    "composer.lock",
+    "monitoring.yaml",
+    "src/Runtime/StorageMetrics.php",
+    "src/Console/Commands/StorageViewCheckCommand.php",
+    "tests/Unit/MinimalCmsDependencyContractTest.php",
+    "tests/Support/storage-monitoring-stubs.php",
+    "tests/Support/storage-view-queue-fixture.php",
+    "tests/Integration/StorageViewRebuildJobTest.php",
+    "tests/Integration/StorageViewCheckTest.php",
+    "tests/Integration/StorageMetricsTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

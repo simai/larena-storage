@@ -7,7 +7,14 @@ namespace Larena\Storage\Providers;
 use Illuminate\Console\Scheduling\Schedule;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
+use Larena\Storage\Console\Commands\StorageViewCheckCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
+use Larena\Queue\Contracts\QueueClock;
+use Larena\Queue\Runtime\DurableQueueDispatcher;
+use Larena\Queue\Runtime\JobTypeRegistry;
+use Larena\Storage\Runtime\StorageMetrics;
+use Larena\Storage\View\StorageViewRebuildJob;
+use Larena\Storage\View\StorageViewRebuildQueue;
 use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewSync;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
@@ -289,10 +296,27 @@ final class StorageServiceProvider extends ServiceProvider
                 return $registry;
             },
         );
+        // Hot-path metrics for larena/monitoring; a no-op when monitoring is absent.
+        $this->app->singleton(StorageMetrics::class, static fn (Application $app): StorageMetrics => StorageMetrics::fromContainer($app));
+        $this->registerMetricCatalog();
         // Each storage's витрина (typed read table), kept in the write transaction.
         $this->app->singleton(StorageViewSync::class, static fn (Application $app): StorageViewSync => StorageViewSync::for(
             $app->make(DatabaseManager::class)->connection(),
         ));
+        // The витрина rebuild as a durable queue job (storage.view.rebuild).
+        $this->app->bind(StorageViewRebuildJob::class, static fn (Application $app): StorageViewRebuildJob => new StorageViewRebuildJob(
+            $app->make(StorageViewSync::class),
+            $app->make(StorageMetrics::class),
+        ));
+        $this->app->bind(StorageViewRebuildQueue::class, static fn (Application $app): StorageViewRebuildQueue => new StorageViewRebuildQueue(
+            $app->make(StorageViewSync::class),
+            $app->make(JobTypeRegistry::class),
+            $app->make(DurableQueueDispatcher::class),
+            $app->make(QueueClock::class),
+        ));
+        $this->app->afterResolving(JobTypeRegistry::class, static function (JobTypeRegistry $registry, Application $app): void {
+            self::registerQueueJobs($registry, $app);
+        });
         $this->app->singleton(VersionedStorage::class, static function (Application $app): VersionedStorage {
             /** @var DatabaseManager $database */
             $database = $app->make(DatabaseManager::class);
@@ -308,6 +332,7 @@ final class StorageServiceProvider extends ServiceProvider
                     : null,
                 $app->make(DatabaseRecordRelations::class),
                 $app->make(StorageViewSync::class),
+                $app->make(StorageMetrics::class),
             );
         });
         $this->app->alias(VersionedStorage::class, VersionedStorageContract::class);
@@ -346,6 +371,7 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(StorageViewSync::class),
                 // A host may bind its own counter (a threshold, a time budget); the default counts as decided.
                 $app->bound(StorageViewCounter::class) ? $app->make(StorageViewCounter::class) : null,
+                $app->make(StorageMetrics::class),
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
@@ -367,19 +393,49 @@ final class StorageServiceProvider extends ServiceProvider
         if ($this->app->bound(AccessOperationRegistry::class)) {
             self::registerAccessOperations($this->app->make(AccessOperationRegistry::class));
         }
+        if ($this->app->bound(JobTypeRegistry::class)) {
+            self::registerQueueJobs($this->app->make(JobTypeRegistry::class), $this->app);
+        }
 
         // Scheduled publications are published by the sweep, never by a read. The
         // Laravel scheduler runs it every minute; one cron line starts the scheduler.
         if ($this->app->runningInConsole()) {
             // The benchmark measures the engine on a disposable database only.
-            // The витрина rebuild builds the typed read tables of existing storages.
-            $this->commands([PublicationSweepCommand::class, StorageBenchCommand::class, StorageViewRebuildCommand::class]);
+            // The витрина rebuild builds the typed read tables of existing storages
+            // (inline or as queue jobs); the check compares them with the versions.
+            $this->commands([
+                PublicationSweepCommand::class,
+                StorageBenchCommand::class,
+                StorageViewRebuildCommand::class,
+                StorageViewCheckCommand::class,
+            ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
                     ->everyMinute()
                     ->withoutOverlapping()
                     ->runInBackground();
             });
+        }
+    }
+
+    /** Declares Storage's metrics in larena/monitoring's catalog when monitoring is installed. */
+    private function registerMetricCatalog(): void
+    {
+        if (!class_exists(StorageMetrics::CATALOG_CLASS)) {
+            return;
+        }
+        $this->callAfterResolving(StorageMetrics::CATALOG_CLASS, static function (object $catalog): void {
+            $register = [$catalog, 'register'];
+            if (is_callable($register)) {
+                $register(StorageMetrics::PACKAGE, StorageMetrics::catalogPath());
+            }
+        });
+    }
+
+    private static function registerQueueJobs(JobTypeRegistry $registry, Application $app): void
+    {
+        if (!$registry->has(StorageViewRebuildJob::JOB_TYPE)) {
+            $registry->register(StorageViewRebuildJob::descriptor(), $app->make(StorageViewRebuildJob::class));
         }
     }
 
