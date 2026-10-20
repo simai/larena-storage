@@ -21,6 +21,8 @@ use Larena\Storage\Providers\StorageServiceProvider;
 use Larena\Storage\Runtime\StorageMetrics;
 use Larena\Storage\View\SqliteStorageViewDdl;
 use Larena\Storage\View\StorageViewRebuilder;
+use Larena\Storage\View\StorageViewSync;
+use Larena\Storage\View\StorageViewRebuildDeferredHandler;
 use Larena\Storage\View\StorageViewRebuildJob;
 use Symfony\Component\Yaml\Yaml;
 
@@ -271,7 +273,9 @@ try {
     storageViewExpect($providerRecorder->lines() === ['storage.write operation=create&outcome=ok'], 'the provider recorder did not reach the bound Metrics');
     $jobs = $app->make(JobTypeRegistry::class);
     storageViewExpect($jobs->has(StorageViewRebuildJob::JOB_TYPE), 'the provider did not register storage.view.rebuild');
-    storageViewExpect($jobs->handler(StorageViewRebuildJob::JOB_TYPE) instanceof StorageViewRebuildJob, 'storage.view.rebuild has another handler');
+    // Registering builds no handler: the витрина sync (and the connection it holds) is made only when the job runs.
+    storageViewExpect(!$app->resolved(StorageViewSync::class), 'registering storage.view.rebuild resolved the витрина sync early');
+    storageViewExpect($jobs->handler(StorageViewRebuildJob::JOB_TYPE) instanceof StorageViewRebuildDeferredHandler, 'storage.view.rebuild has another handler');
 } finally {
     Facade::clearResolvedInstances();
     @unlink($opened['path']);

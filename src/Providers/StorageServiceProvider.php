@@ -13,6 +13,7 @@ use Larena\Queue\Contracts\QueueClock;
 use Larena\Queue\Runtime\DurableQueueDispatcher;
 use Larena\Queue\Runtime\JobTypeRegistry;
 use Larena\Storage\Runtime\StorageMetrics;
+use Larena\Storage\View\StorageViewRebuildDeferredHandler;
 use Larena\Storage\View\StorageViewRebuildJob;
 use Larena\Storage\View\StorageViewRebuildQueue;
 use Larena\Storage\View\StorageViewCounter;
@@ -435,7 +436,9 @@ final class StorageServiceProvider extends ServiceProvider
     private static function registerQueueJobs(JobTypeRegistry $registry, Application $app): void
     {
         if (!$registry->has(StorageViewRebuildJob::JOB_TYPE)) {
-            $registry->register(StorageViewRebuildJob::descriptor(), $app->make(StorageViewRebuildJob::class));
+            $registry->register(StorageViewRebuildJob::descriptor(), new StorageViewRebuildDeferredHandler(
+                static fn (): StorageViewRebuildJob => $app->make(StorageViewRebuildJob::class),
+            ));
         }
     }
 
