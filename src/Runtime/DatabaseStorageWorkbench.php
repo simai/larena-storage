@@ -36,7 +36,13 @@ use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\Encryption\StorageDataKeys;
 use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageFieldEncryptionRunRow;
+use Larena\Storage\Encryption\StorageFieldEncryptionRunner;
+use Larena\Storage\Encryption\StorageFieldEncryptionRuns;
+use Larena\Storage\Encryption\StorageFieldEnvelope;
 use Larena\Storage\Encryption\StorageFieldSealer;
+use Larena\Storage\Contracts\StorageWorkbenchEncryption;
+use Larena\Storage\Contracts\StorageWorkbenchEncryptionRun;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageFieldChangeRow;
 use Larena\Storage\SchemaEvolution\StorageFieldChangeRunner;
@@ -57,7 +63,7 @@ use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
-final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract
+final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption
 {
     private const STRUCTURE_RESOURCE = 'storage.workbench.structure';
     private const RECORD_RESOURCE = 'storage.workbench.record';
@@ -78,6 +84,18 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     // A field change that checks every record runs in the request up to this many records; above it, in the background.
     public const INLINE_FIELD_CHANGE_LIMIT = 5000;
     private const INLINE_FIELD_CHANGE_CHUNK = 1000;
+    // An encryption run rewrites up to this many rows (versions and translations) in the request; above it, in the
+    // background (storage.field.encryption.rewrite).
+    public const INLINE_ENCRYPTION_RUN_LIMIT = 5000;
+    private const INLINE_ENCRYPTION_RUN_CHUNK = 1000;
+    /** The descriptor flag that confirms switching encryption off a field with values (its values become plain). */
+    public const DISABLE_CONFIRMATION = 'encryption_disable_confirmed';
+    public const EVENT_STARTED = 'storage.field.encryption.started';
+    public const EVENT_ENABLED = 'storage.field.encryption.enabled';
+    public const EVENT_DISABLED = 'storage.field.encryption.disabled';
+    public const EVENT_ROTATED = 'storage.field.encryption.rotated';
+    public const EVENT_FAILED = 'storage.field.encryption.failed';
+    public const EVENT_RETRIED = 'storage.field.encryption.retried';
     /**
      * A list of a storage whose витрина is not ready builds it in the request up to this
      * many records (one walk of the current versions in chunks of 1000), and then answers
@@ -99,6 +117,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private StorageMetrics $metrics;
     private StorageRecordConverter $converter;
     private StorageFieldChanges $fieldChanges;
+    private StorageFieldEncryptionRuns $encryptionRuns;
     private StorageRecordQueryNormalizer $queryNormalizer;
 
     public function __construct(
@@ -128,6 +147,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         // Encrypted fields: their data keys and availability (the storage seals the values). Without it a structure
         // with an encrypted field is refused (storage_field_encryption_unavailable).
         private ?StorageFieldSealer $encryption = null,
+        // Queues an encryption run that runs in the background (storage.field.encryption.rewrite), given the run and
+        // its last update (a retried run is a new job); returns true when it is queued. Without it every run runs in
+        // the request.
+        private ?Closure $encryptionJobs = null,
+        // Up to this many rows an encryption run runs in the request; above it, in the background.
+        private int $inlineEncryptionRunLimit = self::INLINE_ENCRYPTION_RUN_LIMIT,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
@@ -137,6 +162,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         // Reads every record version written under an older schema version under the current one.
         $this->converter = new StorageRecordConverter($database, $propertyTypes);
         $this->fieldChanges = new StorageFieldChanges($database);
+        $this->encryptionRuns = new StorageFieldEncryptionRuns($database);
         $this->queryNormalizer = new StorageRecordQueryNormalizer($propertyTypes);
     }
 
@@ -389,12 +415,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw new InvalidArgumentException('storage_workbench_structure_version_invalid');
         }
         $this->assertScope($actor, 'storage.workbench.structure.update', $scopeRef, self::STRUCTURE_RESOURCE);
+        $confirmed = self::takeDisableConfirmation($descriptor);
         $normalized = $this->normalizeDescriptor($descriptor);
         if ($normalized['structure_id'] !== $structureId) {
             throw new StorageRejected('storage_workbench_structure_identity_changed');
         }
 
-        return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), false);
+        return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), false, $confirmed);
     }
 
     /**
@@ -426,12 +453,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw new InvalidArgumentException('storage_workbench_structure_version_invalid');
         }
         $this->assertScope($actor, 'storage.workbench.structure.migrate', $scopeRef, self::STRUCTURE_RESOURCE);
+        $confirmed = self::takeDisableConfirmation($descriptor);
         $normalized = $this->normalizeDescriptor($descriptor);
         if ($normalized['structure_id'] !== $structureId) {
             throw new StorageRejected('storage_workbench_structure_identity_changed');
         }
 
-        return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), true);
+        return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), true, $confirmed);
     }
 
     /**
@@ -484,6 +512,303 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     }
 
     /**
+     * Runs an encryption run to its end: the `storage.field.encryption.rewrite` job, and a small run inline.
+     * Resumable and idempotent (a run that ended returns its state). At the end the run is audited
+     * (`storage.field.encryption.enabled`, `.disabled` or `.rotated`, with counts and field keys, never a value);
+     * after a decrypt run the витрина is planned again and refilled, so the field gets its column back.
+     *
+     * @param Closure(): void|null $checkpoint Runs between chunks (the job's heartbeat).
+     * @return array{state: string, rewritten: int, skipped: int, resumed: bool}
+     */
+    public function runFieldEncryption(string $runRef, int $chunk = StorageFieldEncryptionRunner::DEFAULT_CHUNK, ?Closure $checkpoint = null): array
+    {
+        if ($this->encryption === null) {
+            throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+        }
+        $runner = new StorageFieldEncryptionRunner($this->database, $this->encryptionRuns, $this->encryption->keys(), $this->normalizer, $this->views);
+        $decrypted = null;
+        try {
+            $result = $runner->run($runRef, $chunk, $checkpoint, function (StorageFieldEncryptionRunRow $run) use (&$decrypted): void {
+                $this->emitEncryption(match ($run->mode) {
+                    StorageWorkbenchEncryptionRun::MODE_ENCRYPT => self::EVENT_ENABLED,
+                    StorageWorkbenchEncryptionRun::MODE_DECRYPT => self::EVENT_DISABLED,
+                    default => self::EVENT_ROTATED,
+                }, $run, $run->createdBy, $run->correlationId ?? $this->correlationId(null), null);
+                if ($run->mode === StorageWorkbenchEncryptionRun::MODE_DECRYPT) {
+                    $decrypted = $run->schemaId;
+                }
+            });
+        } catch (StorageRejected $exception) {
+            $failed = $this->encryptionRuns->find($runRef);
+            if ($failed !== null && $failed->state === StorageWorkbenchEncryptionRun::STATE_FAILED) {
+                try {
+                    $this->emitEncryption(self::EVENT_FAILED, $failed, $failed->createdBy, $failed->correlationId ?? $this->correlationId(null), $exception->reasonCode);
+                } catch (Throwable) {
+                    // The run is failed already; its state says why.
+                }
+            }
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isLockConflict($exception)) {
+                throw new StorageConflict(StorageFieldEncryptionRunner::REASON_INTERRUPTED);
+            }
+            throw StoragePersistenceFailed::from($exception);
+        }
+        $this->views?->settle();
+        if (is_string($decrypted)) {
+            $this->replanView($decrypted);
+        }
+
+        return $result;
+    }
+
+    public function rotateEncryptionKey(string $scopeRef, string $structureId, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
+    {
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.structure.update', $scopeRef, self::STRUCTURE_RESOURCE);
+        $this->assertEncryptionManaged($actor);
+        $correlationId = $this->correlationId($correlationId);
+        try {
+            $runRef = $this->database->transaction(function () use ($scopeRef, $structureId, $actor, $correlationId): string {
+                $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
+                if ($this->headArchivedAt($head) !== null) {
+                    throw new StorageRejected('storage_workbench_structure_archived');
+                }
+                $structure = $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
+                $schemaId = $structure->schema->schemaId;
+                $this->assertNoFieldChange($schemaId);
+                $keys = $this->encryption?->keys();
+                if ($keys === null || !$this->encryptionRuns->available()) {
+                    throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+                }
+                if ($keys->activeKeyId($schemaId) === null) {
+                    throw new StorageRejected(StorageEncryptionPolicy::NOT_ENABLED);
+                }
+                [$retiring, $active] = $keys->rotate($schemaId);
+
+                return $this->startEncryptionRun(
+                    $structure,
+                    StorageWorkbenchEncryptionRun::MODE_ROTATE,
+                    StorageEncryptionPolicy::encryptedKeys($structure->fields),
+                    $retiring,
+                    $active,
+                    $actor,
+                    $correlationId,
+                );
+            });
+        } catch (StorageRejected|StorageConflict $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            if ($exception instanceof QueryException && $this->isLockConflict($exception)) {
+                throw new StorageConflict('storage_workbench_structure_version_conflict');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        }
+        $this->dispatchEncryptionRun($runRef);
+
+        return $this->stated([$this->readStructureInternal($scopeRef, $structureId)])[0];
+    }
+
+    public function retryEncryptionRun(string $scopeRef, string $structureId, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
+    {
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.structure.update', $scopeRef, self::STRUCTURE_RESOURCE);
+        $this->assertEncryptionManaged($actor);
+        $correlationId = $this->correlationId($correlationId);
+        $runRef = $this->database->transaction(function () use ($scopeRef, $structureId): string {
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_UPDATE);
+            $open = $this->encryptionRuns->open($structure->schema->schemaId, true);
+            if ($open === null || $open->state !== StorageWorkbenchEncryptionRun::STATE_FAILED) {
+                throw new StorageRejected(StorageEncryptionPolicy::NOT_FAILED);
+            }
+            $this->encryptionRuns->put($open->retried(StorageFieldEncryptionRunner::now()));
+
+            return $open->runRef;
+        });
+        $retried = $this->encryptionRuns->find($runRef);
+        if ($retried !== null) {
+            $this->emitEncryption(self::EVENT_RETRIED, $retried, $actor, $correlationId, null);
+        }
+        $this->dispatchEncryptionRun($runRef);
+
+        return $this->stated([$this->readStructureInternal($scopeRef, $structureId)])[0];
+    }
+
+    /**
+     * In the transaction that switched the structure (or rotated its key): records the run, queued.
+     *
+     * @param list<string> $fields
+     */
+    private function startEncryptionRun(
+        StorageWorkbenchStructure $structure,
+        string $mode,
+        array $fields,
+        ?string $sourceKeyId,
+        ?string $targetKeyId,
+        string $actor,
+        string $correlationId,
+    ): string {
+        $schemaId = $structure->schema->schemaId;
+        $versions = $this->database->table('larena_storage_record_versions')->where('schema_id', $schemaId)->count();
+        $localized = 0;
+        if ($this->tableExists('larena_storage_localized_values')) {
+            $query = $this->database->table('larena_storage_localized_values')->where('schema_id', $schemaId);
+            if ($mode !== StorageWorkbenchEncryptionRun::MODE_ROTATE) {
+                $query->whereIn('field_key', $fields === [] ? [''] : $fields);
+            }
+            $localized = $query->count();
+        }
+        $now = $this->timestamp();
+        $run = new StorageFieldEncryptionRunRow(
+            StorageFieldEncryptionRunRow::newRef(),
+            $schemaId,
+            $structure->scopeRef,
+            $structure->structureId,
+            $mode,
+            $fields,
+            $sourceKeyId,
+            $targetKeyId,
+            StorageWorkbenchEncryptionRun::STATE_QUEUED,
+            StorageFieldEncryptionRunRow::PHASE_VERSIONS,
+            null,
+            null,
+            0,
+            0,
+            $versions + $localized,
+            null,
+            $actor,
+            $correlationId,
+            $now,
+            $now,
+            null,
+        );
+        $this->encryptionRuns->insert($run);
+        $this->emitEncryption(self::EVENT_STARTED, $run, $actor, $correlationId, null);
+
+        return $run->runRef;
+    }
+
+    /** After the commit: a large run goes to the queue; a small one (or one no queue takes) runs here. */
+    private function dispatchEncryptionRun(string $runRef): void
+    {
+        $run = $this->encryptionRuns->find($runRef);
+        if ($run === null || !$run->running()) {
+            return;
+        }
+        if ($run->total > $this->inlineEncryptionRunLimit && $this->encryptionJobs !== null) {
+            try {
+                if (($this->encryptionJobs)($runRef, $run->updatedAt) === true) {
+                    return;
+                }
+            } catch (Throwable) {
+            }
+        }
+        try {
+            $this->runFieldEncryption($runRef, self::INLINE_ENCRYPTION_RUN_CHUNK);
+        } catch (StorageRejected|StorageConflict) {
+            // The switch is committed: the run is failed (and says why) or another walk holds it; the structure
+            // returned carries its state.
+        }
+    }
+
+    /**
+     * After a decrypt run: the витрина is planned again for the fields as they are now (the opened field gets its
+     * column and search text back) and refilled: here for a small storage, else by the queued rebuild.
+     */
+    private function replanView(string $schemaId): void
+    {
+        $views = $this->views;
+        if ($views === null || !$views->enabled()) {
+            return;
+        }
+        try {
+            $large = $this->database->table('larena_storage_records')
+                ->where('schema_id', $schemaId)
+                ->orderBy('record_id')
+                ->offset(max(0, $this->inlineViewBuildLimit))
+                ->limit(1)
+                ->exists();
+            $ddl = $views->ddl();
+            if ($large || $ddl === null || $this->database->transactionLevel() > 0) {
+                $this->requestViewBuild($schemaId);
+
+                return;
+            }
+            (new StorageViewRebuilder($views, $this->metrics))->rebuild($schemaId, StorageViewRebuilder::DEFAULT_CHUNK);
+        } catch (Throwable) {
+            // The rebuild job (or `larena:storage:view:check --repair`) finishes it.
+            $this->requestViewBuild($schemaId);
+        } finally {
+            $views->registry()->forget($schemaId);
+        }
+    }
+
+    private function emitEncryption(string $type, StorageFieldEncryptionRunRow $run, string $actor, string $correlationId, ?string $reason): void
+    {
+        $this->events->emit(new StorageSecurityEvent(
+            'encryption',
+            $type,
+            $actor,
+            'storage-schema:' . $run->schemaId,
+            $correlationId,
+            [
+                'schema_id' => $run->schemaId,
+                'structure_id' => $run->structureId,
+                'run_ref' => $run->runRef,
+                'mode' => $run->mode,
+                'fields' => $run->fields,
+                'source_key_id' => $run->sourceKeyId,
+                'target_key_id' => $run->targetKeyId,
+                'rewritten' => $run->rewritten,
+                'skipped' => $run->skipped,
+                'total' => $run->total,
+            ] + ($reason === null ? [] : ['reason_code' => $reason]),
+        ));
+    }
+
+    /**
+     * The confirmation flag of a structure change that switches encryption off a field with values, taken out of the
+     * descriptor (it is no part of the structure).
+     *
+     * @param array<string, mixed> $descriptor
+     */
+    private static function takeDisableConfirmation(array &$descriptor): bool
+    {
+        if (!array_key_exists(self::DISABLE_CONFIRMATION, $descriptor)) {
+            return false;
+        }
+        $confirmed = $descriptor[self::DISABLE_CONFIRMATION];
+        unset($descriptor[self::DISABLE_CONFIRMATION]);
+        if (!is_bool($confirmed)) {
+            throw new StorageRejected('storage_workbench_structure_descriptor_invalid');
+        }
+
+        return $confirmed;
+    }
+
+    /**
+     * The schema the витрина is planned for: the fields a decrypt run still opens stay out as if encrypted.
+     *
+     * @param list<string> $sealed
+     */
+    private static function viewSchema(StorageSchemaVersion $schema, array $sealed): StorageSchemaVersion
+    {
+        if ($sealed === []) {
+            return $schema;
+        }
+
+        return new StorageSchemaVersion(
+            $schema->ref,
+            $schema->ownerPackage,
+            StorageFieldEncryptionRuns::viewFields($schema->fields, $sealed),
+            $schema->definitionHash,
+            $schema->createdBy,
+            $schema->correlationId,
+            $schema->createdAt,
+        );
+    }
+
+    /**
      * @param array{structure_id: string, label: string, fields: list<array<string, mixed>>} $normalized
      */
     private function changeStructure(
@@ -494,6 +819,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         string $actor,
         string $correlationId,
         bool $migrate,
+        bool $disableConfirmed = false,
     ): StorageWorkbenchStructure {
         // A change of which fields are encrypted needs the manage right and a working key, asked before anything.
         $before = StorageEncryptionPolicy::encryptedKeys($this->readStructureInternal($scopeRef, $structureId)->fields);
@@ -508,6 +834,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         try {
             $viewBuild = false;
             $changeRef = null;
+            $runRef = null;
             $changed = $this->database->transaction(function () use (
                 $scopeRef,
                 $structureId,
@@ -516,8 +843,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
                 $migrate,
+                $disableConfirmed,
                 &$viewBuild,
                 &$changeRef,
+                &$runRef,
             ): StorageWorkbenchStructure {
                 $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
@@ -532,8 +861,43 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $candidateDefinition = $migrate
                     ? $this->schemaDefinition($current->schema->schemaId, $normalized['fields'])
                     : $this->schemaDefinitionForUpdate($currentSchema, $normalized['fields']);
-                $this->assertEncryptionChange($currentSchema, $candidateDefinition);
+                $rewrite = $this->assertEncryptionChange($currentSchema, $candidateDefinition);
                 $checked = $migrate ? $this->checkedFields($currentSchema, $candidateDefinition) : [];
+                if ($rewrite !== null) {
+                    // Switch first, then rewrite: the structure takes the new setting now (new writes follow it at
+                    // once), and the run that brings what was stored to it is queued in the same transaction.
+                    if ($checked !== []) {
+                        throw new StorageRejected(StorageEncryptionPolicy::CHANGE_COMBINED);
+                    }
+                    $decrypt = $rewrite['mode'] === StorageWorkbenchEncryptionRun::MODE_DECRYPT;
+                    if ($decrypt && !$disableConfirmed) {
+                        throw new StorageRejected(StorageEncryptionPolicy::DISABLE_UNCONFIRMED);
+                    }
+                    [$structure, $viewBuild] = $this->switchStructure(
+                        $head,
+                        $current,
+                        $currentSchema,
+                        $normalized,
+                        $candidateDefinition,
+                        $actor,
+                        $correlationId,
+                        $migrate ? 'migrate' : 'update',
+                        [],
+                        // The витрина gets the column of a field switched off once its values are plain.
+                        $decrypt ? $rewrite['fields'] : [],
+                    );
+                    $runRef = $this->startEncryptionRun(
+                        $structure,
+                        $rewrite['mode'],
+                        $rewrite['fields'],
+                        null,
+                        $decrypt ? null : $this->encryption?->keys()->activeKeyId($structure->schema->schemaId),
+                        $actor,
+                        $correlationId,
+                    );
+
+                    return $structure;
+                }
                 if ($checked !== []) {
                     // Every record must pass: the change checks them first, and switches after.
                     $changeRef = $this->startFieldChange($head, $current, $currentSchema, $normalized, $candidateDefinition, $checked, $actor, $correlationId);
@@ -568,6 +932,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         } catch (Throwable $exception) {
             throw StoragePersistenceFailed::from($exception);
         }
+        if ($runRef !== null) {
+            $this->dispatchEncryptionRun($runRef);
+
+            return $this->stated([$this->readStructureInternal($scopeRef, $structureId)])[0];
+        }
         if ($changeRef === null) {
             return $this->stated([$changed])[0];
         }
@@ -588,6 +957,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
      * @param array{structure_id: string, label: string, fields: list<array<string, mixed>>} $normalized
      * @param array<string, mixed> $candidateDefinition
      * @param list<string> $filled The витрина columns a field change filled.
+     * @param list<string> $viewSealed Fields the витрина keeps out as if encrypted (a decrypt run opens them).
      * @return array{0: StorageWorkbenchStructure, 1: bool} The structure, and whether its витрина needs the rebuild job.
      */
     private function switchStructure(
@@ -600,6 +970,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         string $correlationId,
         string $operation,
         array $filled,
+        array $viewSealed = [],
     ): array {
         $structureId = $current->structureId;
         $scopeRef = $current->scopeRef;
@@ -613,10 +984,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         )) {
             $targetSchema = $this->switchSchema($currentSchema, $candidateDefinition, $actor, $correlationId);
             $schemaVersion = $targetSchema->ref->version;
-            $viewBuild = $this->views?->switchSchema($currentSchema, $targetSchema, $options, $filled) ?? false;
+            $viewBuild = $this->views?->switchSchema($currentSchema, self::viewSchema($targetSchema, $viewSealed), $options, $filled) ?? false;
         }
         // Options alone change the витрина, never a record version.
-        $viewBuild = ($this->views?->applyOptions($targetSchema, $options) ?? false) || $viewBuild;
+        $viewBuild = ($this->views?->applyOptions(self::viewSchema($targetSchema, $viewSealed), $options) ?? false) || $viewBuild;
 
         $nextVersion = $expectedVersion + 1;
         $now = $this->timestamp();
@@ -898,11 +1269,19 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
     }
 
-    /** A structure whose field change runs takes no other change until it ends. */
+    /**
+     * A structure whose field change runs takes no other change until it ends; nor does one whose encryption run is
+     * queued, running or failed (both ways: a field change never starts beside a run, a run never beside a field
+     * change).
+     */
     private function assertNoFieldChange(string $schemaId): void
     {
         if ($this->fieldChanges->running($schemaId, true) !== null) {
             throw new StorageRejected('storage_workbench_field_change_running');
+        }
+        $open = $this->encryptionRuns->open($schemaId, true);
+        if ($open !== null) {
+            throw new StorageRejected($open->running() ? StorageEncryptionPolicy::RUNNING : StorageEncryptionPolicy::FAILED);
         }
     }
 
@@ -957,6 +1336,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         } catch (Throwable) {
             $open = [];
         }
+        try {
+            $runs = $this->encryptionRuns->latest(array_values(array_unique(array_map(
+                static fn (StorageWorkbenchStructure $structure): string => $structure->schema->schemaId,
+                $structures,
+            ))));
+        } catch (Throwable) {
+            $runs = [];
+        }
         // One registry read for a list, the memoized row for one structure.
         $registrations = null;
         if (count($structures) > 1) {
@@ -990,6 +1377,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if ($change !== null && $change->running()) {
                 $pending = array_merge($pending, $change->fields);
             }
+            // The encryption run that is open (queued, running or failed); one that is done is not shown.
+            $run = $runs[$structure->schema->schemaId] ?? null;
+            $run = $run !== null && $run->open() ? $run : null;
+            if ($run !== null && $run->mode === StorageWorkbenchEncryptionRun::MODE_DECRYPT) {
+                // The column of a field switched off comes when its values are plain.
+                $pending = array_merge($pending, $run->fields);
+            }
             $pending = array_values(array_unique($pending));
             sort($pending, SORT_STRING);
             $stated[] = $structure->withState(
@@ -997,6 +1391,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $registration?->backfillPending() ?? false,
                 $pending,
                 $change?->contract(),
+                $run?->contract(),
             );
         }
 
@@ -1409,6 +1804,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $this->views?->structurePurged($schemaId);
                 // So do its data keys: its encrypted values can never be read again.
                 $dataKeys = $this->tableExists(StorageDataKeys::TABLE) ? StorageDataKeys::purge($this->database, $schemaId) : 0;
+                // And its encryption runs: a walk still going finds its run gone and stops.
+                $this->encryptionRuns->purge($schemaId);
                 $recordIds = array_map(static fn (StorageRecordVersionRef $ref): string => $ref->recordId, $refs);
                 $this->emitStructure('storage.workbench.structure.purged', $scopeRef, $structureId, $actor, $correlationId, [
                     'schema_id' => $schemaId,
@@ -1720,17 +2117,32 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 return;
             }
             $current = $this->hydrateStructureVersion($head);
-            // A running field change fills its reserved columns: nothing reshapes them meanwhile.
-            if ($this->fieldChanges->running($current->schema->schemaId) !== null) {
+            // A running field change fills its reserved columns: nothing reshapes them meanwhile. Nor while an
+            // encryption run is open: the structure takes no change then.
+            if ($this->fieldChanges->running($current->schema->schemaId) !== null
+                || $this->encryptionRuns->open($current->schema->schemaId) !== null) {
                 return;
             }
             $currentSchema = $this->storage->schemaVersion($current->schema);
             $candidate = $migrate
                 ? $this->schemaDefinition($current->schema->schemaId, $fields)
                 : $this->schemaDefinitionForUpdate($currentSchema, $fields);
+            // A field switched off that holds values gets its column only once its decrypt run is done.
+            $sealed = [];
+            $wasEncrypted = StorageEncryptionPolicy::encryptedKeys($currentSchema->fields);
+            $isEncrypted = StorageEncryptionPolicy::encryptedKeys(is_array($candidate['fields'] ?? null) ? $candidate['fields'] : []);
+            foreach (array_diff($wasEncrypted, $isEncrypted) as $key) {
+                if (StorageEncryptionPolicy::fieldHasValues($this->database, $current->schema->schemaId, $key)) {
+                    $sealed[] = $key;
+                }
+            }
             // Also when nothing changes: a витрина built before the search table gets it here, outside
             // the transaction, and takes the options in it.
-            $this->views->prepareChange($current->schema->schemaId, $candidate['fields'], StorageViewFieldOptions::resolve($fields));
+            $this->views->prepareChange(
+                $current->schema->schemaId,
+                StorageFieldEncryptionRuns::viewFields(array_values(array_filter($candidate['fields'], 'is_array')), $sealed),
+                StorageViewFieldOptions::resolve($fields),
+            );
         } catch (Throwable) {
         }
     }
@@ -1808,7 +2220,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'reason_code' => $decision->reasonCode,
         ]));
         $fields = [];
-        foreach ($structure->fields as $field) {
+        foreach ($this->listFields($structure) as $field) {
             $fields[(string) $field['key']] = $field;
         }
         $sort = $normalizedQuery['sort'] === [] ? 'none' : 'unindexed';
@@ -1867,7 +2279,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
         try {
             $layout = $this->views->planner()->plan(
-                $structure->fields,
+                $this->listFields($structure),
                 $structure->schema->version,
                 null,
                 StorageViewFieldOptions::resolve($structure->fields),
@@ -2491,29 +2903,50 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
      * not retyped and keeps its constraints while it has values (StorageEncryptionPolicy::assertChange). The storage's
      * data key is made when it gets its first encrypted field (changeStructure asked for the manage right before).
      *
+     * A field with values whose encryption switches needs an encryption run (slice B): returned as its mode and
+     * fields. Without the runs table or a sealer it stays refused (storage_field_encryption_rewrite_required).
+     *
      * @param array<string, mixed> $candidateDefinition
+     * @return array{mode: string, fields: list<string>}|null
      */
-    private function assertEncryptionChange(StorageSchemaVersion $current, array $candidateDefinition): void
+    private function assertEncryptionChange(StorageSchemaVersion $current, array $candidateDefinition): ?array
     {
         $from = StorageRecordConverter::byKey($current->fields);
         $to = StorageRecordConverter::byKey(is_array($candidateDefinition['fields'] ?? null) ? $candidateDefinition['fields'] : []);
         $schemaId = $current->ref->schemaId;
-        StorageEncryptionPolicy::assertChange(
+        $switch = StorageEncryptionPolicy::assertSwitch(
             $from,
             $to,
             fn (string $key): bool => StorageEncryptionPolicy::fieldHasValues($this->database, $schemaId, $key),
         );
+        if ($switch['rewrite'] !== [] && ($this->encryption === null || !$this->encryptionRuns->available())) {
+            throw new StorageRejected(StorageEncryptionPolicy::REWRITE_REQUIRED);
+        }
         $before = StorageEncryptionPolicy::encryptedKeys($from);
         $after = StorageEncryptionPolicy::encryptedKeys($to);
         sort($before, SORT_STRING);
         sort($after, SORT_STRING);
-        if ($before === $after || $after === []) {
-            return;
+        if ($before !== $after && $after !== []) {
+            if ($this->encryption === null) {
+                throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+            }
+            $this->encryption->keys()->ensureActive($schemaId);
         }
-        if ($this->encryption === null) {
-            throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+        if ($switch['rewrite'] === []) {
+            return null;
         }
-        $this->encryption->keys()->ensureActive($schemaId);
+        $modes = [];
+        foreach ($switch['rewrite'] as $key) {
+            $modes[StorageEncryptionPolicy::isEncrypted($to[$key] ?? []) ? StorageWorkbenchEncryptionRun::MODE_ENCRYPT : StorageWorkbenchEncryptionRun::MODE_DECRYPT] = true;
+        }
+        if (count($modes) !== 1) {
+            // One run seals or opens: a change that does both is two changes.
+            throw new StorageRejected(StorageEncryptionPolicy::CHANGE_COMBINED);
+        }
+        $fields = $switch['rewrite'];
+        sort($fields, SORT_STRING);
+
+        return ['mode' => (string) array_key_first($modes), 'fields' => $fields];
     }
 
     /** Making or changing encrypted fields: the manage right and a working key (sodium, the key-encryption key). */
@@ -2751,6 +3184,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $values = $this->converter->convert($structure->schema->schemaId, $version->schema->version, $structure->schema->version, $values);
         }
         unset($values[self::SCOPE_FIELD], $values[self::STATE_FIELD]);
+        $values = $this->maskPlaintext($structure, $version->ref->recordId, $values);
 
         return new StorageWorkbenchRecord(
             $structure->structureId,
@@ -2766,6 +3200,43 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $version->createdBy,
             $version->correlationId,
         );
+    }
+
+    /**
+     * While an encryption run has not reached a version, a field that is encrypted now may still hold plaintext:
+     * every reader shows it as an envelope (sealed for this read, StorageFieldSealer::maskPlaintext), or leaves it out
+     * where nothing can seal it here.
+     *
+     * @param array<string, mixed> $values
+     * @return array<string, mixed>
+     */
+    private function maskPlaintext(StorageWorkbenchStructure $structure, string $recordId, #[\SensitiveParameter] array $values): array
+    {
+        $plain = [];
+        foreach (StorageEncryptionPolicy::encryptedKeys($structure->fields) as $key) {
+            if (array_key_exists($key, $values) && $values[$key] !== null && !StorageFieldEnvelope::isEnvelope($values[$key])) {
+                $plain[] = $key;
+            }
+        }
+        if ($plain === []) {
+            return $values;
+        }
+        if ($this->encryption === null) {
+            return array_diff_key($values, array_flip($plain));
+        }
+
+        return $this->encryption->maskPlaintext($structure->schema->schemaId, $recordId, null, $plain, $values);
+    }
+
+    /**
+     * The structure's fields as its lists see them: a field a decrypt run still opens is encrypted for the list (no
+     * filter, no sort, no search, no column) until the run is done.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function listFields(StorageWorkbenchStructure $structure): array
+    {
+        return StorageFieldEncryptionRuns::viewFields($structure->fields, $this->encryptionRuns->sealedForView($structure->schema->schemaId));
     }
 
     /** A list hydrates without recomputing each record's hash; a single read verifies it. */
@@ -2807,7 +3278,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw new StorageRejected('storage_workbench_cursor_key_missing');
         }
         $fields = [];
-        foreach ($structure->fields as $field) {
+        foreach ($this->listFields($structure) as $field) {
             $fields[(string) $field['key']] = $field;
         }
 

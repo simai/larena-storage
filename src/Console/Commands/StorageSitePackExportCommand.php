@@ -7,6 +7,7 @@ namespace Larena\Storage\Console\Commands;
 use Illuminate\Console\Command;
 use Larena\Storage\Contracts\StorageSitePack;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\SitePack\DatabaseStorageSitePack;
 
 /**
  * Exports one storage structure as a SitePack archive, as the person named by --actor (who needs
@@ -16,6 +17,9 @@ use Larena\Storage\Exceptions\StorageRejected;
  *       starts the export as a storage.sitepack.export queue job and prints the run
  *   larena:storage:sitepack:export workbench.items --scope=… --actor=… --sync --output=/tmp/items.sitepack.zip
  *       runs it here and copies the archive to --output (a new file, 0600)
+ *   … --include-encrypted-plaintext
+ *       the pack carries the encrypted fields' values in plaintext (needs storage.workbench.record.decrypt; audited,
+ *       the manifest says contains_decrypted_values); an import seals them again with the target's key
  */
 final class StorageSitePackExportCommand extends Command
 {
@@ -24,7 +28,8 @@ final class StorageSitePackExportCommand extends Command
         {--scope= : The scope the structure belongs to}
         {--actor= : The person the export runs as}
         {--sync : Run the export in this process instead of the queue}
-        {--output= : With --sync, copy the archive to this new file}';
+        {--output= : With --sync, copy the archive to this new file}
+        {--include-encrypted-plaintext : Carry the encrypted fields in plaintext (decrypt right, audited)}';
 
     protected $description = 'Export a Larena Storage structure (structure, records, translations, publication states, relations, files) as a SitePack archive.';
 
@@ -46,7 +51,16 @@ final class StorageSitePackExportCommand extends Command
             return self::INVALID;
         }
         try {
-            $run = $sitePack->startExport($scope, $structure, $actor, null, !$sync);
+            if ((bool) $this->option('include-encrypted-plaintext')) {
+                if (!$sitePack instanceof DatabaseStorageSitePack) {
+                    $this->error('This SitePack binding cannot export encrypted values in plaintext.');
+
+                    return self::FAILURE;
+                }
+                $run = $sitePack->startExport($scope, $structure, $actor, null, !$sync, true);
+            } else {
+                $run = $sitePack->startExport($scope, $structure, $actor, null, !$sync);
+            }
             if (!$sync) {
                 $this->line((string) json_encode(['run_ref' => $run->runRef, 'state' => $run->state, 'job_id' => $run->jobId], JSON_UNESCAPED_SLASHES));
                 if ($run->jobId === null) {

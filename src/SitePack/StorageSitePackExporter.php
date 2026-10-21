@@ -12,6 +12,9 @@ use Larena\Core\SitePack\SitePackEnvelope;
 use Larena\Core\SitePack\SitePackLimits;
 use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
+use Larena\Storage\Encryption\StorageDataKeys;
+use Larena\Storage\Encryption\StorageFieldCipher;
+use Larena\Storage\Encryption\StorageFieldEnvelope;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
@@ -68,6 +71,10 @@ final class StorageSitePackExporter
         private readonly string $siteRef,
         private readonly StorageWorkbenchStructure $structure,
         private readonly string $staging,
+        // An export with the encrypted values in plaintext (include_encrypted_plaintext) opens them with these keys;
+        // null leaves them out.
+        private readonly ?StorageDataKeys $plaintextKeys = null,
+        private readonly StorageFieldCipher $cipher = new StorageFieldCipher(),
     ) {
         foreach ($structure->fields as $field) {
             $this->fields[(string) $field['key']] = $field;
@@ -204,9 +211,13 @@ final class StorageSitePackExporter
                 foreach (StorageSitePackFormat::RESERVED_FIELDS as $reserved) {
                     unset($values[$reserved]);
                 }
-                // Encrypted values never leave the site in a pack (the field stays, marked encrypted).
+                // Encrypted values never leave the site in a pack (the field stays, marked encrypted), unless the
+                // export asked for them in plaintext.
                 $omitted = array_intersect_key($values, $this->encrypted);
-                if ($omitted !== []) {
+                if ($omitted !== [] && $this->plaintextKeys !== null) {
+                    $values = array_replace($values, $this->opened($recordId, null, $omitted));
+                    $counts['encrypted_values_decrypted'] = ($counts['encrypted_values_decrypted'] ?? 0) + count($omitted);
+                } elseif ($omitted !== []) {
                     $values = array_diff_key($values, $this->encrypted);
                     $counts['encrypted_values_omitted'] = ($counts['encrypted_values_omitted'] ?? 0) + count($omitted);
                 }
@@ -215,7 +226,10 @@ final class StorageSitePackExporter
                 foreach ($localized[$recordId][$revision] ?? [] as $locale => $fieldValues) {
                     $kept = array_intersect_key($fieldValues, $this->fields);
                     $omitted = array_intersect_key($kept, $this->encrypted);
-                    if ($omitted !== []) {
+                    if ($omitted !== [] && $this->plaintextKeys !== null) {
+                        $kept = array_replace($kept, $this->opened($recordId, (string) $locale, $omitted));
+                        $counts['encrypted_values_decrypted'] = ($counts['encrypted_values_decrypted'] ?? 0) + count($omitted);
+                    } elseif ($omitted !== []) {
                         $kept = array_diff_key($kept, $this->encrypted);
                         $counts['encrypted_values_omitted'] = ($counts['encrypted_values_omitted'] ?? 0) + count($omitted);
                     }
@@ -443,7 +457,7 @@ final class StorageSitePackExporter
                 $digests === [] ? [StorageSitePackFormat::PROFILE_DATA] : [StorageSitePackFormat::PROFILE_DATA, StorageSitePackFormat::PROFILE_ASSETS],
                 StorageSitePackFormat::SCHEMA_NAME,
                 StorageSitePackFormat::SCHEMA_VERSION,
-                StorageSitePackFormat::annotations($this->siteRef, [$this->structure->structureId], $exportedAt),
+                StorageSitePackFormat::annotations($this->siteRef, [$this->structure->structureId], $exportedAt, $this->plaintextKeys !== null),
             );
         } catch (Throwable $exception) {
             $writer->abort();
@@ -453,6 +467,30 @@ final class StorageSitePackExporter
         }
 
         return ['envelope' => $envelope, 'references' => $references];
+    }
+
+    /**
+     * The plaintext of encrypted values, for an export that asked for it; a value stored in plaintext (an
+     * encryption run not done) passes as it is.
+     *
+     * @param array<array-key, mixed> $values
+     * @return array<array-key, mixed>
+     */
+    private function opened(string $recordId, ?string $locale, #[\SensitiveParameter] array $values): array
+    {
+        $keys = $this->plaintextKeys;
+        if ($keys === null) {
+            return [];
+        }
+        $schemaId = $this->structure->schema->schemaId;
+        foreach ($values as $fieldKey => $value) {
+            if (StorageFieldEnvelope::isEnvelope($value)) {
+                $envelope = StorageFieldEnvelope::fromValue($value);
+                $values[$fieldKey] = $this->cipher->decrypt($keys->key($schemaId, $envelope->keyId), $envelope, $schemaId, $recordId, $locale, (string) $fieldKey);
+            }
+        }
+
+        return $values;
     }
 
     /**

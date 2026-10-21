@@ -241,6 +241,26 @@ final class StorageViewSync
         )], self::hasMulti($registration->layout), $revision === 1);
     }
 
+    /**
+     * In the transaction of an encryption run that rewrote the stored form of a record's current version (its meaning
+     * did not change): the витрина row of that revision takes the new content hash, so it agrees with the head. Only
+     * the hash moves; the row's cells never held the encrypted fields.
+     */
+    public function recordRehashed(string $schemaId, string $recordId, int $revision, string $contentHash): void
+    {
+        if (!$this->enabled()) {
+            return;
+        }
+        $registration = $this->registry->find($schemaId);
+        if ($registration === null || !$registration->written()) {
+            return;
+        }
+        $this->database->table($registration->tableName)
+            ->where('record_id', $recordId)
+            ->where('revision', $revision)
+            ->update(['content_hash' => $contentHash]);
+    }
+
     /** @param list<string> $recordIds Records purged in the caller's transaction. */
     public function recordsRemoved(string $schemaId, array $recordIds): void
     {

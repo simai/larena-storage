@@ -17,6 +17,9 @@ use Larena\Core\SitePack\SitePackRejected;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Audit\StorageSitePackAuditEventCatalog;
 use Larena\Storage\Contracts\StorageSecurityEvent;
+use Larena\Storage\Encryption\StorageDataKeys;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageFieldReveal;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageSitePack;
 use Larena\Storage\Contracts\LocalizedValues;
@@ -94,6 +97,8 @@ final class DatabaseStorageSitePack implements StorageSitePack
     ];
 
     private const string RUN_PREFIX = 'storage-sitepack-';
+    /** The run option of an export that carries encrypted values in plaintext. */
+    public const string PLAINTEXT_OPTION = 'include_encrypted_plaintext';
 
     private readonly StorageSitePackRuns $runs;
     private readonly StorageSitePackFiles $files;
@@ -137,6 +142,9 @@ final class DatabaseStorageSitePack implements StorageSitePack
         private readonly ?Closure $siteLocales = null,
         private readonly ?Closure $viewRebuilds = null,
         private readonly int $importChunk = self::IMPORT_CHUNK,
+        // Opens the encrypted values of an export that asks for them in plaintext (include_encrypted_plaintext);
+        // without it such an export is refused (storage_field_encryption_unavailable).
+        private readonly ?StorageDataKeys $keys = null,
     ) {
         $this->runs = new StorageSitePackRuns($database);
         $this->files = $files ?? new UnavailableStorageSitePackFiles();
@@ -151,15 +159,25 @@ final class DatabaseStorageSitePack implements StorageSitePack
         }
     }
 
+    /**
+     * $includeEncryptedPlaintext (beyond the contract): the pack carries the encrypted fields' values in plaintext.
+     * It needs `storage.workbench.record.decrypt` besides the export right and a working key; the start is audited
+     * (`storage.sitepack.export_decrypted`), the manifest says `contains_decrypted_values: true`, and an import seals
+     * the values again with the target's data key.
+     */
     public function startExport(
         string $scopeRef,
         string $structureId,
         string $actor,
         ?string $correlationId = null,
         bool $queued = true,
+        bool $includeEncryptedPlaintext = false,
     ): StorageSitePackRun {
         $this->assertAccess($actor, $scopeRef);
         $this->assertAvailable();
+        if ($includeEncryptedPlaintext) {
+            $this->assertPlaintext($actor);
+        }
         $structure = $this->workbench->readStructure($scopeRef, $structureId, $actor);
         if ($structure->changing()) {
             throw new StorageRejected(self::REASON_FIELD_CHANGE);
@@ -180,7 +198,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
             'done' => 0,
             'total' => 0,
             'counts_json' => '{}',
-            'options_json' => self::json(['generation' => 0]),
+            'options_json' => self::json(['generation' => 0] + ($includeEncryptedPlaintext ? [self::PLAINTEXT_OPTION => true] : [])),
             'plan_json' => null,
             'plan_digest' => null,
             'package_id' => null,
@@ -194,6 +212,12 @@ final class DatabaseStorageSitePack implements StorageSitePack
             'updated_at' => $now,
             'finished_at' => null,
         ]);
+        if ($includeEncryptedPlaintext) {
+            // Who asked for plaintext leaves a trace before anything is read.
+            $this->emit(StorageSitePackAuditEventCatalog::EXPORT_DECRYPTED, $this->mustFind($runRef), $correlationId, [
+                'contains_decrypted_values' => true,
+            ]);
+        }
         if ($queued) {
             $this->dispatch($runRef, 0);
         }
@@ -808,6 +832,11 @@ final class DatabaseStorageSitePack implements StorageSitePack
         if ($phase !== StorageSitePackRun::PHASE_PREPARE && !$this->sameFrame($structure, $options)) {
             throw new StorageRejected(self::REASON_STRUCTURE_CHANGED);
         }
+        $plaintext = ($options[self::PLAINTEXT_OPTION] ?? false) === true;
+        if ($plaintext) {
+            // Checked again for every walk: a right taken away stops the export.
+            $this->assertPlaintext($actor);
+        }
         StorageSitePackExporter::directory($this->directory);
         $exporter = new StorageSitePackExporter(
             $this->database,
@@ -821,6 +850,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
             $siteRef,
             $structure,
             $this->stagingPath($runRef),
+            $plaintext ? $this->keys : null,
         );
         $cursor = self::decode($row->cursor);
         $counts = self::decode($row->counts_json);
@@ -832,7 +862,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
             }
             $this->runs->clearIds($runRef);
             $total = $exporter->prepare($this->storage->schemaVersion($structure->schema));
-            $options = ['generation' => (int) ($options['generation'] ?? 0)] + self::frame($structure);
+            $options = ['generation' => (int) ($options['generation'] ?? 0)] + ($plaintext ? [self::PLAINTEXT_OPTION => true] : []) + self::frame($structure);
             $cursor = ['after' => null, 'part' => 1, 'lines' => 0, 'bytes' => 0];
             $counts = [];
             $done = 0;
@@ -955,7 +985,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
             'package_id' => $run->packageId,
             'archive_sha256' => $sha256,
             'archive_bytes' => $size,
-        ] + $counts);
+        ] + ($plaintext ? ['contains_decrypted_values' => true] : []) + $counts);
 
         return $run;
     }
@@ -1234,7 +1264,17 @@ final class DatabaseStorageSitePack implements StorageSitePack
         }
     }
 
-    /** @param array<string, int|string|null> $details */
+    /** An export in plaintext: the decrypt right and a working key, asked before anything. */
+    private function assertPlaintext(string $actor): void
+    {
+        $this->authorizer->assertAllowed($actor, StorageFieldReveal::OPERATION);
+        if ($this->keys === null) {
+            throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+        }
+        $this->keys->assertAvailable();
+    }
+
+    /** @param array<string, int|string|bool|null> $details */
     private function emit(string $type, StorageSitePackRun $run, ?string $correlationId, array $details): void
     {
         $this->events->emit(new StorageSecurityEvent(

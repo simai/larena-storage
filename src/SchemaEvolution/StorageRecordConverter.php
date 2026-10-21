@@ -32,9 +32,10 @@ use Throwable;
  *   every current record converts; only an older history version can lose one);
  * - a field the record has no value for stays absent, which is how an optional
  *   field added later reads: empty;
- * - an encrypted value (an envelope) passes through unopened while its field stays
- *   encrypted with the same type; it is never converted, and dropped (refused when
- *   strict) when its field is no longer encrypted or changed type.
+ * - an encrypted value (an envelope) passes through unopened while its field keeps
+ *   its type (also when the field was switched off: its decrypt run opens it); it is
+ *   never converted, and dropped (refused when strict) when its field changed type,
+ *   or (strict) is no longer encrypted.
  *
  * Schema versions never change once written, so their fields are kept for the
  * life of the converter. Each is checked against its stored hash on first use.
@@ -99,7 +100,10 @@ final class StorageRecordConverter
             }
             $source = $from[$key] ?? null;
             if (StorageFieldEnvelope::isEnvelope($value)) {
-                if ($source !== null && self::sameType($source, $target) && StorageEncryptionPolicy::isEncrypted($target)) {
+                // An envelope keeps its field while the type stays. A field switched off keeps it too: its decrypt
+                // run opens it in place (until then a reader shows the envelope).
+                if ($source !== null && self::sameType($source, $target)
+                    && (StorageEncryptionPolicy::isEncrypted($target) || !$strict)) {
                     $result[$key] = $value;
                 } elseif ($strict) {
                     throw new StorageRejected('storage_schema_migration_record_unconvertible');

@@ -94,6 +94,12 @@ final class StorageSitePackSource
         return is_array($source) && is_string($source['site_ref'] ?? null) ? $source['site_ref'] : null;
     }
 
+    /** Whether the pack carries encrypted values in plaintext (an export with include_encrypted_plaintext). */
+    public function containsDecryptedValues(): bool
+    {
+        return ($this->reader->envelope->annotations[StorageSitePackFormat::DECRYPTED_ANNOTATION] ?? false) === true;
+    }
+
     /** Records in the pack, as the catalog declares them. */
     public function recordCount(): int
     {

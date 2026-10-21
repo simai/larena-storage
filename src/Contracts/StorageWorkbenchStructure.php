@@ -37,12 +37,24 @@ final readonly class StorageWorkbenchStructure
         // The field change running in the background, or the last one that failed or was cancelled
         // after the structure's current version; null when there is none.
         public ?StorageWorkbenchFieldChange $fieldChange = null,
+        // The encryption run that is queued, running or failed (larena-specs
+        // docs/architecture/2026-10-22-storage-field-encryption.md); null when there is none.
+        public ?StorageWorkbenchEncryptionRun $encryptionRun = null,
     ) {
     }
 
-    /** The same structure with the state of its витрина and of its field change. @param list<string> $viewPendingFields */
-    public function withState(?string $viewState, bool $viewBackfillPending, array $viewPendingFields, ?StorageWorkbenchFieldChange $fieldChange): self
-    {
+    /**
+     * The same structure with the state of its витрина, of its field change and of its encryption run.
+     *
+     * @param list<string> $viewPendingFields
+     */
+    public function withState(
+        ?string $viewState,
+        bool $viewBackfillPending,
+        array $viewPendingFields,
+        ?StorageWorkbenchFieldChange $fieldChange,
+        ?StorageWorkbenchEncryptionRun $encryptionRun = null,
+    ): self {
         return new self(
             $this->structureId,
             $this->scopeRef,
@@ -62,13 +74,23 @@ final readonly class StorageWorkbenchStructure
             $viewBackfillPending,
             $viewPendingFields,
             $fieldChange,
+            $encryptionRun,
         );
     }
 
-    /** True while a field change runs in the background: the structure accepts no other change. */
+    /**
+     * True while a field change runs in the background, or an encryption run is queued, running or failed: the
+     * structure accepts no other change.
+     */
     public function changing(): bool
     {
-        return $this->fieldChange !== null && $this->fieldChange->running();
+        return ($this->fieldChange !== null && $this->fieldChange->running()) || $this->encrypting();
+    }
+
+    /** True while an encryption run is queued, running or failed (a failed one waits for its retry). */
+    public function encrypting(): bool
+    {
+        return $this->encryptionRun !== null && $this->encryptionRun->open();
     }
 
     public function isArchived(): bool

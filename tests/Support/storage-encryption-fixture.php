@@ -578,12 +578,15 @@ function storageEncryptionUnit(Connection $connection, string $label): void
     } catch (StorageRejected $exception) {
         storageViewExpect($exception->getMessage() === StorageFieldCipher::REASON_UNAVAILABLE && !storageEncryptionLeaks($exception, 'MARKER-UNIT-PLAINTEXT'), $label . ': the encrypt exception carries the value');
     }
-    // The converter never retypes an envelope, and drops one whose field is no longer encrypted.
+    // The converter never retypes an envelope; one whose field was switched off keeps it (its decrypt run opens it in
+    // place), a strict step (a field change's check) refuses it.
     $converter = new StorageRecordConverter($connection);
     $sealed = ['f' => $good, 'g' => $good];
     $from = ['f' => ['key' => 'f', 'type' => 'string', 'type_version' => 1, 'encrypted' => true], 'g' => ['key' => 'g', 'type' => 'string', 'type_version' => 1, 'encrypted' => true]];
     $to = ['f' => ['key' => 'f', 'type' => 'string', 'type_version' => 1, 'encrypted' => true], 'g' => ['key' => 'g', 'type' => 'string', 'type_version' => 1]];
-    storageViewExpect($converter->step($sealed, $from, $to) === ['f' => $good], $label . ': the converter kept an envelope of a field no longer encrypted');
+    storageViewExpect($converter->step($sealed, $from, $to) === ['f' => $good, 'g' => $good], $label . ': the converter dropped the envelope of a field switched off');
+    $retyped = ['g' => ['key' => 'g', 'type' => 'text', 'type_version' => 1]] + $to;
+    storageViewExpect($converter->step($sealed, $from, $retyped) === ['f' => $good], $label . ': the converter kept an envelope of a retyped field');
     storageEncryptionRejects(static fn () => $converter->step($sealed, $from, $to, true), 'storage_schema_migration_record_unconvertible', $label . ': a strict step kept an envelope');
 }
 

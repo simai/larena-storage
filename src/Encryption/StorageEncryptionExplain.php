@@ -11,7 +11,8 @@ use Larena\Storage\Exceptions\StorageRejected;
 /**
  * What a structure's encryption is, for `storage.encryption.explain` (high): its encrypted fields, whether values
  * can be encrypted here (sodium and the key-encryption key), and its data keys by id, status, KEK id, algorithm and
- * dates, each with whether this installation can unwrap it. Never a key, a value or a ciphertext.
+ * dates, each with whether this installation can unwrap it and whether the current KEK wraps it (false: run
+ * `larena:storage:encryption:rewrap`). Never a key, a value or a ciphertext.
  */
 final readonly class StorageEncryptionExplain
 {
@@ -25,7 +26,7 @@ final readonly class StorageEncryptionExplain
     }
 
     /**
-     * @return array{structure_id: string, schema_id: string, encrypted_fields: list<string>, algorithm: string, available: bool, reason_code: ?string, keys: list<array{key_id: string, status: string, kek_id: string, algorithm: string, created_at: string, retired_at: ?string, unwrappable: bool}>}
+     * @return array{structure_id: string, schema_id: string, encrypted_fields: list<string>, algorithm: string, available: bool, reason_code: ?string, keys: list<array{key_id: string, status: string, kek_id: string, algorithm: string, created_at: string, retired_at: ?string, unwrappable: bool, current_kek: bool}>}
      * @throws StorageRejected
      */
     public function explain(string $scopeRef, string $structureId, string $actor): array

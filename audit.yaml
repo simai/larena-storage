@@ -91,7 +91,31 @@ events:
   - type: storage.sitepack.imported
     category: storage_sitepack
     severity: security
+  - type: storage.sitepack.export_decrypted
+    category: storage_sitepack
+    severity: security
   - type: storage.field.revealed
+    category: storage_encryption
+    severity: security
+  - type: storage.field.encryption.started
+    category: storage_encryption
+    severity: security
+  - type: storage.field.encryption.enabled
+    category: storage_encryption
+    severity: security
+  - type: storage.field.encryption.disabled
+    category: storage_encryption
+    severity: security
+  - type: storage.field.encryption.rotated
+    category: storage_encryption
+    severity: security
+  - type: storage.field.encryption.failed
+    category: storage_encryption
+    severity: security
+  - type: storage.field.encryption.retried
+    category: storage_encryption
+    severity: security
+  - type: storage.field.encryption.rewrapped
     category: storage_encryption
     severity: security
 forbidden_payload_fields:

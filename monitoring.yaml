@@ -44,3 +44,16 @@ metrics:
     type: counter
     tags: []
     retention: { raw: 7d, aggregate: 90d }
+  # Data keys of encrypted fields still wrapped by a previous key-encryption key (APP_KEY changed, the old one kept in
+  # APP_PREVIOUS_KEYS): a warning while above zero; `larena:storage:encryption:rewrap` moves them to the current KEK.
+  # Reported by `larena:storage:encryption:status` (StorageDataKeys::health()).
+  storage.encryption.previous_kek_keys:
+    type: gauge
+    tags: []
+    retention: { raw: 7d, aggregate: 90d }
+  # Data keys no KEK of this installation unwraps (APP_KEY lost or replaced without APP_PREVIOUS_KEYS): their values
+  # cannot be read; critical while above zero.
+  storage.encryption.unwrappable_keys:
+    type: gauge
+    tags: []
+    retention: { raw: 7d, aggregate: 90d }

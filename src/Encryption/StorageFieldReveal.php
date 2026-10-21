@@ -9,6 +9,7 @@ use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench;
+use Larena\Storage\Contracts\StorageWorkbenchEncryptionRun;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Throwable;
@@ -63,6 +64,11 @@ final readonly class StorageFieldReveal
         $this->authorizer->assertAllowed($actor, self::OPERATION);
         $structure = $this->workbench->readStructure($scopeRef, $structureId, $actor);
         $encrypted = StorageEncryptionPolicy::encryptedKeys($structure->fields);
+        $run = $structure->encryptionRun;
+        if ($run !== null && $run->open() && $run->mode === StorageWorkbenchEncryptionRun::MODE_DECRYPT) {
+            // A field switched off keeps envelopes until its decrypt run opens them: those reveal too.
+            $encrypted = array_merge($encrypted, $run->fields);
+        }
         foreach ($fieldKeys as $key) {
             if (!in_array($key, $encrypted, true)) {
                 throw new StorageRejected(self::REASON_INVALID);

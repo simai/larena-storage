@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\View;
 
+use Larena\Storage\Encryption\StorageFieldEnvelope;
 use Larena\Storage\Exceptions\StorageRejected;
 
 /**
@@ -158,7 +159,8 @@ final readonly class StorageViewProjector
 
     private function columnValue(StorageViewColumn $column, mixed $value): mixed
     {
-        if ($value === null) {
+        // An envelope (a field a decrypt run has not opened yet) is never a cell.
+        if ($value === null || StorageFieldEnvelope::isEnvelope($value)) {
             return null;
         }
 

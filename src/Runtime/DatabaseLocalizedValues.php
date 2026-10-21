@@ -17,6 +17,8 @@ use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\LocalizedValueRejected;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageDataKeys;
+use Larena\Storage\Encryption\StorageFieldEnvelope;
 use Larena\Storage\Encryption\StorageFieldSealer;
 use Larena\Storage\View\Site\PublishedSiteViewIndex;
 use Larena\Storage\View\Site\PublishedSiteViewRegistry;
@@ -100,6 +102,83 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         }
 
         return ['fields' => $fields, 'partial_locales' => ($decoded['partial_locales'] ?? false) === true];
+    }
+
+    /**
+     * The storage's current schema version and its encrypted fields; null when the storage has no schema head (a
+     * caller outside the versioned storage).
+     *
+     * @return array{version: int, encrypted: list<string>}|null
+     * @phpstan-impure
+     */
+    private function currentEncryption(string $schemaId): ?array
+    {
+        try {
+            $version = $this->connection->table('larena_storage_schemas')->where('schema_id', $schemaId)->value('current_version');
+        } catch (Throwable) {
+            return null;
+        }
+        if ($version === null) {
+            return null;
+        }
+        $definition = $this->connection->table('larena_storage_schema_versions')
+            ->where('schema_id', $schemaId)
+            ->where('version', (int) $version)
+            ->value('definition');
+        $decoded = is_string($definition) ? json_decode($definition, true) : null;
+
+        return [
+            'version' => (int) $version,
+            'encrypted' => StorageEncryptionPolicy::encryptedKeys(is_array($decoded) && is_array($decoded['fields'] ?? null) ? $decoded['fields'] : []),
+        ];
+    }
+
+    /**
+     * What read() shows of one locale's translations (the admin's read): a field that is encrypted now but still
+     * holds plaintext (its encryption run has not reached the row) is shown as an envelope sealed for this read, or
+     * left out. The resolving reads serve public fields, which are never encrypted.
+     *
+     * @param array<string, LocalizedValue> $values
+     * @return array<string, LocalizedValue>
+     * @phpstan-impure
+     */
+    private function masked(string $schemaId, string $recordId, array $values): array
+    {
+        $plain = [];
+        foreach ($values as $key => $value) {
+            if ($value->value !== null && !StorageFieldEnvelope::isEnvelope($value->value)) {
+                $plain[$key] = true;
+            }
+        }
+        if ($plain === []) {
+            return $values;
+        }
+        try {
+            // Only a storage with a data key has encrypted fields.
+            $keyed = $this->connection->table(StorageDataKeys::TABLE)->where('schema_id', $schemaId)->exists();
+        } catch (Throwable) {
+            $keyed = false;
+        }
+        if (!$keyed) {
+            return $values;
+        }
+        $encrypted = $this->currentEncryption($schemaId)['encrypted'] ?? [];
+        foreach (array_intersect(array_keys($plain), $encrypted) as $key) {
+            $sealed = $this->sealer?->sealForRead($schemaId, $recordId, $values[$key]->sourceLocale, $key, $values[$key]->value);
+            if ($sealed === null) {
+                unset($values[$key]);
+                continue;
+            }
+            $values[$key] = new LocalizedValue(
+                fieldKey: $key,
+                requestedLocale: $values[$key]->requestedLocale,
+                sourceLocale: $values[$key]->sourceLocale,
+                value: $sealed,
+                exact: $values[$key]->exact,
+            );
+        }
+
+        return $values;
     }
 
     /**
@@ -208,11 +287,15 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         // A translation passes the same Property validation as the shared value: the
         // field's type, version and constraints come from the schema version of the
         // revision it translates. A field the schema does not know is refused.
-        $encrypted = array_values(array_intersect(
-            StorageEncryptionPolicy::encryptedKeys($schema['fields']),
-            array_map('strval', array_keys($values)),
-        ));
-        if ($encrypted === []) {
+        // Whether a field is encrypted is the storage's setting now, whatever revision the translation belongs to: a
+        // field switched on seals every new translation, one switched off writes them plain (its encryption run
+        // brings the stored ones to the same).
+        $now = $this->currentEncryption($schemaId);
+        $encryptedNow = $now['encrypted'] ?? StorageEncryptionPolicy::encryptedKeys($schema['fields']);
+        $encrypted = array_values(array_intersect($encryptedNow, array_map('strval', array_keys($values))));
+        // An envelope given for a field that is plain now (read while its decrypt run opens it) is opened too.
+        $given = StorageFieldSealer::envelopeKeys($values);
+        if ($encrypted === [] && $given === []) {
             $values = $this->validatedValues($schema['fields'], $values);
         } else {
             if ($this->sealer === null) {
@@ -220,13 +303,14 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
             }
             try {
                 $this->sealer->keys()->assertAvailable();
-                [$plain, $given] = $this->sealer->open($schemaId, $encrypted, $recordId, $locale, $values);
+                [$plain, $given] = $this->sealer->open($schemaId, array_values(array_unique(array_merge($encrypted, $given))), $recordId, $locale, $values);
                 $values = $this->sealer->seal($schemaId, $encrypted, $recordId, $locale, $this->validatedValues($schema['fields'], $plain), $given);
             } catch (StorageRejected $exception) {
                 throw new LocalizedValueRejected($exception->reasonCode, 'An encrypted value cannot be written.');
             }
         }
 
+        $schemaNow = $now['version'] ?? null;
         $now = $this->now();
         $written = [];
 
@@ -239,8 +323,28 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
             $actorId,
             $correlationId,
             $now,
+            $schemaNow,
             &$written
         ): void {
+            // As record writers do: the storage's schema row for share, so a schema switch waits for this write,
+            // and one that came first (encryption switched meanwhile) refuses it.
+            if ($schemaNow !== null) {
+                $version = $this->connection->table('larena_storage_schemas')->where('schema_id', $schemaId)->sharedLock()->value('current_version');
+                if ($version === null || (int) $version !== $schemaNow) {
+                    throw new LocalizedValueRejected('schema_changed', 'The storage schema changed while the translation was written; write it again.');
+                }
+                // Sealed before this transaction: under the key that is still active (a rotation that came first
+                // would leave the value under a key it is about to delete).
+                $sealedWith = [];
+                foreach ($values as $value) {
+                    if (StorageFieldEnvelope::isEnvelope($value) && is_string($value['k'] ?? null)) {
+                        $sealedWith[$value['k']] = true;
+                    }
+                }
+                if ($sealedWith !== [] && array_keys($sealedWith) !== [$this->sealer?->keys()->activeKeyId($schemaId)]) {
+                    throw new LocalizedValueRejected('schema_changed', 'The storage data key changed while the translation was written; write it again.');
+                }
+            }
             // A translation and a publication of one record are serialized on the record's
             // publication rows, taken first, so neither waits for the other in the opposite order.
             if ($this->observer !== null && $this->hasPublications()) {
@@ -349,7 +453,7 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
             );
         }
 
-        return $values;
+        return $this->masked($schemaId, $recordId, $values);
     }
 
     /**

@@ -143,6 +143,17 @@ final class StorageMetrics
     }
 
     /**
+     * The data keys of encrypted fields: how many are still wrapped by a previous KEK (APP_KEY changed; run
+     * `larena:storage:encryption:rewrap`) and how many no KEK of this installation unwraps. Monitoring raises a warning
+     * while either is above zero.
+     */
+    public function encryptionKeys(int $previousKek, int $unwrappable): void
+    {
+        $this->gauge('storage.encryption.previous_kek_keys', (float) max(0, $previousKek));
+        $this->gauge('storage.encryption.unwrappable_keys', (float) max(0, $unwrappable));
+    }
+
+    /**
      * Times a read and records its outcome; the exception is rethrown unchanged.
      *
      * @template T
@@ -209,6 +220,19 @@ final class StorageMetrics
             $count = [$this->metrics(), 'count'];
             if ($count[0] !== null && is_callable($count)) {
                 $count($id, $n, $tags);
+            }
+        } catch (Throwable) {
+            // Monitoring never breaks a storage operation.
+        }
+    }
+
+    /** @param array<string, string> $tags */
+    private function gauge(string $id, float $value, array $tags = []): void
+    {
+        try {
+            $gauge = [$this->metrics(), 'gauge'];
+            if ($gauge[0] !== null && is_callable($gauge)) {
+                $gauge($id, $value, $tags);
             }
         } catch (Throwable) {
             // Monitoring never breaks a storage operation.

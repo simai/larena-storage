@@ -14,6 +14,9 @@ final class StorageSitePackAuditEventCatalog
 
     public const string DOWNLOADED = 'storage.sitepack.downloaded';
 
+    /** An export was asked for with the encrypted values in plaintext (include_encrypted_plaintext). */
+    public const string EXPORT_DECRYPTED = 'storage.sitepack.export_decrypted';
+
     /** An import's plan was made: its digest and counts. */
     public const string IMPORT_PLANNED = 'storage.sitepack.import_planned';
 
@@ -23,6 +26,6 @@ final class StorageSitePackAuditEventCatalog
     /** @return list<string> */
     public static function all(): array
     {
-        return [self::EXPORTED, self::DOWNLOADED, self::IMPORT_PLANNED, self::IMPORTED];
+        return [self::EXPORTED, self::DOWNLOADED, self::EXPORT_DECRYPTED, self::IMPORT_PLANNED, self::IMPORTED];
     }
 }

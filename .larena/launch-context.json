@@ -203,7 +203,16 @@
     "src/Encryption/*",
     "tests/Integration/StorageFieldEncryptionTest.php",
     "tests/Integration/StorageFieldEncryptionMySqlTest.php",
-    "tests/Support/storage-encryption-fixture.php"
+    "tests/Support/storage-encryption-fixture.php",
+    "database/migrations/platform/2026_10_25_000001_create_larena_storage_field_encryption_runs_table.php",
+    "src/Contracts/StorageWorkbenchEncryption.php",
+    "src/Contracts/StorageWorkbenchEncryptionRun.php",
+    "src/Console/Commands/StorageEncryptionRotateCommand.php",
+    "src/Console/Commands/StorageEncryptionRewrapCommand.php",
+    "src/Console/Commands/StorageEncryptionStatusCommand.php",
+    "tests/Integration/StorageFieldEncryptionRunTest.php",
+    "tests/Integration/StorageFieldEncryptionRunMySqlTest.php",
+    "tests/Support/storage-encryption-run-fixture.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

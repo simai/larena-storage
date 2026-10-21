@@ -20,8 +20,9 @@ use Larena\Storage\Encryption\StorageFieldEnvelope;
  * - file@1: through the files the plan decided (reuse, create, remap). A file the pack does not carry: an optional
  *   field is cleared (`file_missing_cleared`), a required one is an error (`file_required_missing`).
  *
- * - an encrypted field («Шифровать»): a pack carries no encrypted value; an envelope found anyway (it would not open
- *   on this site) is left out (`encrypted_values_omitted`).
+ * - an encrypted field («Шифровать»): a pack carries no encrypted value, unless it was exported with them in
+ *   plaintext (`contains_decrypted_values`: the write seals them with this site's key); an envelope found anyway (it
+ *   would not open on this site) is left out (`encrypted_values_omitted`).
  *
  * Every other value passes as it is; the write normalizes it as any write does.
  */
@@ -29,6 +30,9 @@ final readonly class StorageSitePackValues
 {
     /** A warning: encrypted values are not in the pack, and a required encrypted field is imported as optional. */
     public const string ENCRYPTED_OMITTED = 'encrypted_values_omitted';
+
+    /** A warning: the pack carries encrypted values in plaintext; the import seals them with this site's data key. */
+    public const string ENCRYPTED_DECRYPTED = 'encrypted_values_decrypted';
 
     public const string USER_PATTERN = '/\Auser:[a-z][a-z0-9_]{0,63}:[1-9][0-9]{0,19}\z/D';
 

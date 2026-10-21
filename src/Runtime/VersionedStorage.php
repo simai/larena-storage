@@ -1194,7 +1194,8 @@ final readonly class VersionedStorage implements VersionedStorageContract
      */
     private function storedValues(StorageSchemaVersion $schema, string $recordId, #[\SensitiveParameter] array $values, array $previous): array
     {
-        if (StorageEncryptionPolicy::encryptedKeys($schema->fields) === []) {
+        // An envelope given for a field that is no longer encrypted (a decrypt run is opening it) is opened too.
+        if (StorageEncryptionPolicy::encryptedKeys($schema->fields) === [] && StorageFieldSealer::envelopeKeys($values) === []) {
             return $this->normalizer->normalizeValues($schema, $values);
         }
         if ($this->sealer === null) {

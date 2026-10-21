@@ -54,11 +54,14 @@ final readonly class StorageFieldSealer
         array $previous = [],
     ): array {
         $encrypted = StorageEncryptionPolicy::encryptedKeys($schema->fields);
-        if ($encrypted === []) {
+        $sealed = self::envelopeKeys($values);
+        if ($encrypted === [] && $sealed === []) {
             return $normalizer->normalizeValues($schema, $values);
         }
         $this->keys->assertAvailable();
-        [$plain, $given] = $this->open($schema->ref->schemaId, $encrypted, $recordId, null, $values);
+        // An envelope given for a field that is no longer encrypted (a value read while a decrypt run opens the
+        // field, sent back unchanged) is opened too, and stored plain.
+        [$plain, $given] = $this->open($schema->ref->schemaId, array_values(array_unique(array_merge($encrypted, $sealed))), $recordId, null, $values);
         $normalized = $normalizer->normalizeValues($schema, $plain);
 
         return $this->seal($schema->ref->schemaId, $encrypted, $recordId, null, $normalized, $given, $previous);
@@ -108,16 +111,23 @@ final readonly class StorageFieldSealer
         array $previous = [],
     ): array {
         $active = null;
+        // An envelope is reused only when the active key sealed it: a value of a retiring key (a rotation runs) is
+        // sealed again under the active one.
+        $activeId = null;
         foreach ($encrypted as $key) {
             if (!array_key_exists($key, $normalized) || $normalized[$key] === null) {
                 continue;
             }
             $plain = StorageFieldCipher::canonicalJson($normalized[$key]);
             $sealed = null;
-            if (isset($given[$key]) && hash_equals($given[$key]['plain'], $plain)) {
+            if (isset($given[$key]) && hash_equals($given[$key]['plain'], $plain)
+                && $given[$key]['envelope']->keyId === ($activeId ??= $this->keys->ensureActive($schemaId))) {
                 $sealed = $given[$key]['envelope'];
             }
             $before = $sealed === null ? self::envelopeOrNull($previous[$key] ?? null) : null;
+            if ($before !== null && $before->keyId !== ($activeId ??= $this->keys->ensureActive($schemaId))) {
+                $before = null;
+            }
             if ($before !== null) {
                 try {
                     $opened = $this->cipher->decrypt($this->keys->key($schemaId, $before->keyId), $before, $schemaId, $recordId, $locale, $key);
@@ -149,6 +159,71 @@ final readonly class StorageFieldSealer
     {
         foreach ($encrypted as $key) {
             unset($values[$key]);
+        }
+
+        return $values;
+    }
+
+    /**
+     * The keys whose given value is an envelope.
+     *
+     * @param array<array-key, mixed> $values
+     * @return list<string>
+     */
+    public static function envelopeKeys(array $values): array
+    {
+        $keys = [];
+        foreach ($values as $key => $value) {
+            if (is_string($key) && StorageFieldEnvelope::isEnvelope($value)) {
+                $keys[] = $key;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * A value stored in plaintext in a field that is encrypted now (an encryption run has not reached it yet), shown
+     * as an envelope: sealed under the active key for this read only, so it opens through a reveal and an editor who
+     * sends it back unchanged keeps the value. Null when it cannot be sealed here (the reader then leaves it out).
+     * A read never makes a key.
+     *
+     * @return array{larena_enc: int, a: string, k: string, n: string, c: string}|null
+     */
+    public function sealForRead(string $schemaId, string $recordId, ?string $locale, string $fieldKey, #[\SensitiveParameter] mixed $value): ?array
+    {
+        try {
+            $keyId = $this->keys->activeKeyId($schemaId);
+            if ($keyId === null) {
+                return null;
+            }
+
+            return $this->cipher->encrypt($this->keys->key($schemaId, $keyId), $keyId, $schemaId, $recordId, $locale, $fieldKey, $value)->toArray();
+        } catch (StorageRejected) {
+            return null;
+        }
+    }
+
+    /**
+     * The values a reader shows, given the encrypted fields now: an encrypted field whose stored value is still
+     * plaintext is sealed for the read (sealForRead), or left out when it cannot be.
+     *
+     * @param list<string> $encrypted
+     * @param array<string, mixed> $values
+     * @return array<string, mixed>
+     */
+    public function maskPlaintext(string $schemaId, string $recordId, ?string $locale, array $encrypted, #[\SensitiveParameter] array $values): array
+    {
+        foreach ($encrypted as $key) {
+            if (!array_key_exists($key, $values) || $values[$key] === null || StorageFieldEnvelope::isEnvelope($values[$key])) {
+                continue;
+            }
+            $sealed = $this->sealForRead($schemaId, $recordId, $locale, $key, $values[$key]);
+            if ($sealed === null) {
+                unset($values[$key]);
+            } else {
+                $values[$key] = $sealed;
+            }
         }
 
         return $values;

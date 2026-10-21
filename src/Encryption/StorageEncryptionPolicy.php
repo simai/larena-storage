@@ -21,8 +21,12 @@ use Larena\Storage\Exceptions\StorageRejected;
  *   published key (KEY_FIELD_REFUSED);
  * - a list cannot filter, sort or search by it (FILTER_UNSUPPORTED, SORT_UNSUPPORTED, SEARCH_UNSUPPORTED);
  * - while encrypted a field is not retyped, and a field with values does not change its constraints or become
- *   required (CHANGE_REFUSED); switching encryption on or off is possible only while the field holds no value in any
- *   version (REWRITE_REQUIRED; the rewrite run is slice B);
+ *   required (CHANGE_REFUSED); switching encryption on or off a field with values needs an encryption run
+ *   (assertSwitch; a workbench structure starts one), elsewhere it is refused (REWRITE_REQUIRED);
+ * - the runs (slice B): a structure whose run is queued or running takes no change (RUNNING), nor one whose run
+ *   failed until it is retried (FAILED); switching off a field with values needs an explicit confirmation
+ *   (DISABLE_UNCONFIRMED); one change switches fields one way only and with nothing every record must pass
+ *   (CHANGE_COMBINED); a key rotation needs a data key (NOT_ENABLED); only a failed run is retried (NOT_FAILED);
  * - no sodium or no key-encryption key (UNAVAILABLE), a data key that does not unwrap (KEY_UNAVAILABLE).
  */
 final class StorageEncryptionPolicy
@@ -45,6 +49,13 @@ final class StorageEncryptionPolicy
     public const UNAVAILABLE = 'storage_field_encryption_unavailable';
     public const KEY_UNAVAILABLE = 'storage_field_encryption_key_unavailable';
     public const REWRITE_REQUIRED = 'storage_field_encryption_rewrite_required';
+    // Slice B: the encryption runs.
+    public const RUNNING = 'storage_field_encryption_running';
+    public const FAILED = 'storage_field_encryption_failed';
+    public const DISABLE_UNCONFIRMED = 'storage_field_encryption_disable_unconfirmed';
+    public const CHANGE_COMBINED = 'storage_field_encryption_change_combined';
+    public const NOT_ENABLED = 'storage_field_encryption_not_enabled';
+    public const NOT_FAILED = 'storage_field_encryption_run_not_failed';
     public const ENVELOPE_INVALID = StorageFieldEnvelope::REASON_INVALID;
 
     /** Every reason code of the policy, for documentation and tests. */
@@ -64,6 +75,12 @@ final class StorageEncryptionPolicy
         self::KEY_UNAVAILABLE,
         self::REWRITE_REQUIRED,
         self::ENVELOPE_INVALID,
+        self::RUNNING,
+        self::FAILED,
+        self::DISABLE_UNCONFIRMED,
+        self::CHANGE_COMBINED,
+        self::NOT_ENABLED,
+        self::NOT_FAILED,
     ];
 
     private const VERSIONS_TABLE = 'larena_storage_record_versions';
@@ -148,7 +165,29 @@ final class StorageEncryptionPolicy
      */
     public static function assertChange(array $from, array $to, Closure $hasValues): array
     {
+        $result = self::assertSwitch($from, $to, $hasValues);
+        if ($result['rewrite'] !== []) {
+            throw new StorageRejected(self::REWRITE_REQUIRED);
+        }
+
+        return $result['switched'];
+    }
+
+    /**
+     * As assertChange(), for a change that can rewrite what is stored (a workbench structure with encryption runs):
+     * a field with values whose encryption switches is not refused but listed in `rewrite`, for the encryption run
+     * that seals or opens its values after the switch.
+     *
+     * @param array<string, array<string, mixed>> $from
+     * @param array<string, array<string, mixed>> $to
+     * @param Closure(string): bool $hasValues
+     * @return array{switched: list<string>, rewrite: list<string>}
+     * @throws StorageRejected
+     */
+    public static function assertSwitch(array $from, array $to, Closure $hasValues): array
+    {
         $switched = [];
+        $rewrite = [];
         foreach ($to as $key => $target) {
             $source = $from[$key] ?? null;
             if ($source === null) {
@@ -158,7 +197,7 @@ final class StorageEncryptionPolicy
             $isEncrypted = self::isEncrypted($target);
             if ($wasEncrypted !== $isEncrypted) {
                 if ($hasValues((string) $key)) {
-                    throw new StorageRejected(self::REWRITE_REQUIRED);
+                    $rewrite[] = (string) $key;
                 }
                 $switched[] = (string) $key;
                 continue;
@@ -178,7 +217,7 @@ final class StorageEncryptionPolicy
             }
         }
 
-        return $switched;
+        return ['switched' => $switched, 'rewrite' => $rewrite];
     }
 
     /**

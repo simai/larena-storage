@@ -33,6 +33,8 @@ final class StorageSitePackFormat
     public const int SCHEMA_VERSION = 1;
     public const string PACKAGE_PREFIX = 'storage';
     public const string ADAPTER = 'larena/storage';
+    /** The manifest annotation of a pack whose encrypted values are in plaintext. */
+    public const string DECRYPTED_ANNOTATION = 'contains_decrypted_values';
 
     public const string STRUCTURES = 'artifacts/storage/structures.jsonl';
     public const string REFERENCES = 'artifacts/storage/references.jsonl';
@@ -90,18 +92,19 @@ final class StorageSitePackFormat
     }
 
     /**
-     * The manifest annotations beside the schema stamp. No actor: a pack never says who made it.
+     * The manifest annotations beside the schema stamp. No actor: a pack never says who made it. A pack that carries
+     * encrypted values in plaintext says `contains_decrypted_values: true`.
      *
      * @param list<string> $structureIds
      * @return array<string, mixed>
      */
-    public static function annotations(string $siteRef, array $structureIds, string $exportedAt): array
+    public static function annotations(string $siteRef, array $structureIds, string $exportedAt, bool $decrypted = false): array
     {
         return [
             'adapter' => self::ADAPTER,
             'includes' => ['history' => false, 'archived_records' => true],
             'source' => ['site_ref' => $siteRef, 'structure_ids' => $structureIds, 'exported_at' => $exportedAt],
-        ];
+        ] + ($decrypted ? [self::DECRYPTED_ANNOTATION => true] : []);
     }
 
     /** One JSON line, encoded as core's SitePack writer encodes it. @param array<array-key, mixed>|\stdClass $object */

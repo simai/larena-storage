@@ -7,6 +7,7 @@ namespace Larena\Storage\View;
 use Closure;
 use Illuminate\Database\ConnectionInterface;
 use JsonException;
+use Larena\Storage\Encryption\StorageFieldEncryptionRuns;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\StorageMetrics;
@@ -294,7 +295,8 @@ final readonly class StorageViewRebuilder
             $list[] = $field;
         }
 
-        return [$version, $list];
+        // A field a decrypt run still opens stays out of the витрина until the run is done.
+        return [$version, StorageFieldEncryptionRuns::viewFields($list, (new StorageFieldEncryptionRuns($database))->sealedForView($schemaId))];
     }
 
     /** @return array<string, mixed> */

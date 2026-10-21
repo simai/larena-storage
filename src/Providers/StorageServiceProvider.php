@@ -115,6 +115,12 @@ use Larena\Storage\Encryption\StorageEncryptionExplain;
 use Larena\Storage\Encryption\StorageEncryptionOperationHandlers;
 use Larena\Storage\Encryption\StorageFieldReveal;
 use Larena\Storage\Encryption\StorageFieldSealer;
+use Larena\Storage\Encryption\StorageFieldEncryptionJob;
+use Larena\Storage\Encryption\StorageFieldEncryptionRunner;
+use Larena\Storage\Contracts\StorageWorkbenchEncryption;
+use Larena\Storage\Console\Commands\StorageEncryptionRewrapCommand;
+use Larena\Storage\Console\Commands\StorageEncryptionRotateCommand;
+use Larena\Storage\Console\Commands\StorageEncryptionStatusCommand;
 
 final class StorageServiceProvider extends ServiceProvider
 {
@@ -456,6 +462,11 @@ final class StorageServiceProvider extends ServiceProvider
         $this->app->bind(StorageFieldChangeJob::class, static fn (Application $app): StorageFieldChangeJob => new StorageFieldChangeJob(
             $app->make(DatabaseStorageWorkbench::class),
         ));
+        // An encryption run that rewrites every version and translation, as a durable queue job
+        // (storage.field.encryption.rewrite).
+        $this->app->bind(StorageFieldEncryptionJob::class, static fn (Application $app): StorageFieldEncryptionJob => new StorageFieldEncryptionJob(
+            $app->make(DatabaseStorageWorkbench::class),
+        ));
         $this->app->afterResolving(JobTypeRegistry::class, static function (JobTypeRegistry $registry, Application $app): void {
             self::registerQueueJobs($registry, $app);
         });
@@ -532,9 +543,22 @@ final class StorageServiceProvider extends ServiceProvider
                     return true;
                 },
                 encryption: $app->make(StorageFieldSealer::class),
+                // A large encryption run goes to the queue as storage.field.encryption.rewrite; without one it runs in
+                // the request.
+                encryptionJobs: static function (string $runRef, string $stamp) use ($app): bool {
+                    if (!$app->bound(JobTypeRegistry::class) || !$app->bound(DurableQueueDispatcher::class)
+                        || !$app->make(JobTypeRegistry::class)->has(StorageFieldEncryptionJob::JOB_TYPE)) {
+                        return false;
+                    }
+                    $app->make(DurableQueueDispatcher::class)->dispatch(StorageFieldEncryptionJob::request($runRef, StorageFieldEncryptionRunner::DEFAULT_CHUNK, $stamp));
+
+                    return true;
+                },
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
+        // Encryption runs of structures: key rotation and the retry of a failed run.
+        $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchEncryption::class);
 
         // SitePack export of a storage (storage.sitepack.export). Files are read through a port the application
         // binds over Filesystem; without one, a storage with file values cannot be exported.
@@ -623,6 +647,8 @@ final class StorageServiceProvider extends ServiceProvider
                         $queue->enqueueSite($schemaId);
                     }
                 },
+                // An export with the encrypted values in plaintext opens them (decrypt right, audited).
+                keys: $app->make(StorageDataKeys::class),
             );
         });
         $this->app->alias(DatabaseStorageSitePack::class, StorageSitePack::class);
@@ -673,6 +699,9 @@ final class StorageServiceProvider extends ServiceProvider
                 StorageSitePackExportCommand::class,
                 StorageSitePackSweepCommand::class,
                 StorageSitePackImportCommand::class,
+                StorageEncryptionRotateCommand::class,
+                StorageEncryptionRewrapCommand::class,
+                StorageEncryptionStatusCommand::class,
             ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
@@ -714,6 +743,11 @@ final class StorageServiceProvider extends ServiceProvider
         if (!$registry->has(StorageFieldChangeJob::JOB_TYPE)) {
             $registry->register(StorageFieldChangeJob::descriptor(), new StorageViewRebuildDeferredHandler(
                 static fn (): StorageFieldChangeJob => $app->make(StorageFieldChangeJob::class),
+            ));
+        }
+        if (!$registry->has(StorageFieldEncryptionJob::JOB_TYPE)) {
+            $registry->register(StorageFieldEncryptionJob::descriptor(), new StorageViewRebuildDeferredHandler(
+                static fn (): StorageFieldEncryptionJob => $app->make(StorageFieldEncryptionJob::class),
             ));
         }
         if (!$registry->has(StorageSitePackJob::JOB_TYPE)) {

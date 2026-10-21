@@ -96,7 +96,7 @@ final class StorageSitePackPlanner
 
         // --- The structure. ---
         $targetId = $this->structureId($sourceId, $options);
-        $descriptor = $this->descriptor($structure, $targetId ?? $sourceId, $options);
+        $descriptor = $this->descriptor($structure, $targetId ?? $sourceId, $options, $source->containsDecryptedValues());
         $definition = null;
         $schemaId = null;
         if ($targetId !== null) {
@@ -369,7 +369,7 @@ final class StorageSitePackPlanner
      * @param array<string, mixed> $structure
      * @return array{structure_id: string, label: string, fields: list<array<string, mixed>>}
      */
-    private function descriptor(array $structure, string $targetId, StorageSitePackImportOptions $options): array
+    private function descriptor(array $structure, string $targetId, StorageSitePackImportOptions $options, bool $decrypted = false): array
     {
         $fields = [];
         foreach ($structure['fields'] as $field) {
@@ -380,7 +380,10 @@ final class StorageSitePackPlanner
                 'constraints', 'key', 'label', 'position', 'required', 'type', 'type_version', 'visibility',
                 'localized', 'hidden', 'searchable', 'indexed', 'encrypted',
             ]));
-            if (($field['encrypted'] ?? false) === true) {
+            if (($field['encrypted'] ?? false) === true && $decrypted) {
+                // The pack carries the values in plaintext: they are sealed again with this site's data key.
+                $this->warning(StorageSitePackValues::ENCRYPTED_DECRYPTED, is_string($field['key'] ?? null) ? $field['key'] : null);
+            } elseif (($field['encrypted'] ?? false) === true) {
                 // The pack carries no encrypted value: the field comes as it was, optional, and the plan says so.
                 $field['required'] = false;
                 $this->warning(StorageSitePackValues::ENCRYPTED_OMITTED, is_string($field['key'] ?? null) ? $field['key'] : null);
