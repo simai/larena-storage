@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\SitePack;
 
 use Illuminate\Database\Connection;
+use Larena\Storage\Contracts\StorageSitePackPlan;
 use Larena\Storage\Contracts\StorageSitePackRun;
 use Larena\Storage\Exceptions\StorageRejected;
 use stdClass;
@@ -21,6 +22,10 @@ final readonly class StorageSitePackRuns
     public const string ID_KIND_STRUCTURE = 'structure';
     public const string ID_KIND_RECORD = 'record';
     public const string ID_KIND_FILE = 'file';
+    /** An import: a record of another storage the pack points at, and its local target (null: unresolved). */
+    public const string ID_KIND_REFERENCE = 'reference';
+    /** An import: a user a user@1 value names, kept when this installation has it. */
+    public const string ID_KIND_USER = 'user';
 
     /** An export lists a file its live versions reference. */
     public const string ACTION_EXPORT = 'export';
@@ -219,9 +224,51 @@ final readonly class StorageSitePackRuns
         return $digests;
     }
 
+    /**
+     * Id map rows of one kind for these source refs: source ref => row.
+     *
+     * @param list<string> $sourceRefs
+     * @return array<string, stdClass>
+     */
+    public function idsFor(string $runRef, string $kind, array $sourceRefs): array
+    {
+        $rows = [];
+        foreach (array_chunk(array_values(array_unique($sourceRefs)), 500) as $chunk) {
+            foreach ($this->database->table(self::IDS_TABLE)
+                ->where('run_ref', $runRef)
+                ->where('kind', $kind)
+                ->whereIn('source_ref', $chunk)
+                ->get() as $row) {
+                $rows[(string) $row->source_ref] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    /** Removes the id map rows of a run but those of one kind. */
+    public function clearIdsBut(string $runRef, string $kind): void
+    {
+        $this->database->table(self::IDS_TABLE)->where('run_ref', $runRef)->where('kind', '!=', $kind)->delete();
+    }
+
     public function clearIds(string $runRef): void
     {
         $this->database->table(self::IDS_TABLE)->where('run_ref', $runRef)->delete();
+    }
+
+    private static function plan(mixed $json): ?StorageSitePackPlan
+    {
+        if (!is_string($json) || $json === '') {
+            return null;
+        }
+        try {
+            $decoded = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            throw new StorageRejected('storage_sitepack_run_corrupt');
+        }
+
+        return is_array($decoded) ? StorageSitePackPlan::fromArray($decoded) : null;
     }
 
     public static function hydrate(stdClass $row): StorageSitePackRun
@@ -261,6 +308,8 @@ final readonly class StorageSitePackRuns
             (string) $row->created_at,
             (string) $row->updated_at,
             $row->finished_at === null ? null : (string) $row->finished_at,
+            ($row->plan_digest ?? null) === null ? null : (string) $row->plan_digest,
+            self::plan($row->plan_json ?? null),
         );
     }
 }

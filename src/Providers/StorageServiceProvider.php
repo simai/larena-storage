@@ -12,6 +12,10 @@ use Larena\Storage\Console\Commands\StorageViewCheckCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
 use Larena\Storage\Console\Commands\StorageSitePackExportCommand;
 use Larena\Storage\Console\Commands\StorageSitePackSweepCommand;
+use Larena\Storage\Console\Commands\StorageSitePackImportCommand;
+use Larena\Storage\SitePack\StorageSitePackFileImports;
+use Larena\Storage\SitePack\StorageSitePackImportJob;
+use Larena\Access\Contracts\AccessSubjectDirectory;
 use Larena\Core\Contracts\ScopeMembershipRegistry;
 use Larena\Core\SitePack\SitePackLimits;
 use Larena\Storage\Contracts\StorageSitePack;
@@ -489,6 +493,8 @@ final class StorageServiceProvider extends ServiceProvider
         // SitePack export of a storage (storage.sitepack.export). Files are read through a port the application
         // binds over Filesystem; without one, a storage with file values cannot be exported.
         $this->app->bindIf(StorageSitePackFiles::class, UnavailableStorageSitePackFiles::class);
+        // An import writes files through the import side of that port; without one, a pack with files cannot be imported.
+        $this->app->bindIf(StorageSitePackFileImports::class, UnavailableStorageSitePackFiles::class);
         $this->app->singleton(DatabaseStorageSitePack::class, static function (Application $app): DatabaseStorageSitePack {
             /** @var DatabaseManager $database */
             $database = $app->make(DatabaseManager::class);
@@ -496,28 +502,31 @@ final class StorageServiceProvider extends ServiceProvider
             $directory = $config->get('larena-storage.sitepack.directory');
 
             return new DatabaseStorageSitePack(
-                $database->connection(),
-                $app->make(StorageWorkbenchContract::class),
-                $app->make(VersionedStorageContract::class),
-                $app->make(PropertyTypeRegistry::class),
-                $app->make(ActorOperationAuthorizer::class),
-                $app->make(QueryScopeProvider::class),
+                database: $database->connection(),
+                workbench: $app->make(StorageWorkbenchContract::class),
+                storage: $app->make(VersionedStorageContract::class),
+                propertyTypes: $app->make(PropertyTypeRegistry::class),
+                authorizer: $app->make(ActorOperationAuthorizer::class),
+                scopes: $app->make(QueryScopeProvider::class),
                 // Private: 0700 directories, 0600 files, outside any public disk.
-                is_string($directory) && $directory !== '' ? $directory : self::sitePackDirectory($app),
-                $app->make(StorageSitePackFiles::class),
-                $app->bound(SitePackLimits::class) ? $app->make(SitePackLimits::class) : null,
-                $app->make(StorageSecurityEventSink::class),
-                // The export runs as storage.sitepack.export when there is a queue; otherwise the caller runs it.
-                static function (string $runRef, int $generation) use ($app): ?string {
+                directory: is_string($directory) && $directory !== '' ? $directory : self::sitePackDirectory($app),
+                files: $app->make(StorageSitePackFiles::class),
+                limits: $app->bound(SitePackLimits::class) ? $app->make(SitePackLimits::class) : null,
+                events: $app->make(StorageSecurityEventSink::class),
+                // Export, plan and import run as their queue jobs when there is a queue; otherwise the caller runs them.
+                jobs: static function (string $runRef, int $generation, string $jobType = StorageSitePackJob::JOB_TYPE) use ($app): ?string {
                     if (!$app->bound(JobTypeRegistry::class) || !$app->bound(DurableQueueDispatcher::class)
-                        || !$app->make(JobTypeRegistry::class)->has(StorageSitePackJob::JOB_TYPE)) {
+                        || !$app->make(JobTypeRegistry::class)->has($jobType)) {
                         return null;
                     }
+                    $request = $jobType === StorageSitePackJob::JOB_TYPE
+                        ? StorageSitePackJob::request($runRef, $generation)
+                        : StorageSitePackImportJob::request($jobType, $runRef, $generation);
 
-                    return $app->make(DurableQueueDispatcher::class)->dispatch(StorageSitePackJob::request($runRef, $generation))->jobId;
+                    return $app->make(DurableQueueDispatcher::class)->dispatch($request)->jobId;
                 },
-                // The publication states of the site the person works in go into the pack.
-                static function (string $actor) use ($app): string {
+                // The site the person works in: an export carries its publication states, an import goes into it.
+                siteOf: static function (string $actor) use ($app): string {
                     if ($app->bound(ScopeMembershipRegistry::class)) {
                         try {
                             $scope = $app->make(ScopeMembershipRegistry::class)->defaultScopeOf($actor);
@@ -530,11 +539,53 @@ final class StorageServiceProvider extends ServiceProvider
 
                     return 'site:' . ScopeBaselineInstaller::DEFAULT_SITE_IDENTIFIER;
                 },
+                fileImports: $app->make(StorageSitePackFileImports::class),
+                localized: $app->make(LocalizedValues::class),
+                publication: $app->make(PublicationLifecycle::class),
+                roles: $app->make(StructureRoleRegistry::class),
+                // A user@1 value keeps its user when Access knows it (larena_admin_identities); without Access every
+                // user counts as missing.
+                userExists: static function (string $userRef) use ($app): bool {
+                    if (!$app->bound(AccessSubjectDirectory::class)) {
+                        return false;
+                    }
+                    try {
+                        return $app->make(AccessSubjectDirectory::class)->exists($userRef);
+                    } catch (\Throwable) {
+                        return false;
+                    }
+                },
+                // The locales a site declares: the storage's own setting, else the admin's editor locales, else the
+                // application locale.
+                siteLocales: static function (string $siteRef) use ($app): array {
+                    $config = $app->make('config');
+                    foreach (['larena-storage.sitepack.locales', 'larena-admin.structure_editors.locales'] as $key) {
+                        $locales = $config->get($key);
+                        if (is_array($locales) && $locales !== []) {
+                            return array_values(array_filter($locales, 'is_string'));
+                        }
+                    }
+                    $locale = $config->get('app.locale');
+
+                    return is_string($locale) && $locale !== '' ? [$locale] : [];
+                },
+                // An imported storage's витрины are rebuilt by the queue (storage.view.rebuild, admin and site).
+                viewRebuilds: static function (string $schemaId) use ($app): void {
+                    if ($app->bound(JobTypeRegistry::class) && $app->bound(DurableQueueDispatcher::class) && $app->bound(QueueClock::class)) {
+                        $queue = $app->make(StorageViewRebuildQueue::class);
+                        $queue->enqueue($schemaId);
+                        $queue->enqueueSite($schemaId);
+                    }
+                },
             );
         });
         $this->app->alias(DatabaseStorageSitePack::class, StorageSitePack::class);
         $this->app->bind(StorageSitePackJob::class, static fn (Application $app): StorageSitePackJob => new StorageSitePackJob(
             $app->make(DatabaseStorageSitePack::class),
+        ));
+        $this->app->bind(StorageSitePackImportJob::class, static fn (Application $app): StorageSitePackImportJob => new StorageSitePackImportJob(
+            $app->make(DatabaseStorageSitePack::class),
+            StorageSitePackImportJob::IMPORT_JOB_TYPE,
         ));
         $this->app->singleton(StorageSitePackOperationHandlers::class, static fn (Application $app): StorageSitePackOperationHandlers => new StorageSitePackOperationHandlers(
             $app->make(StorageSitePack::class),
@@ -575,6 +626,7 @@ final class StorageServiceProvider extends ServiceProvider
                 StorageViewCheckCommand::class,
                 StorageSitePackExportCommand::class,
                 StorageSitePackSweepCommand::class,
+                StorageSitePackImportCommand::class,
             ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
@@ -622,6 +674,14 @@ final class StorageServiceProvider extends ServiceProvider
             $registry->register(StorageSitePackJob::descriptor(), new StorageViewRebuildDeferredHandler(
                 static fn (): StorageSitePackJob => $app->make(StorageSitePackJob::class),
             ));
+        }
+        // The import's plan and import jobs; deferred like the others, so nothing touches the database at boot.
+        foreach ([StorageSitePackImportJob::PLAN_JOB_TYPE, StorageSitePackImportJob::IMPORT_JOB_TYPE] as $jobType) {
+            if (!$registry->has($jobType)) {
+                $registry->register(StorageSitePackImportJob::descriptor($jobType), new StorageViewRebuildDeferredHandler(
+                    static fn (): StorageSitePackImportJob => new StorageSitePackImportJob($app->make(DatabaseStorageSitePack::class), $jobType),
+                ));
+            }
         }
     }
 
@@ -682,6 +742,8 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.read.public', 'read_public', 'read', 'normal'],
             // A whole storage leaves the site in one archive: high risk, always audited.
             ['storage.sitepack.export', 'sitepack_export', 'export', 'high'],
+            // A whole storage enters the site from an archive: critical, always audited.
+            ['storage.sitepack.import', 'sitepack_import', 'import', 'critical'],
         ] as [$code, $label, $grant, $risk]) {
             $registered = $registry->register(new AccessOperationDescriptor(
                 code: $code,

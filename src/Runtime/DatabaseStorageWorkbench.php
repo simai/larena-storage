@@ -146,6 +146,128 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         ?string $correlationId = null,
     ): StorageWorkbenchStructure {
         $this->assertScope($actor, 'storage.workbench.structure.create', $scopeRef, self::STRUCTURE_RESOURCE);
+
+        return $this->insertStructure($scopeRef, $descriptor, $actor, $correlationId, null, null);
+    }
+
+    /**
+     * For a SitePack import (larena-specs docs/architecture/2026-10-22-storage-sitepack.md): the normalized descriptor
+     * a new structure of $descriptor would get and its storage schema definition, without writing anything. Refused
+     * like createStructure() would refuse the descriptor.
+     *
+     * @param array<string, mixed> $descriptor
+     * @return array{descriptor: array{structure_id: string, label: string, fields: list<array<string, mixed>>}, schema_id: string, definition: array<string, mixed>}
+     */
+    public function importDefinition(string $scopeRef, array $descriptor): array
+    {
+        $normalized = $this->normalizeDescriptor($descriptor);
+        $this->assertStructureId($normalized['structure_id']);
+        $schemaId = ScopedStorageWorkbenchSchemaIdentity::derive($scopeRef, $normalized['structure_id']);
+
+        return [
+            'descriptor' => $normalized,
+            'schema_id' => $schemaId,
+            'definition' => $this->schemaDefinition($schemaId, $normalized['fields']),
+        ];
+    }
+
+    /**
+     * For a SitePack import: creates the structure in the «importing» state (`import_run_ref`). Until the import
+     * clears that state the structure is hidden from lists and every workbench read or write of it is refused with
+     * `storage_workbench_structure_importing`. Its витрина is left pending: the import writes no витрина rows and
+     * rebuilds it when it ends. Needs the right to create structures in the scope.
+     *
+     * @param array<string, mixed> $descriptor
+     */
+    public function createImportingStructure(
+        string $scopeRef,
+        array $descriptor,
+        ?int $historyKeep,
+        string $importRunRef,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure {
+        $this->assertScope($actor, 'storage.workbench.structure.create', $scopeRef, self::STRUCTURE_RESOURCE);
+        if (preg_match('/\A[a-z][a-z0-9-]{0,63}\z/D', $importRunRef) !== 1
+            || ($historyKeep !== null && ($historyKeep < 1 || $historyKeep > VersionedStorage::HISTORY_KEEP_LIMIT))) {
+            throw new StorageRejected('storage_workbench_structure_import_invalid');
+        }
+
+        return $this->insertStructure($scopeRef, $descriptor, $actor, $correlationId, $importRunRef, $historyKeep);
+    }
+
+    /**
+     * For a SitePack import: ends the «importing» state of the structure the run created; false when no structure of
+     * the scope is importing for that run. In the caller's transaction.
+     */
+    public function finishImportingStructure(string $scopeRef, string $structureId, string $importRunRef): bool
+    {
+        return $this->database->table('larena_storage_workbench_structures')
+            ->where('scope_ref', $scopeRef)
+            ->where('structure_id', $structureId)
+            ->where('import_run_ref', $importRunRef)
+            ->update(['import_run_ref' => null, 'updated_at' => $this->timestamp()]) === 1;
+    }
+
+    /**
+     * For a SitePack import that is cancelled or failed: removes the structure the run created, while it is still
+     * importing, with its schema, role bindings and витрины. Its records are removed by the import before (they may
+     * be many). Nothing of a structure whose import ended is touched; false when there is nothing to remove.
+     */
+    public function discardImportingStructure(string $scopeRef, string $structureId, string $importRunRef): bool
+    {
+        try {
+            $removed = $this->database->transaction(function () use ($scopeRef, $structureId, $importRunRef): bool {
+                $head = $this->database->table('larena_storage_workbench_structures')
+                    ->where('scope_ref', $scopeRef)
+                    ->where('structure_id', $structureId)
+                    ->where('import_run_ref', $importRunRef)
+                    ->lockForUpdate()
+                    ->first();
+                if (!$head instanceof stdClass) {
+                    return false;
+                }
+                $schemaId = (string) $head->storage_schema_id;
+                if ($this->database->table('larena_storage_records')->where('schema_id', $schemaId)->exists()) {
+                    throw new StorageRejected('storage_workbench_structure_import_not_empty');
+                }
+                if ($this->tableExists('larena_storage_structure_role_bindings')) {
+                    $this->database->table('larena_storage_structure_role_bindings')->where('schema_id', $schemaId)->delete();
+                }
+                $this->database->table('larena_storage_workbench_structure_versions')
+                    ->where('scope_ref', $scopeRef)
+                    ->where('structure_id', $structureId)
+                    ->delete();
+                $this->database->table('larena_storage_workbench_structures')
+                    ->where('scope_ref', $scopeRef)
+                    ->where('structure_id', $structureId)
+                    ->where('import_run_ref', $importRunRef)
+                    ->delete();
+                $this->database->table('larena_storage_schema_versions')->where('schema_id', $schemaId)->delete();
+                $this->database->table('larena_storage_schemas')->where('schema_id', $schemaId)->delete();
+                $this->views?->structurePurged($schemaId);
+
+                return true;
+            });
+            $this->views?->settle();
+
+            return $removed;
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /** @param array<string, mixed> $descriptor */
+    private function insertStructure(
+        string $scopeRef,
+        array $descriptor,
+        string $actor,
+        ?string $correlationId,
+        ?string $importRunRef,
+        ?int $historyKeep,
+    ): StorageWorkbenchStructure {
         $normalized = $this->normalizeDescriptor($descriptor);
         $this->assertStructureId($normalized['structure_id']);
         $correlationId = $this->correlationId($correlationId);
@@ -156,7 +278,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->views?->prepareCreate($storageSchemaId, $definition['fields'], $options);
 
         try {
-            $created = $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $definition, $actor, $correlationId, $options): StorageWorkbenchStructure {
+            $created = $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $definition, $actor, $correlationId, $options, $importRunRef, $historyKeep): StorageWorkbenchStructure {
                 $schema = $this->storage->registerSchemaVersion(
                     $definition,
                     null,
@@ -164,6 +286,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $correlationId,
                 );
                 $this->views?->structureCreated($schema, $options);
+                if ($importRunRef !== null && $this->views !== null && $this->views->enabled()) {
+                    // The import writes no витрина rows: the витрина waits for the rebuild the import queues.
+                    $registration = $this->views->registry()->find($storageSchemaId, true);
+                    if ($registration !== null) {
+                        $this->views->registry()->put($registration->withState(StorageViewRegistration::STATE_PENDING));
+                    }
+                }
                 $now = $this->timestamp();
                 $hash = $this->descriptorHash(
                     $normalized['structure_id'],
@@ -182,7 +311,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     'current_hash' => $hash,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ]);
+                ] + ($importRunRef === null ? [] : ['import_run_ref' => $importRunRef, 'history_keep' => $historyKeep]));
                 $this->insertStructureVersion(
                     $normalized['structure_id'],
                     1,
@@ -209,6 +338,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     'create',
                     $actor,
                     $correlationId,
+                    null,
+                    null,
+                    $historyKeep,
                 );
             });
             $this->views?->settle();
@@ -870,6 +1002,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if (count($rows) > self::MAX_STRUCTURES) {
                 throw new StorageRejected('storage_workbench_structure_list_limit_exceeded');
             }
+
+            // A structure a SitePack import is still writing is not listed.
+            $rows = array_values(array_filter($rows, static fn (stdClass $row): bool => ($row->import_run_ref ?? null) === null));
 
             return $this->stated(array_map(fn (stdClass $row): StorageWorkbenchStructure => $this->hydrateStructureVersion($row), $rows));
         } catch (StorageRejected $exception) {
@@ -2385,6 +2520,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $head = $query->first();
         if (!$head instanceof stdClass) {
             throw new StorageRejected('storage_workbench_structure_unknown');
+        }
+        if (($head->import_run_ref ?? null) !== null) {
+            // A SitePack import is still writing it: nothing reads or changes it until the import ends.
+            throw new StorageRejected('storage_workbench_structure_importing');
         }
 
         return $head;

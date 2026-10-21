@@ -81,7 +81,7 @@ final readonly class StorageSitePackJob implements QueueJobHandler
         }
         $context->checkpoint();
         try {
-            $run = $this->sitePack->process($runRef, static fn () => $context->heartbeat());
+            $run = $this->sitePack->process($runRef, static fn () => $context->heartbeat(), self::JOB_TYPE);
         } catch (StorageRejected $exception) {
             if ($exception->reasonCode === DatabaseStorageSitePack::REASON_INTERRUPTED) {
                 // Cancelled under the job, or taken over by another process, which finishes it.

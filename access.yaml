@@ -67,6 +67,9 @@ operations:
   - code: storage.sitepack.export
     risk: high
     audit: always
+  - code: storage.sitepack.import
+    risk: critical
+    audit: always
   - code: content.item.list
     risk: high
     audit: denial

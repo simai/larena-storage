@@ -188,7 +188,15 @@
     "access.yaml",
     "tests/Support/storage-sitepack-fixture.php",
     "tests/Integration/StorageSitePackExportTest.php",
-    "tests/Integration/StorageSitePackExportMySqlTest.php"
+    "tests/Integration/StorageSitePackExportMySqlTest.php",
+    "database/migrations/2026_10_23_000001_add_larena_storage_workbench_structure_import_run.php",
+    "src/Contracts/StorageSitePackImportOptions.php",
+    "src/Contracts/StorageSitePackPlan.php",
+    "src/Console/Commands/StorageSitePackImportCommand.php",
+    "tests/Support/storage-sitepack-import-fixture.php",
+    "tests/Integration/StorageSitePackImportTest.php",
+    "tests/Integration/StorageSitePackImportMySqlTest.php",
+    "tests/fixtures/storage-sitepack-demo.zip"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

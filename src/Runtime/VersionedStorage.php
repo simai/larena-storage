@@ -217,6 +217,21 @@ final readonly class VersionedStorage implements VersionedStorageContract
         );
     }
 
+    public function importRecord(
+        string $ownerRef,
+        StorageSchemaVersionRef $schema,
+        string $recordId,
+        array $versions,
+        bool $archived,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWriteResult {
+        return $this->metrics->timeWrite(
+            'create',
+            fn (): StorageWriteResult => $this->importVersions($ownerRef, $schema, $recordId, $versions, $archived, $actor, $correlationId),
+        );
+    }
+
     public function purge(array $current, string $actor, ?string $correlationId = null): int
     {
         return $this->metrics->timeWrite('purge', fn (): int => $this->purgeVersions($current, $actor, $correlationId));
@@ -317,6 +332,103 @@ final readonly class VersionedStorage implements VersionedStorageContract
         } catch (QueryException $exception) {
             if ($this->isConstraintConflict($exception)) {
                 throw new StorageConflict('storage_record_owner_conflict');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /** @param array<array-key, mixed> $versions */
+    private function importVersions(
+        string $ownerRef,
+        StorageSchemaVersionRef $schema,
+        string $recordId,
+        array $versions,
+        bool $archived,
+        string $actor,
+        ?string $correlationId,
+    ): StorageWriteResult {
+        $this->assertOwnerRef($ownerRef);
+        $this->assertActor($actor);
+        if (preg_match('/\Arecord-[a-f0-9]{32}\z/D', $recordId) !== 1 || $versions === [] || !array_is_list($versions)
+            || count($versions) > self::HISTORY_KEEP_LIMIT) {
+            throw new StorageRejected('storage_record_import_invalid');
+        }
+        foreach ($versions as $values) {
+            if (!is_array($values)) {
+                throw new StorageRejected('storage_record_import_invalid');
+            }
+        }
+        $this->authorizer->assertAllowed($actor, 'storage.record.create');
+        $correlationId = $this->correlationId($correlationId, 'storage-record');
+
+        try {
+            return $this->database->transaction(function () use ($ownerRef, $schema, $recordId, $versions, $archived, $actor, $correlationId): StorageWriteResult {
+                $schemaHead = $this->database->table('larena_storage_schemas')
+                    ->where('schema_id', $schema->schemaId)
+                    ->sharedLock()
+                    ->first();
+                $schemaVersion = $this->loadSchemaVersion($schema, 'shared');
+                if (!$schemaHead instanceof stdClass
+                    || (int) $schemaHead->current_version !== $schema->version
+                    || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
+                    throw new StorageRejected('storage_record_schema_not_current');
+                }
+                if ($this->database->table('larena_storage_records')->where('record_id', $recordId)->exists()) {
+                    throw new StorageConflict('storage_record_import_id_taken');
+                }
+                $now = $this->timestamp();
+                $last = count($versions);
+                $normalizedValues = [];
+                $contentHash = '';
+                $operation = 'create';
+                foreach ($versions as $index => $values) {
+                    /** @var array<string, mixed> $values */
+                    $normalizedValues = $this->normalizer->normalizeValues($schemaVersion, $values);
+                    $valuesJson = $this->canonicalJson($normalizedValues);
+                    $contentHash = hash('sha256', $valuesJson);
+                    $revision = $index + 1;
+                    $operation = $revision === 1 ? 'create' : 'update';
+                    if ($revision === $last && $archived && $revision > 1) {
+                        $operation = 'delete';
+                    }
+                    if ($revision === 1) {
+                        $this->database->table('larena_storage_records')->insert([
+                            'record_id' => $recordId,
+                            'schema_id' => $schema->schemaId,
+                            'owner_ref' => $ownerRef,
+                            'current_revision' => $last,
+                            'current_schema_version' => $schema->version,
+                            'current_hash' => '',
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]);
+                    }
+                    $this->insertRecordVersion($schema, $recordId, $revision, $ownerRef, $valuesJson, $contentHash, $operation, $actor, $correlationId, $now);
+                }
+                $this->database->table('larena_storage_records')
+                    ->where('record_id', $recordId)
+                    ->where('schema_id', $schema->schemaId)
+                    ->update(['current_hash' => $contentHash]);
+
+                return new StorageWriteResult(new StorageRecordVersion(
+                    new StorageRecordVersionRef($schema->schemaId, $recordId, $last),
+                    $ownerRef,
+                    $schema,
+                    $normalizedValues,
+                    $contentHash,
+                    $operation,
+                    $actor,
+                    $correlationId,
+                    $now,
+                ));
+            });
+        } catch (StorageRejected|StorageConflict $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isConstraintConflict($exception)) {
+                throw new StorageConflict('storage_record_import_id_taken');
             }
             throw StoragePersistenceFailed::from($exception);
         } catch (Throwable $exception) {

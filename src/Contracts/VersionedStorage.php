@@ -58,6 +58,27 @@ interface VersionedStorage
     ): StorageWriteResult;
 
     /**
+     * Writes one record a SitePack import brings (larena-specs docs/architecture/2026-10-22-storage-sitepack.md) under
+     * an explicit record id: its versions, oldest first, become revisions 1..n under $schema, the last one current.
+     * Every version is normalized as any write; the first is a `create`, the others `update`, and the last a `delete`
+     * when $archived says the record arrives archived. No витрина row is written (the import rebuilds the витрина when
+     * it ends) and no per-record audit event is emitted (the import's own event covers the run). Needs
+     * `storage.record.create`. Refused with storage_record_import_invalid (no versions, a bad id),
+     * storage_record_schema_not_current, or StorageConflict storage_record_import_id_taken.
+     *
+     * @param list<array<string, mixed>> $versions the values of each version, oldest first
+     */
+    public function importRecord(
+        string $ownerRef,
+        StorageSchemaVersionRef $schema,
+        string $recordId,
+        array $versions,
+        bool $archived,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWriteResult;
+
+    /**
      * Removes records permanently: every version, the head, localized values,
      * publication rows and relation edges. Each ref must name the current
      * revision of one record of one schema. Refused while a record outside the

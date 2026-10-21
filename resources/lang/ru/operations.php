@@ -37,4 +37,5 @@ return [
     'workbench_record_purge' => 'Удаление записи рабочей области навсегда',
     'workbench_structure_migrate' => 'Изменение полей структуры хранения с перезаписью записей',
     'sitepack_export' => 'Выгрузка хранилища в SitePack',
+    'sitepack_import' => 'Загрузка хранилища из SitePack',
 ];

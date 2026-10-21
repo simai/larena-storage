@@ -15,7 +15,7 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 32, 'waves A to E, batch 7 D2, the relation delete, the public list and the storage export declare thirty-two operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 33, 'waves A to E, batch 7 D2, the relation delete, the public list and the storage export and import declare thirty-three operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
@@ -49,6 +49,7 @@ larena_storage_role_assert($names === [
     'storage.role.register',
     'storage.role.validate_structure',
     'storage.sitepack.export',
+    'storage.sitepack.import',
     'storage.tree.ancestors',
     'storage.tree.children',
     'storage.tree.move',
@@ -80,10 +81,10 @@ $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(
 // which is core's business and not Storage's. The claim that matters is that the
 // two catalogues compose into one without either losing an entry.
 $coreCount = count($registry->list('larena/core'));
-larena_storage_role_assert(count($registry->list('larena/storage')) === 32, 'storage declares 32 operations');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 33, 'storage declares 33 operations');
 larena_storage_role_assert($coreCount >= 22, 'core contributes at least the operations Batch 3 declared, got ' . $coreCount);
 larena_storage_role_assert(
-    count($registry->list()) === $coreCount + 32,
+    count($registry->list()) === $coreCount + 33,
     'one catalogue holds both packages with nothing lost',
 );
 
@@ -138,8 +139,9 @@ larena_storage_role_assert(
         'storage.role.manage',
         'storage.role.read',
         'storage.sitepack.export',
+        'storage.sitepack.import',
     ],
-    'waves A to E use twelve access codes, batch 7 D2 adds record create and update, the storage export its own: ' . implode(', ', array_keys($scopes)),
+    'waves A to E use twelve access codes, batch 7 D2 adds record create and update, the storage export and import their own: ' . implode(', ', array_keys($scopes)),
 );
 
 // Publish, unpublish, schedule and archive are four separate access codes, which is

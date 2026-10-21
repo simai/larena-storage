@@ -37,4 +37,5 @@ return [
     'workbench_record_purge' => 'Delete storage record permanently from the workbench',
     'workbench_structure_migrate' => 'Change storage structure fields and rewrite records',
     'sitepack_export' => 'Export a storage as a SitePack',
+    'sitepack_import' => 'Import a storage from a SitePack',
 ];

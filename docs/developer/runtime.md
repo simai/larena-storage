@@ -274,6 +274,29 @@ starts over. Without a file port, a storage with file values fails with
 `storage/app/private/larena-storage-sitepack`, 0700/0600) and
 `larena:storage:sitepack:sweep` removes runs older than seven days.
 
+## A Storage Enters The Site From A SitePack
+
+An import is one run of `StorageSitePack`: `receive()` copies the archive into
+the private directory and checks its envelope; `plan()` queues
+`storage.sitepack.plan` (`SitePack\StorageSitePackPlanner`), which streams every
+artifact to its end and decides, writing only the run and its id map
+(`larena_storage_sitepack_ids`: structure, record, reference, user and file
+rows), the structure id, each record id, each file (reuse, create, remap through
+`SitePack\StorageSitePackFileImports`), each external reference and user, and
+checks every version as it will be written. The plan
+(`Contracts\StorageSitePackPlan`) and its digest are on the run; `apply()` with
+that digest queues `storage.sitepack.import` (`SitePack\StorageSitePackImporter`).
+The structure is created «importing» (`import_run_ref` on its head row): hidden
+from lists, closed to the workbench, its витрина pending. Records go in 200 a
+transaction with the run's position (`VersionedStorage::importRecord`), then
+relations by depth, then publication states (`keep`), then one finalizing
+transaction clears the importing state and audits `storage.sitepack.imported`;
+the витрины are rebuilt by the queue. A cancelled import, or one that fails for
+good, removes what it wrote; files it created stay and are counted. The import
+needs the critical `storage.sitepack.import` and, in the scope, the rights to
+create structures and records. `larena:storage:sitepack:import` runs it from the
+command line.
+
 ## Structure Role Versions And Dependencies
 
 A role row is never edited: a breaking change is a new version. Bindings stay on
