@@ -40,6 +40,8 @@ use Larena\Storage\SchemaEvolution\StorageFieldChangeRunner;
 use Larena\Storage\SchemaEvolution\StorageFieldChanges;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
+use Larena\Storage\View\StorageRecordQueryMatcher;
+use Larena\Storage\View\StorageRecordQueryNormalizer;
 use Larena\Storage\View\StorageViewColumn;
 use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewFieldOptions;
@@ -47,7 +49,6 @@ use Larena\Storage\View\StorageViewKeyset;
 use Larena\Storage\View\StorageViewQuery;
 use Larena\Storage\View\StorageViewQueryCompiler;
 use Larena\Storage\View\StorageViewRegistration;
-use Larena\Storage\View\StorageViewSearch;
 use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
@@ -66,28 +67,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const MAX_SCAN = 5000;
     // Lists read from the витрина keep page numbers while the offset stays at or under this.
     private const MAX_OFFSET = 10000;
-    private const MAX_FILTERS = 8;
-    private const MAX_SORTS = 3;
     // One bulk archive runs in a single transaction; 1000 records keeps "archive all matching" bounded.
     private const MAX_BULK = 1000;
-    private const MAX_FILTER_VALUES = 100;
-    private const MAX_FILTER_TEXT_BYTES = 1000;
-    private const FILTER_OPERATORS_BY_TYPE = [
-        'string' => ['eq', 'in', 'contains', 'starts_with'],
-        'text' => ['eq', 'in', 'contains', 'starts_with'],
-        'integer' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
-        'number' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
-        'date' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
-        'datetime' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
-        'boolean' => ['eq'],
-        'choice' => ['eq', 'in'],
-        'choices' => ['eq', 'in'],
-        'user' => ['eq', 'in'],
-        'file' => ['eq', 'in'],
-        'relation' => ['eq', 'in'],
-        'record' => ['eq', 'in'],
-    ];
-    private const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
     private const LOCK_UPDATE = 'update';
     private const LOCK_SHARED = 'shared';
     // A field change that checks every record runs in the request up to this many records
@@ -102,6 +83,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private StorageMetrics $metrics;
     private StorageRecordConverter $converter;
     private StorageFieldChanges $fieldChanges;
+    private StorageRecordQueryNormalizer $queryNormalizer;
 
     public function __construct(
         private ConnectionInterface $database,
@@ -134,11 +116,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         // Reads every record version written under an older schema version under the current one.
         $this->converter = new StorageRecordConverter($database, $propertyTypes);
         $this->fieldChanges = new StorageFieldChanges($database);
+        $this->queryNormalizer = new StorageRecordQueryNormalizer($propertyTypes);
     }
 
     public function filterOperators(): array
     {
-        return self::FILTER_OPERATORS_BY_TYPE;
+        return StorageRecordQueryNormalizer::FILTER_OPERATORS_BY_TYPE;
     }
 
     public function createStructure(
@@ -2479,53 +2462,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         if (strlen($this->cursorKey) < 32) {
             throw new StorageRejected('storage_workbench_cursor_key_missing');
         }
-        if ($query->filters !== [] && array_is_list($query->filters)) {
-            throw new StorageRejected('storage_workbench_record_filters_invalid');
-        }
-        if (count($query->filters) > self::MAX_FILTERS || count($query->sort) > self::MAX_SORTS) {
-            throw new StorageRejected('storage_workbench_record_query_too_large');
-        }
         $fields = [];
         foreach ($structure->fields as $field) {
             $fields[(string) $field['key']] = $field;
         }
-        $filters = [];
-        foreach ($query->filters as $field => $filter) {
-            if (!is_string($field) || !isset($fields[$field]) || !is_array($filter)) {
-                throw new StorageRejected('storage_workbench_record_filter_invalid');
-            }
-            $filters[$field] = $this->normalizeRecordFilter($fields[$field], $filter);
-        }
-        ksort($filters, SORT_STRING);
-        $search = $query->search;
-        if ($search !== null) {
-            $search = trim($search);
-            if ($search === '' || strlen($search) > 100 || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $search) === 1) {
-                throw new StorageRejected('storage_workbench_record_search_invalid');
-            }
-        }
-        $sort = [];
-        $seen = [];
-        foreach ($query->sort as $item) {
-            if (!is_array($item)) {
-                throw new StorageRejected('storage_workbench_record_sort_invalid');
-            }
-            $keys = array_keys($item);
-            sort($keys, SORT_STRING);
-            $field = $item['field'] ?? null;
-            $direction = $item['direction'] ?? null;
-            if ($keys !== ['direction', 'field']
-                || !is_string($field)
-                || (!isset($fields[$field]) && !in_array($field, ['_record_id', '_revision'], true))
-                || isset($seen[$field])
-                || !in_array($direction, ['asc', 'desc'], true)) {
-                throw new StorageRejected('storage_workbench_record_sort_invalid');
-            }
-            $seen[$field] = true;
-            $sort[] = ['field' => $field, 'direction' => $direction];
-        }
 
-        return ['filters' => $filters, 'search' => $search, 'sort' => $sort, 'include_archived' => $query->includeArchived];
+        return $this->queryNormalizer->normalize($fields, $query->filters, $query->search, $query->sort, $query->includeArchived);
     }
 
     /** @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $query */
@@ -2535,165 +2477,15 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         foreach ($structure->fields as $definition) {
             $fieldTypes[(string) $definition['key']] = (string) $definition['type'];
         }
-        foreach ($query['filters'] as $field => $filter) {
-            if (!array_key_exists($field, $record->values)
-                || !$this->filterMatches($record->values[$field], $filter, $fieldTypes[$field] ?? '')) {
-                return false;
-            }
+        if (!StorageRecordQueryMatcher::filtersMatch($record->values, $query['filters'], $fieldTypes)) {
+            return false;
         }
         if ($query['search'] === null) {
             return true;
         }
+
         // Every term at the start of a word of the searchable fields (StorageViewSearch), as the витрина searches.
-        $texts = [];
-        foreach (StorageViewFieldOptions::resolve($structure->fields)->searchable as $key) {
-            $value = $record->values[$key] ?? null;
-            if (is_string($value)) {
-                $texts[] = $value;
-            }
-        }
-
-        return StorageViewSearch::matches(StorageViewSearch::text($texts), StorageViewSearch::terms($query['search']));
-    }
-
-    /**
-     * @param array<string, mixed> $definition
-     * @param array<array-key, mixed> $filter
-     * @return array{operator: string, value?: mixed, values?: list<mixed>}
-     */
-    private function normalizeRecordFilter(array $definition, array $filter): array
-    {
-        $keys = array_keys($filter);
-        sort($keys, SORT_STRING);
-        $operator = $filter['operator'] ?? null;
-        if (!is_string($operator) || ($keys !== ['operator', 'value'] && $keys !== ['operator', 'values'])) {
-            throw new StorageRejected('storage_workbench_record_filter_invalid');
-        }
-        $type = (string) ($definition['type'] ?? '');
-        $allowed = self::FILTER_OPERATORS_BY_TYPE[$type] ?? ['eq'];
-        if (!in_array($operator, self::FILTER_OPERATORS, true) || !in_array($operator, $allowed, true)) {
-            throw new StorageRejected('storage_query_filter_operator_unsupported');
-        }
-        $expectsList = in_array($operator, ['in', 'between'], true);
-        if ($keys !== ($expectsList ? ['operator', 'values'] : ['operator', 'value'])) {
-            throw new StorageRejected('storage_workbench_record_filter_invalid');
-        }
-
-        if (!$expectsList) {
-            $value = $this->normalizeFilterValue($definition, $operator, $filter['value'] ?? null);
-            if (in_array($operator, ['contains', 'starts_with'], true)) {
-                if (!is_string($value) || $value === '' || strlen($value) > self::MAX_FILTER_TEXT_BYTES) {
-                    throw new StorageRejected('storage_workbench_record_filter_invalid');
-                }
-                $value = $this->lower($value);
-            }
-
-            return ['operator' => $operator, 'value' => $value];
-        }
-
-        $rawValues = $filter['values'] ?? null;
-        if (!is_array($rawValues) || !array_is_list($rawValues) || $rawValues === []
-            || count($rawValues) > self::MAX_FILTER_VALUES
-            || ($operator === 'between' && count($rawValues) !== 2)) {
-            throw new StorageRejected('storage_workbench_record_filter_invalid');
-        }
-        $values = [];
-        foreach ($rawValues as $rawValue) {
-            $normalized = $this->normalizeFilterValue($definition, $operator, $rawValue);
-            if ($operator === 'between' || !in_array($normalized, $values, true)) {
-                $values[] = $normalized;
-            }
-        }
-        if ($operator === 'between' && $this->compareFilterValues($values[0], $values[1], $type) > 0) {
-            throw new StorageRejected('storage_workbench_record_filter_invalid');
-        }
-
-        return ['operator' => $operator, 'values' => $values];
-    }
-
-    /** @param array<string, mixed> $definition */
-    private function normalizeFilterValue(array $definition, string $operator, mixed $rawValue): mixed
-    {
-        if (($definition['type'] ?? null) === 'choices') {
-            $normalized = $this->normalizeFilterWithProperty($definition, [$rawValue], true);
-            if (!is_array($normalized) || count($normalized) !== 1 || !array_is_list($normalized)) {
-                throw new StorageRejected('storage_workbench_record_filter_invalid');
-            }
-
-            return $normalized[0];
-        }
-
-        // Range bounds and text fragments are not stored values, so the field's value
-        // constraints (min/max, length) do not apply to them; the type contract does.
-        $withConstraints = in_array($operator, ['eq', 'in'], true);
-
-        return $this->normalizeFilterWithProperty($definition, $rawValue, $withConstraints);
-    }
-
-    /** @param array<string, mixed> $definition */
-    private function normalizeFilterWithProperty(array $definition, mixed $rawValue, bool $withConstraints): mixed
-    {
-        $result = $this->propertyTypes->normalizeAndValidate(
-            (string) $definition['type'],
-            (int) $definition['type_version'],
-            $rawValue,
-            $withConstraints && is_array($definition['constraints'] ?? null) ? $definition['constraints'] : [],
-        );
-        if (!$result->canBePersistedByOwner()) {
-            throw new StorageRejected('storage_workbench_record_filter_invalid');
-        }
-
-        return $result->normalizedValue;
-    }
-
-    /** @param array{operator: string, value?: mixed, values?: list<mixed>} $filter */
-    private function filterMatches(mixed $actual, array $filter, string $type): bool
-    {
-        if ($actual === null) {
-            return false;
-        }
-        $operator = $filter['operator'];
-        $value = $filter['value'] ?? null;
-        $values = $filter['values'] ?? [];
-        if ($type === 'choices') {
-            if (!is_array($actual)) {
-                return false;
-            }
-
-            return $operator === 'eq'
-                ? in_array($value, $actual, true)
-                : array_intersect($values, $actual) !== [];
-        }
-
-        return match ($operator) {
-            'eq' => $actual === $value,
-            'in' => in_array($actual, $values, true),
-            'contains' => is_string($actual) && is_string($value) && str_contains($this->lower($actual), $value),
-            'starts_with' => is_string($actual) && is_string($value) && str_starts_with($this->lower($actual), $value),
-            'gt' => $this->comparableFilterValue($actual, $type) && $this->compareFilterValues($actual, $value, $type) > 0,
-            'gte' => $this->comparableFilterValue($actual, $type) && $this->compareFilterValues($actual, $value, $type) >= 0,
-            'lt' => $this->comparableFilterValue($actual, $type) && $this->compareFilterValues($actual, $value, $type) < 0,
-            'lte' => $this->comparableFilterValue($actual, $type) && $this->compareFilterValues($actual, $value, $type) <= 0,
-            'between' => count($values) === 2
-                && $this->comparableFilterValue($actual, $type)
-                && $this->compareFilterValues($actual, $values[0], $type) >= 0
-                && $this->compareFilterValues($actual, $values[1], $type) <= 0,
-            default => false,
-        };
-    }
-
-    private function comparableFilterValue(mixed $value, string $type): bool
-    {
-        return $type === 'integer' ? is_int($value) : is_string($value);
-    }
-
-    private function compareFilterValues(mixed $left, mixed $right, string $type): int
-    {
-        return match ($type) {
-            'integer' => (int) $left <=> (int) $right,
-            'number' => $this->compareDecimals((string) $left, (string) $right),
-            default => strcmp((string) $left, (string) $right),
-        };
+        return StorageRecordQueryMatcher::searchMatches($record->values, $query['search'], StorageViewFieldOptions::resolve($structure->fields)->searchable);
     }
 
     /** @param list<array{field: string, direction: string}> $sort */
@@ -2715,7 +2507,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $rightValue = $field === '_record_id'
                 ? $right->recordId
                 : ($field === '_revision' ? $right->revision : ($right->values[$field] ?? null));
-            $comparison = $this->compareValues($leftValue, $rightValue, $fieldTypes[$field] ?? null);
+            $comparison = StorageRecordQueryMatcher::compareValues($leftValue, $rightValue, $fieldTypes[$field] ?? null);
             if ($comparison !== 0) {
                 return $item['direction'] === 'desc' ? -$comparison : $comparison;
             }
@@ -2724,51 +2516,6 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $tiebreak = strcmp($left->recordId, $right->recordId);
 
         return ($sort[count($sort) - 1]['direction'] ?? 'asc') === 'desc' ? -$tiebreak : $tiebreak;
-    }
-
-    private function compareValues(mixed $left, mixed $right, ?string $type): int
-    {
-        if ($left === $right) {
-            return 0;
-        }
-        if ($left === null) {
-            return -1;
-        }
-        if ($right === null) {
-            return 1;
-        }
-        if ($type === 'integer' || is_int($left) && is_int($right)) {
-            return (int) $left <=> (int) $right;
-        }
-        if ($type === 'number' && is_string($left) && is_string($right)) {
-            return $this->compareDecimals($left, $right);
-        }
-        if (is_bool($left) && is_bool($right)) {
-            return (int) $left <=> (int) $right;
-        }
-
-        return strcmp((string) $left, (string) $right);
-    }
-
-    private function compareDecimals(string $left, string $right): int
-    {
-        $leftNegative = str_starts_with($left, '-');
-        $rightNegative = str_starts_with($right, '-');
-        if ($leftNegative !== $rightNegative) {
-            return $leftNegative ? -1 : 1;
-        }
-        $leftParts = explode('.', ltrim($left, '-'), 2);
-        $rightParts = explode('.', ltrim($right, '-'), 2);
-        $integer = strlen($leftParts[0]) <=> strlen($rightParts[0]);
-        if ($integer === 0) {
-            $integer = strcmp($leftParts[0], $rightParts[0]);
-        }
-        if ($integer === 0) {
-            $scale = max(strlen($leftParts[1] ?? ''), strlen($rightParts[1] ?? ''));
-            $integer = strcmp(str_pad($leftParts[1] ?? '', $scale, '0'), str_pad($rightParts[1] ?? '', $scale, '0'));
-        }
-
-        return $leftNegative ? -$integer : $integer;
     }
 
     private function decodeContinuation(?string $continuation, string $queryHash, string $scopeHash, int $maxOffset): int
@@ -2966,11 +2713,6 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private function canonicalJson(mixed $value): string
     {
         return $this->normalizer->canonicalJson($value);
-    }
-
-    private function lower(string $value): string
-    {
-        return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
     }
 
     private function isConstraintConflict(QueryException $exception): bool

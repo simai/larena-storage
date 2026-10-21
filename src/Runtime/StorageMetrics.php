@@ -13,7 +13,7 @@ use Throwable;
 
 /**
  * Reports Storage's hot-path metrics (storage.list, storage.read, storage.write,
- * storage.view.rebuild, storage.view.rebuild_rows) to larena/monitoring when it
+ * storage.read.published_list, storage.view.rebuild, storage.view.rebuild_rows) to larena/monitoring when it
  * is installed and bound, and does nothing otherwise. Storage does not depend on
  * larena/monitoring: the Metrics contract is resolved by name from the
  * container. Tags carry codes only (never ids, titles or values), and recording
@@ -34,6 +34,9 @@ final class StorageMetrics
     public const array OPERATIONS = ['create', 'update', 'archive', 'restore', 'purge', 'revert'];
 
     public const array OUTCOMES = ['ok', 'rejected', 'error'];
+
+    /** The paths a public list takes: its site витрина slot, the published records, or none (refused before either). */
+    public const array LIST_PATHS = ['slot', 'fallback', 'none'];
 
     /** @var (Closure(): ?object)|null */
     private ?Closure $resolver;
@@ -89,6 +92,22 @@ final class StorageMetrics
             $tags['count'] = in_array($count, self::COUNTS, true) ? $count : 'exact';
         }
         $this->timing('storage.list', $ms, $tags);
+    }
+
+    /**
+     * One public list (storage.read.published_list). path is slot, fallback or none;
+     * count is exact, approx or skip, left out when the list failed.
+     */
+    public function publishedList(string $path, ?string $count, string $outcome, float $ms): void
+    {
+        $tags = [
+            'path' => in_array($path, self::LIST_PATHS, true) ? $path : 'none',
+            'outcome' => self::knownOutcome($outcome),
+        ];
+        if ($count !== null) {
+            $tags['count'] = in_array($count, self::COUNTS, true) ? $count : 'skip';
+        }
+        $this->timing('storage.read.published_list', $ms, $tags);
     }
 
     public function read(string $outcome, float $ms): void

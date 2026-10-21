@@ -78,6 +78,20 @@ final class PublishedSiteViewReader
      */
     public function source(string $schemaId, string $scopeRef, string $locale, string $localeChain): ?array
     {
+        $answering = $this->answering($schemaId, $scopeRef, $locale, $localeChain);
+
+        return $answering === null ? null : ['registration' => $answering['registration'], 'slot' => $answering['slot']];
+    }
+
+    /**
+     * The same as `source`, with the storage's current schema fields and витрина
+     * options it was checked against, read in the same query: what a public list
+     * needs to know which fields it may name.
+     *
+     * @return array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot, fields: list<array<string, mixed>>, options: ?StorageViewFieldOptions}|null
+     */
+    public function answering(string $schemaId, string $scopeRef, string $locale, string $localeChain): ?array
+    {
         if (!$this->supported()) {
             return null;
         }
@@ -93,7 +107,8 @@ final class PublishedSiteViewReader
         $options = $this->withOptions
             ? StorageViewFieldOptions::fromFieldsJson($state['options_json'])
             : StorageViewFieldOptions::load($this->connection, $schemaId);
-        if ($this->hash($state['definition'], $options) !== $registration->publicFieldsHash) {
+        $fields = $state['definition'] === null ? null : PublishedSiteViewIndex::definitionFields($state['definition']);
+        if ($fields === null || $this->hash($state['definition'], $options) !== $registration->publicFieldsHash) {
             // Public fields changed under a ready registration (a change no hook saw): the next
             // write silences it, the rebuild makes it again.
             $this->queue($schemaId);
@@ -101,7 +116,7 @@ final class PublishedSiteViewReader
             return null;
         }
 
-        return ['registration' => $registration, 'slot' => $slot];
+        return ['registration' => $registration, 'slot' => $slot, 'fields' => $fields, 'options' => $options];
     }
 
     /**
@@ -132,6 +147,40 @@ final class PublishedSiteViewReader
         $row = $this->rows($source)->where('record_id', $recordId)->first();
 
         return $this->entries($source['slot'], $row === null ? [] : [$row]);
+    }
+
+    /**
+     * The checked entries of these records' rows in the slot, by record id, with when
+     * each was published there: a record without a row is absent; null when a row is
+     * corrupt. What a public list reads after its query gave the ids.
+     *
+     * @param array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot} $source
+     * @param list<string> $recordIds
+     * @return array<string, array{entry: array<string, mixed>, published_at: ?string}>|null
+     */
+    public function listed(array $source, array $recordIds): ?array
+    {
+        if ($recordIds === []) {
+            return [];
+        }
+        $rows = $this->connection->table($source['registration']->tableName)
+            ->where('slot_id', $source['slot']->id)
+            ->whereIn('record_id', $recordIds)
+            ->select(['record_id', 'revision', 'entry_hash', 'entry_json', 'published_at'])
+            ->get()->all();
+        $listed = [];
+        foreach ($rows as $row) {
+            $entry = $this->entry($source['slot'], $row);
+            if ($entry === null) {
+                return null;
+            }
+            $listed[(string) $row->record_id] = [
+                'entry' => $entry,
+                'published_at' => ($row->published_at ?? null) === null ? null : (string) $row->published_at,
+            ];
+        }
+
+        return $listed;
     }
 
     /** @param array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot} $source */

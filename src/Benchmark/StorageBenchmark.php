@@ -14,6 +14,7 @@ use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\Contracts\PublicationState;
+use Larena\Storage\Contracts\PublishedListQuery;
 use Larena\Storage\Exceptions\ReadContractRejected;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\DatabaseReadContracts;
@@ -78,14 +79,16 @@ final class StorageBenchmark
     private VersionedStorage $storage;
     private SchemaDefinitionNormalizer $normalizer;
     private StorageViewSync $views;
+    private string $cursorKey;
 
-    public function __construct(private Connection $connection, PropertyTypeRegistry $propertyTypes)
+    public function __construct(private Connection $connection, private PropertyTypeRegistry $propertyTypes)
     {
         $this->runId = bin2hex(random_bytes(4));
         $this->scopeRef = 'scope:storage-benchmark-' . $this->runId;
         $access = new StorageBenchmarkAccess(self::ACTOR, $this->scopeRef);
         $events = new NullStorageSecurityEventSink();
         $cursorKey = bin2hex(random_bytes(32));
+        $this->cursorKey = $cursorKey;
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->views = StorageViewSync::for($connection);
         $this->storage = new VersionedStorage($connection, $propertyTypes, $access, $events, $access, $cursorKey, null, $this->views);
@@ -340,8 +343,17 @@ final class StorageBenchmark
         $buildMs = (hrtime(true) - $buildStarted) / 1e6;
         $progress(sprintf('Site: %d published records seeded in %.1f s, site витрина built in %.1f s; measuring...', $size, $seedMs / 1000, $buildMs / 1000));
 
-        $legacy = new DatabaseReadContracts($this->connection);
-        $site = new DatabaseReadContracts($this->connection, null, new RequestedLocaleOnly(), new StorageMetrics(), null, new PublishedSiteViewReader($this->connection));
+        // Both readers list too: the legacy one from the published records (refused above
+        // DatabaseReadContracts::LIST_FALLBACK_LIMIT), the site one from the slot.
+        $legacy = new DatabaseReadContracts($this->connection, null, new RequestedLocaleOnly(), new StorageMetrics(), null, null,
+            DatabaseReadContracts::KEY_SCAN_LIMIT, $this->propertyTypes, $this->cursorKey);
+        $site = new DatabaseReadContracts($this->connection, null, new RequestedLocaleOnly(), new StorageMetrics(), null, new PublishedSiteViewReader($this->connection),
+            DatabaseReadContracts::KEY_SCAN_LIMIT, $this->propertyTypes, $this->cursorKey);
+        $list = static fn (array $filters, ?string $search, array $sort, StorageWorkbenchCountMode $count): Closure => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static function () use ($read, $schemaId, $filters, $search, $sort, $count): int {
+            $page = $read->publishedList(new PublishedListQuery($schemaId, 'site:main', 'en', $filters, $search, $sort, 20, null, $count));
+
+            return $page->matchedCount ?? count($page->records);
+        };
         $sorted = $recordIds;
         sort($sorted, SORT_STRING);
         $middle = $sorted[intdiv(count($sorted), 2)];
@@ -353,6 +365,11 @@ final class StorageBenchmark
             'site_projection_deep' => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static fn (): int => count($read->publishedProjection($schemaId, 'site:main', 'en', 50, null, $middle)->records),
             'site_published_record' => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static fn (): int => (int) ($read->publishedRecord($schemaId, 'site:main', 'en', $pick($iteration))['revision'] ?? 0),
             'site_resolve_key_set_silenced' => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static fn (): int => $read->resolveKey($schemaId, 'site:main', 'en', 'slug', (string) $lastKey)->revision ?? 0,
+            // Public lists (storage.read.published_list): a page of 20.
+            'site_list_filter_choice' => $list(['status' => ['operator' => 'eq', 'value' => 'approved']], null, [], StorageWorkbenchCountMode::Skip),
+            'site_list_sort_number' => $list([], null, [['field' => 'price', 'direction' => 'desc']], StorageWorkbenchCountMode::Skip),
+            'site_list_search' => $list([], 'harbor', [], StorageWorkbenchCountMode::Skip),
+            'site_list_count_auto' => $list(['status' => ['operator' => 'in', 'values' => ['draft', 'review']]], null, [['field' => '_published_at', 'direction' => 'desc']], StorageWorkbenchCountMode::Auto),
         ];
         /** @return array{0: string, 1: ?string} */
         $identical = static function (DatabaseReadContracts $read) use ($schemaId, $middle, $pick, $lastKey): array {
@@ -406,14 +423,18 @@ final class StorageBenchmark
     private function publishAll(string $schemaId, array $recordIds): void
     {
         $now = gmdate('Y-m-d H:i:s');
+        $started = time();
+        $position = 0;
         foreach (array_chunk($recordIds, self::SEED_CHUNK) as $chunk) {
             $rows = [];
             foreach ($chunk as $recordId) {
+                // One publication a minute, newest last: a list by publication time has distinct keys.
+                $publishedAt = gmdate('Y-m-d H:i:s', $started - 60 * (count($recordIds) - $position++));
                 $rows[] = [
                     'publication_id' => PublicationState::identity($schemaId, $recordId, 'site:main', 'en'),
                     'schema_id' => $schemaId, 'record_id' => $recordId, 'scope_ref' => 'site:main', 'locale' => 'en',
                     'state' => 'published', 'published_revision' => 1, 'previous_published_revision' => null,
-                    'scheduled_at' => null, 'published_at' => $now, 'archived_at' => null,
+                    'scheduled_at' => null, 'published_at' => $publishedAt, 'archived_at' => null,
                     'updated_by' => self::ACTOR, 'correlation_id' => 'storage-benchmark-seed-' . $this->runId,
                     'created_at' => $now, 'updated_at' => $now,
                 ];
@@ -517,7 +538,7 @@ final class StorageBenchmark
             'max_ms' => round($timings[$count - 1], 2),
             'queries' => max($queries),
             'peak_memory_bytes' => max($memory),
-            'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_')
+            'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_') || str_starts_with($name, 'site_list_')
                 || str_starts_with($name, 'sort_') || str_starts_with($name, 'search_')
                 || in_array($name, ['matched_count', 'matched_count_exact'], true) ? $value : null,
         ];

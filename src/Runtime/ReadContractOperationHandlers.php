@@ -9,12 +9,14 @@ use Larena\Core\Contracts\OperationDescriptor;
 use Larena\Core\Contracts\OperationHandler;
 use Larena\Core\Enums\OperationExecutionMode;
 use Larena\Core\Enums\OperationRiskClass;
+use Larena\Storage\Contracts\PublishedListQuery;
+use Larena\Storage\Contracts\PublishedListReads;
 use Larena\Storage\Contracts\PublishedReadVisibility;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Exceptions\ReadContractRejected;
 
 /**
- * The three read operations.
+ * The four read operations.
  *
  * All three are reads, so none implements the proposal port: a read is its own preview,
  * and offering to "propose" one would be a second name for the same thing.
@@ -27,6 +29,8 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
     public function __construct(
         private ReadContracts $readContracts,
         private PublishedReadVisibility $visibility = new PublishedRecordsArePublic(),
+        // The public lists; the read contracts themselves when they offer them.
+        private ?PublishedListReads $lists = null,
     ) {
     }
 
@@ -38,7 +42,7 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
         $public = 'storage.read.public';
 
         $descriptors = [
-            // The two public reads carry no access scope. They return only the
+            // The three public reads carry no access scope. They return only the
             // published head's public fields, which is what an anonymous visitor of
             // the site sees anyway, and the REST public site boundary cannot name
             // an Access check an anonymous caller could pass. Which records each
@@ -51,6 +55,12 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
             ),
             new OperationDescriptor(
                 name: 'storage.read.published_projection',
+                executionMode: OperationExecutionMode::Sync,
+                riskClass: OperationRiskClass::Read,
+                reversible: true,
+            ),
+            new OperationDescriptor(
+                name: 'storage.read.published_list',
                 executionMode: OperationExecutionMode::Sync,
                 riskClass: OperationRiskClass::Read,
                 reversible: true,
@@ -97,6 +107,7 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
                 $this->optionalInt($context, 'budget'),
                 $filter,
             )->toArray(),
+            'storage.read.published_list' => $this->lists()->publishedList(PublishedListQuery::fromInput($context->metadata), $filter)->toArray(),
             'storage.read.projection_explain' => $this->readContracts->projectionExplain(
                 $target,
                 $scopeRef,
@@ -108,6 +119,16 @@ final readonly class ReadContractOperationHandlers implements OperationHandler
                 sprintf('Operation "%s" is not a read contract operation.', $descriptor->name),
             ),
         };
+    }
+
+    private function lists(): PublishedListReads
+    {
+        $lists = $this->lists ?? ($this->readContracts instanceof PublishedListReads ? $this->readContracts : null);
+        if ($lists === null) {
+            throw new ReadContractRejected('published_list_unavailable', 'No public list reader is composed.');
+        }
+
+        return $lists;
     }
 
     private function string(OperationContext $context, string $key): string

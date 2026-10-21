@@ -9,6 +9,15 @@ metrics:
     tags: [mode, count]
     thresholds: { p95_ms: 300, error_rate: 0.05 }
     retention: { raw: 7d, aggregate: 90d }
+  # One public list (storage.read.published_list, GET /api/v1/site/list). path is slot (the site витрина slot
+  # answered), fallback (the published records, at most 5000) or none (refused before either); count is exact,
+  # approx or skip (also when a visibility filter applied); outcome ok, rejected (an invalid query, a list that is
+  # not ready) or error.
+  storage.read.published_list:
+    type: duration
+    tags: [path, count]
+    thresholds: { p95_ms: 200, error_rate: 0.05 }
+    retention: { raw: 7d, aggregate: 90d }
   # One record version read (current or exact revision); outcome ok, rejected or error.
   storage.read:
     type: duration

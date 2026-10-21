@@ -10,6 +10,7 @@ declare(strict_types=1);
  *
  *   php scripts/storage-bench.php --driver=sqlite --records=1000,10000 --repeat=5 --json=results.json
  *   php scripts/storage-bench.php --driver=mysql --records=10000,100000 --repeat=5 --json=results.json
+ *   php scripts/storage-bench.php --driver=mysql --records=100000 --repeat=20 --site-only   (the public reads and lists only)
  */
 
 use Illuminate\Container\Container;
@@ -26,7 +27,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 // A list call decodes up to 5000 records in PHP; give the measurement room.
 ini_set('memory_limit', '1G');
 
-$options = getopt('', ['driver:', 'records:', 'repeat:', 'json:', 'keep']);
+$options = getopt('', ['driver:', 'records:', 'repeat:', 'json:', 'keep', 'site-only']);
 $driver = is_string($options['driver'] ?? null) ? $options['driver'] : 'sqlite';
 $records = is_string($options['records'] ?? null) ? $options['records'] : '1000';
 $repeat = is_string($options['repeat'] ?? null) ? $options['repeat'] : '5';
@@ -75,6 +76,9 @@ if ($json !== null) {
 }
 if (array_key_exists('keep', $options)) {
     $input['--keep'] = true;
+}
+if (array_key_exists('site-only', $options)) {
+    $input['--site-only'] = true;
 }
 $command = new StorageBenchCommand();
 $command->setLaravel($container);

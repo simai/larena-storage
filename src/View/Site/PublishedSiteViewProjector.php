@@ -9,6 +9,7 @@ use Larena\Storage\View\StorageViewFieldOptions;
 use Larena\Storage\View\StorageViewLayout;
 use Larena\Storage\View\StorageViewLayoutPlanner;
 use Larena\Storage\View\StorageViewProjector;
+use Larena\Storage\View\StorageViewTableShape;
 
 /**
  * Turns one published projection entry into its site витрина row.
@@ -72,8 +73,10 @@ final readonly class PublishedSiteViewProjector
 
     /**
      * What the site витрина of a storage depends on: its public fields (key, type,
-     * constraints, localized) and their search and index options. A schema or option
-     * change that alters it leaves every row to be rebuilt.
+     * constraints, localized), their search and index options, and the columns of a
+     * site row. A schema or option change that alters it leaves every row to be
+     * rebuilt; so does a new column of the row (the registration no longer matches, the
+     * writers stop and the rebuild makes the table again).
      *
      * @param list<array<string, mixed>> $fields
      */
@@ -95,6 +98,8 @@ final readonly class PublishedSiteViewProjector
             'fields' => $public,
             'searchable' => $options->searchable,
             'indexed' => $options->indexed,
+            // The row's own columns: a table made before one of them existed is made again.
+            'row' => StorageViewTableShape::Site->systemColumns(),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
@@ -109,12 +114,13 @@ final readonly class PublishedSiteViewProjector
     }
 
     /**
-     * The row, the side rows and the search row of one entry in one slot.
+     * The row, the side rows and the search row of one entry in one slot, published
+     * there at `$publishedAt` (the publication state's time).
      *
      * @param array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>, value_sources: array<string, string>} $entry
      * @return array{row: array<string, mixed>, multi: list<array<string, mixed>>, search: array<string, mixed>|null}
      */
-    public function project(StorageViewLayout $layout, int $slotId, array $entry, string $updatedAt): array
+    public function project(StorageViewLayout $layout, int $slotId, array $entry, string $updatedAt, ?string $publishedAt = null): array
     {
         $json = self::encodeEntry($entry);
         $values = $entry['values'];
@@ -137,6 +143,7 @@ final readonly class PublishedSiteViewProjector
             'entry_hash' => hash('sha256', $json),
             'entry_json' => $json,
             'title' => $projected['row']['title'] ?? null,
+            'published_at' => $publishedAt,
             'updated_at' => $updatedAt,
         ];
         foreach ($layout->written() as $column) {

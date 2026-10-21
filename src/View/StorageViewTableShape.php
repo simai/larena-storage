@@ -13,7 +13,8 @@ namespace Larena\Storage\View;
  * - `site`: one table per published storage, one row per published record in each
  *   slot (`slot_id`, `record_id`), a slot being one scope and one locale. `slot_id`
  *   plays the part `state` plays in the admin indexes. A row holds the public fields
- *   of the published revision and the exact contract entry.
+ *   of the published revision, the exact contract entry and when the record was
+ *   published there (`published_at`, the public list's newest-first order).
  *
  * Code that takes no shape works on the admin table, exactly as before the site shape.
  */
@@ -38,7 +39,7 @@ enum StorageViewTableShape: string
     public function systemColumns(): array
     {
         return $this === self::Site
-            ? ['slot_id', 'record_id', 'revision', 'schema_version', 'projection_version', 'entry_hash', 'entry_json', 'title', 'updated_at']
+            ? ['slot_id', 'record_id', 'revision', 'schema_version', 'projection_version', 'entry_hash', 'entry_json', 'title', 'published_at', 'updated_at']
             : StorageViewShapeVerifier::SYSTEM_COLUMNS;
     }
 

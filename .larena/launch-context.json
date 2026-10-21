@@ -157,7 +157,14 @@
     "tests/Support/published-site-view-fixture.php",
     "tests/Integration/PublishedSiteViewMaintenanceTest.php",
     "tests/Integration/PublishedSiteViewRebuildTest.php",
-    "tests/Integration/PublishedSiteViewReadTest.php"
+    "tests/Integration/PublishedSiteViewReadTest.php",
+    "api.yaml",
+    "docs/read-contracts.md",
+    "src/Contracts/PublishedListPage.php",
+    "src/Contracts/PublishedListQuery.php",
+    "src/Contracts/PublishedListReads.php",
+    "tests/Integration/PublishedListTest.php",
+    "tests/Support/published-list-fixture.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

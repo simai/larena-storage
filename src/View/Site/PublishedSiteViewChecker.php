@@ -189,6 +189,7 @@ final readonly class PublishedSiteViewChecker
                     $search[(string) $row->record_id] = $row->search_text === null ? null : (string) $row->search_text;
                 }
             }
+            $states = $read->publishedStates($slot->schemaId, $slot->scopeRef, $slot->locale, $ids);
             foreach ($read->entriesForHeads($slot->schemaId, $slot->scopeRef, $slot->locale, $heads) as $entry) {
                 $recordId = $entry['record_id'];
                 $seen[$recordId] = true;
@@ -197,7 +198,10 @@ final readonly class PublishedSiteViewChecker
                     $counts['missing']++;
                     continue;
                 }
-                if (!$this->same($registration, $slot, $entry, $row, $multi[$recordId] ?? [], $search[$recordId] ?? null)) {
+                $publishedAt = $states[$recordId]['published_at'] ?? null;
+                $stored = ($row['published_at'] ?? null) === null ? null : (string) $row['published_at'];
+                if ($stored !== $publishedAt
+                    || !$this->same($registration, $slot, $entry, $row, $multi[$recordId] ?? [], $search[$recordId] ?? null)) {
                     $counts['stale']++;
                 }
             }

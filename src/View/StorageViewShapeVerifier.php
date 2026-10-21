@@ -48,6 +48,9 @@ final readonly class StorageViewShapeVerifier
             if (!in_array(StorageViewDdl::siteRecordIndexName($table), $indexes, true)) {
                 $problems[] = 'record_index_missing';
             }
+            if (!in_array(StorageViewDdl::sitePublishedIndexName($table), $indexes, true)) {
+                $problems[] = 'published_index_missing';
+            }
         } elseif (!in_array(StorageViewDdl::stateIndexName($table), $indexes, true)) {
             $problems[] = 'state_index_missing';
         }

@@ -105,6 +105,14 @@ try {
     // A key through the slot costs the same few queries however many records are published.
     benchExpect($site200['operations']['site_resolve_key_set_silenced']['site']['queries'] <= 5, 'a key through the slot took too many queries: ' . json_encode($site200['operations']));
     benchExpect($site200['operations']['site_projection_page_1']['site']['queries'] <= 3, 'a site page took more than three queries');
+    // The public lists: answered from the records at this size and from the slot, the same totals; the slot in a few queries.
+    foreach (['site_list_filter_choice', 'site_list_sort_number', 'site_list_search', 'site_list_count_auto'] as $operation) {
+        $legacyList = $site200['operations'][$operation]['legacy'] ?? null;
+        $siteList = $site200['operations'][$operation]['site'] ?? null;
+        benchExpect(($legacyList['status'] ?? null) === 'ok' && ($siteList['status'] ?? null) === 'ok' && $legacyList['matched_count'] === $siteList['matched_count'], $operation . ' differs: ' . json_encode([$legacyList, $siteList]));
+        benchExpect($siteList['queries'] <= 6, $operation . ' took ' . $siteList['queries'] . ' queries through the slot');
+    }
+    benchExpect($site200['operations']['site_list_count_auto']['site']['matched_count'] === 80, 'the auto count of two statuses of five is wrong: ' . json_encode($site200['operations']['site_list_count_auto']));
     benchExpect(($site200['cleanup']['method'] ?? null) === 'owned_rows_deleted', 'the site storage was not cleaned up');
     foreach ($run200['cleanup'] as $cleanup) {
         benchExpect($cleanup['method'] === 'engine_purge', 'a small structure was not purged through the engine');

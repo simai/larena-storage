@@ -15,7 +15,7 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 30, 'waves A to E, batch 7 D2 and the relation delete declare thirty operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 31, 'waves A to E, batch 7 D2, the relation delete and the public list declare thirty-one operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
@@ -34,6 +34,7 @@ larena_storage_role_assert($names === [
     'storage.publication.sweep',
     'storage.publication.unpublish',
     'storage.read.projection_explain',
+    'storage.read.published_list',
     'storage.read.published_projection',
     'storage.read.resolve_key',
     'storage.record.create',
@@ -77,10 +78,10 @@ $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(
 // which is core's business and not Storage's. The claim that matters is that the
 // two catalogues compose into one without either losing an entry.
 $coreCount = count($registry->list('larena/core'));
-larena_storage_role_assert(count($registry->list('larena/storage')) === 30, 'storage declares 30 operations');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 31, 'storage declares 31 operations');
 larena_storage_role_assert($coreCount >= 22, 'core contributes at least the operations Batch 3 declared, got ' . $coreCount);
 larena_storage_role_assert(
-    count($registry->list()) === $coreCount + 30,
+    count($registry->list()) === $coreCount + 31,
     'one catalogue holds both packages with nothing lost',
 );
 
@@ -111,11 +112,11 @@ foreach ($registry->list('larena/storage') as $declaration) {
 }
 sort($unscoped);
 
-// Exactly the two public reads carry no access scope, by owner decision for the
+// Exactly the three public reads carry no access scope, by owner decision for the
 // public site boundary: they return only published heads and public fields.
 larena_storage_role_assert(
-    $unscoped === ['storage.read.published_projection', 'storage.read.resolve_key'],
-    'only the two public reads are unscoped, got: ' . implode(', ', $unscoped),
+    $unscoped === ['storage.read.published_list', 'storage.read.published_projection', 'storage.read.resolve_key'],
+    'only the three public reads are unscoped, got: ' . implode(', ', $unscoped),
 );
 ksort($scopes);
 larena_storage_role_assert(

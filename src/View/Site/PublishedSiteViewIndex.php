@@ -289,8 +289,9 @@ final class PublishedSiteViewIndex implements PublicationIndex, LocalizedValueOb
         $now = gmdate('Y-m-d H:i:s');
         $projections = [];
         try {
+            $states = $this->readContracts->publishedStates($slot->schemaId, $slot->scopeRef, $slot->locale, array_column($heads, 'record_id'), true);
             foreach ($this->readContracts->entriesForHeads($slot->schemaId, $slot->scopeRef, $slot->locale, $heads, true) as $entry) {
-                $projections[] = $this->projector->project($registration->layout, $slot->id, $entry, $now);
+                $projections[] = $this->projector->project($registration->layout, $slot->id, $entry, $now, $states[$entry['record_id']]['published_at'] ?? null);
             }
         } catch (StorageRejected) {
             return null;

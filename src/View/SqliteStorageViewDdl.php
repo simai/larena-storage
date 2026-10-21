@@ -155,6 +155,7 @@ final class SqliteStorageViewDdl extends StorageViewDdl
                 '"entry_hash" TEXT NOT NULL',
                 '"entry_json" TEXT NOT NULL',
                 '"title" TEXT NULL',
+                '"published_at" TEXT NULL',
                 '"updated_at" TEXT NOT NULL',
             ];
             foreach ($layout->physical() as $column) {
@@ -166,6 +167,9 @@ final class SqliteStorageViewDdl extends StorageViewDdl
             $this->database->statement('CREATE TABLE "' . $table . '" (' . implode(', ', $columns) . ')');
         }
         $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::siteRecordIndexName($table) . '" ON "' . $table . '" ("record_id")');
+        if (in_array('published_at', $this->columns($table), true)) {
+            $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::sitePublishedIndexName($table) . '" ON "' . $table . '" ("slot_id", "published_at", "record_id")');
+        }
         foreach ($layout->physical() as $column) {
             if ($column->indexed && $column->state !== StorageViewColumn::STATE_DROPPING) {
                 $this->createIndex($table, $column, StorageViewTableShape::Site);

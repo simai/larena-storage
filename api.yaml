@@ -143,3 +143,71 @@ operations:
       summary: List the published records of a site structure
       description: Returns the published heads of every record of a role or structure in a scope and locale, public fields only, within the read contract's budget.
       tags: [Site]
+
+  - key: storage.read.published_list
+    method: GET
+    path: /api/v1/site/list
+    handler:
+      operation_ref: storage.read.published_list
+    auth:
+      channels: [anonymous_session]
+    csrf:
+      required: false
+    access:
+      mode: authentication_boundary
+      operations: []
+    request:
+      path: *empty_request_object
+      query:
+        type: object
+        additionalProperties: false
+        properties:
+          target: *target
+          scope_ref: *scope_ref
+          locale: *locale
+          # A JSON object: field key => {operator, value} or {operator, values}, public fields only.
+          filters: {type: string, minLength: 2, maxLength: 8192}
+          search: {type: string, minLength: 1, maxLength: 100}
+          # Up to three keys: field[:asc|:desc], comma-separated; _published_at and _record_id are system keys.
+          sort: {type: string, pattern: '^_?[a-z][a-z0-9_]{0,63}(:(asc|desc))?(,_?[a-z][a-z0-9_]{0,63}(:(asc|desc))?){0,2}$', maxLength: 256}
+          limit: {type: string, pattern: '^[1-9][0-9]?$|^100$', maxLength: 3}
+          cursor: {type: string, pattern: '^[A-Za-z0-9_-]+$', maxLength: 4096}
+          count: {type: string, enum: [auto, exact, skip]}
+        required: [target, scope_ref, locale]
+      body: *empty_request_object
+    response:
+      status: 200
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          records:
+            type: array
+            items: *record
+          returned: {type: integer, minimum: 0}
+          continuation: {type: [string, 'null'], maxLength: 4096}
+          matched_count: {type: [integer, 'null'], minimum: 0}
+          count_exact: {type: boolean}
+          filtered_count: {type: integer, minimum: 0}
+        required: [records, returned, continuation, matched_count, count_exact, filtered_count]
+    execution:
+      mode: sync
+      timeout_seconds: 30
+      transactional: false
+    idempotency:
+      required: false
+      header: Idempotency-Key
+      ttl_seconds: 86400
+    rate_limit:
+      max_attempts: 120
+      decay_seconds: 60
+    audit:
+      event: storage.read.published_list
+      summary_fields: []
+    lifecycle:
+      state: stable
+      version: v1
+    docs:
+      summary: List published site records with filters, search and sort
+      description: Returns one page of the published records of a role or structure in a scope and locale, public fields only, filtered, searched and sorted by public fields, with an opaque cursor bound to the query and the scope. An invalid query, or a filter, search or sort on a field that is not public, is 422 invalid_query; a storage too large to list before its site витрина is ready is 503 site_view_not_ready.
+      tags: [Site]

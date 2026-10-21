@@ -140,9 +140,10 @@ function storageViewSiteDdlChecks(Connection $connection, StorageViewDdl $ddl): 
     $verifier = new StorageViewShapeVerifier($ddl);
     storageViewExpect($verifier->matches($table, $layout, true, $site), 'the site table does not match: ' . implode(', ', $verifier->problems($table, $layout, true, $site)));
     storageViewExpect($verifier->problems($table, $layout) !== [], 'the site table passed for an admin one');
-    storageViewExpect($ddl->columns($table) === ['slot_id', 'record_id', 'revision', 'schema_version', 'projection_version', 'entry_hash', 'entry_json', 'title', 'updated_at', 'c1', 'c2'], 'the site columns are wrong: ' . json_encode($ddl->columns($table)));
+    storageViewExpect($ddl->columns($table) === ['slot_id', 'record_id', 'revision', 'schema_version', 'projection_version', 'entry_hash', 'entry_json', 'title', 'published_at', 'updated_at', 'c1', 'c2'], 'the site columns are wrong: ' . json_encode($ddl->columns($table)));
     storageViewExpect($ddl->columns($table . '_m') === ['slot_id', 'record_id', 'field_key', 'value'] && $ddl->columns($table . '_s') === ['slot_id', 'record_id', 'search_text'], 'the site side tables are wrong');
-    storageViewExpect(in_array(StorageViewDdl::fieldIndexName($table, 'c2'), $ddl->indexes($table), true) && in_array(StorageViewDdl::siteRecordIndexName($table), $ddl->indexes($table), true), 'a site index is missing');
+    storageViewExpect(in_array(StorageViewDdl::fieldIndexName($table, 'c2'), $ddl->indexes($table), true) && in_array(StorageViewDdl::siteRecordIndexName($table), $ddl->indexes($table), true)
+        && in_array(StorageViewDdl::sitePublishedIndexName($table), $ddl->indexes($table), true), 'a site index is missing');
     $row = static fn (int $slot, string $record): array => ['slot_id' => $slot, 'record_id' => $record, 'revision' => 1, 'schema_version' => 1, 'projection_version' => 3,
         'entry_hash' => str_repeat('a', 64), 'entry_json' => '{}', 'title' => 'T', 'updated_at' => '2026-10-21 08:00:00', 'c1' => 'T', 'c2' => 1];
     // One record in two slots is two rows; the same slot and record is one.

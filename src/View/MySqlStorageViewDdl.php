@@ -197,11 +197,14 @@ final class MySqlStorageViewDdl extends StorageViewDdl
                 // The contract entry exactly as a read returns it.
                 '`entry_json` LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL',
                 '`title` VARCHAR(255) NULL',
+                // When the record was published in the slot's scope and locale: the newest-first order.
+                '`published_at` DATETIME NULL',
                 '`updated_at` DATETIME NOT NULL',
             ];
             $indexes = [
                 'PRIMARY KEY (`slot_id`, `record_id`)',
                 'KEY `' . self::siteRecordIndexName($table) . '` (`record_id`)',
+                'KEY `' . self::sitePublishedIndexName($table) . '` (`slot_id`, `published_at`, `record_id`)',
             ];
             foreach ($layout->physical() as $column) {
                 if ($column->state === StorageViewColumn::STATE_DROPPING) {

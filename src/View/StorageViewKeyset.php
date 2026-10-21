@@ -21,10 +21,19 @@ final readonly class StorageViewKeyset
     private const MAX_BYTES = 2048;
     private const MAX_KEY_BYTES = 256;
     public const MAX_OFFSET = 1_000_000_000;
+    /** The record ids of the workbench: what a continuation of its lists may name. */
+    public const WORKBENCH_RECORD_ID = '/\Arecord-[a-f0-9]{32}\z/D';
 
-    /** @param Closure(mixed): string $canonicalJson */
-    public function __construct(private string $cursorKey, private Closure $canonicalJson)
-    {
+    /**
+     * @param Closure(mixed): string $canonicalJson
+     * @param string $recordIdPattern The record ids a continuation may name (the workbench's by default;
+     *                                the site list takes any published record id).
+     */
+    public function __construct(
+        private string $cursorKey,
+        private Closure $canonicalJson,
+        private string $recordIdPattern = self::WORKBENCH_RECORD_ID,
+    ) {
     }
 
     /** The payload version of a continuation, or null when it is not one. */
@@ -69,7 +78,7 @@ final readonly class StorageViewKeyset
             || !is_string($payload['query'] ?? null) || !is_string($payload['scope'] ?? null)
             || !is_string($payload['signature'] ?? null)
             || !is_string($payload['record_id'] ?? null)
-            || preg_match('/\Arecord-[a-f0-9]{32}\z/D', $payload['record_id']) !== 1
+            || preg_match($this->recordIdPattern, $payload['record_id']) !== 1
             || !is_array($after) || !array_is_list($after) || count($after) !== $keys) {
             throw new StorageRejected('storage_workbench_record_continuation_invalid');
         }

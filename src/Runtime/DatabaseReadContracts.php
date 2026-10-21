@@ -5,21 +5,36 @@ declare(strict_types=1);
 namespace Larena\Storage\Runtime;
 
 use Illuminate\Database\Connection;
+use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\PublicationState;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\LocalizedValuesBatch;
+use Larena\Storage\Contracts\PublishedListPage;
+use Larena\Storage\Contracts\PublishedListQuery;
+use Larena\Storage\Contracts\PublishedListReads;
 use Larena\Storage\Contracts\PublishedProjectionPage;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Contracts\ResolvedKey;
 use Larena\Storage\Enums\FieldVisibility;
 use Larena\Storage\Enums\PublicationStateValue;
+use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\Exceptions\ReadContractRejected;
+use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
+use Larena\Storage\View\Site\PublishedListCursor;
+use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewProjector;
 use Larena\Storage\View\Site\PublishedSiteViewReader;
 use Larena\Storage\View\Site\PublishedSiteViewRegistration;
 use Larena\Storage\View\Site\PublishedSiteViewSlot;
+use Larena\Storage\View\StorageRecordQueryMatcher;
+use Larena\Storage\View\StorageRecordQueryNormalizer;
+use Larena\Storage\View\StorageViewCounter;
+use Larena\Storage\View\StorageViewFieldOptions;
+use Larena\Storage\View\StorageViewQuery;
+use Larena\Storage\View\StorageViewQueryCompiler;
 use Throwable;
 
 /**
@@ -58,7 +73,7 @@ use Throwable;
  * витрина is built from (`entriesForHeads`, `publishedHeadPage`, `keyValuesAt`,
  * `publicValuesAt`) always reads the versions.
  */
-final class DatabaseReadContracts implements ReadContracts
+final class DatabaseReadContracts implements ReadContracts, PublishedListReads
 {
     public const RECORDS_TABLE = 'larena_storage_records';
 
@@ -82,8 +97,22 @@ final class DatabaseReadContracts implements ReadContracts
     /** How many records one batched read asks for at most. */
     public const BATCH = 500;
 
+    /**
+     * Up to this many published records a public list is answered from them directly
+     * when its site витрина slot cannot answer; above it the list refuses.
+     */
+    public const LIST_FALLBACK_LIMIT = 5000;
+
+    /** How many rows one list page scans at most through a visibility filter. */
+    public const LIST_VISIBILITY_SCAN = 500;
+
+    /** The field types a public list sorts by: those with one value a column can hold. */
+    private const LIST_SORTABLE_TYPES = ['string', 'text', 'integer', 'number', 'date', 'datetime', 'boolean', 'choice', 'user', 'file', 'relation', 'record'];
+
     private readonly PublishedKeyTable $keys;
     private readonly StorageRecordConverter $converter;
+    private readonly StorageViewCounter $counter;
+    private readonly StorageViewQueryCompiler $compiler;
     private bool $schemaReady = false;
 
     public function __construct(
@@ -97,9 +126,19 @@ final class DatabaseReadContracts implements ReadContracts
         private readonly ?PublishedSiteViewReader $siteViews = null,
         // How many published records a key scan reads at most before it refuses.
         private readonly int $keyScanLimit = self::KEY_SCAN_LIMIT,
+        // Normalizes a public list's filter values; without it publishedList is unavailable.
+        private readonly ?PropertyTypeRegistry $propertyTypes = null,
+        // Signs and seals a public list's continuation (at least 32 bytes); without it publishedList is unavailable.
+        private readonly string $cursorKey = '',
+        // Counts a public list read from its slot: exact under a threshold, an estimate above it.
+        ?StorageViewCounter $counter = null,
+        // Up to this many published records a list is answered from them when its slot cannot answer.
+        private readonly int $listFallbackLimit = self::LIST_FALLBACK_LIMIT,
     ) {
         $this->keys = new PublishedKeyTable($connection);
         $this->converter = $converter ?? new StorageRecordConverter($connection);
+        $this->counter = $counter ?? new StorageViewCounter();
+        $this->compiler = new StorageViewQueryCompiler();
     }
 
     /** @phpstan-impure */
@@ -257,6 +296,451 @@ final class DatabaseReadContracts implements ReadContracts
     }
 
     /**
+     * One page of a public list (PublishedListReads).
+     *
+     * A ready slot of the site витрина answers in SQL (StorageViewQueryCompiler onto the
+     * slot, keyset paging, StorageViewCounter), each page checked against the
+     * publication states as every slot read is; any other storage is listed from its
+     * published records in PHP, with the same filters, search and order, while it has at
+     * most LIST_FALLBACK_LIMIT of them, and refused (`site_view_not_ready`) above.
+     *
+     * @phpstan-impure
+     */
+    public function publishedList(PublishedListQuery $query, ?callable $visibilityFilter = null): PublishedListPage
+    {
+        $started = hrtime(true);
+        $mode = 'none';
+        try {
+            $page = $this->listPublished($query, $visibilityFilter, $mode);
+        } catch (Throwable $exception) {
+            $outcome = $exception instanceof ReadContractRejected || $exception instanceof \InvalidArgumentException ? 'rejected' : StorageMetrics::outcomeOf($exception);
+            $this->metrics->publishedList($mode, null, $outcome, StorageMetrics::elapsedMs($started));
+            throw $exception;
+        }
+        $count = $page->matchedCount === null ? 'skip' : ($page->countExact ? 'exact' : 'approx');
+        $this->metrics->publishedList($mode, $count, 'ok', StorageMetrics::elapsedMs($started));
+
+        return $page;
+    }
+
+    /**
+     * @param 'none'|'slot'|'fallback' $mode Set to the path the list took.
+     * @phpstan-impure
+     */
+    private function listPublished(PublishedListQuery $query, ?callable $visibilityFilter, string &$mode): PublishedListPage
+    {
+        $this->assertSchema();
+        LocaleFallbackChain::assertLocale($query->locale);
+        if ($this->propertyTypes === null || strlen($this->cursorKey) < 32) {
+            throw new ReadContractRejected('published_list_unavailable', 'Public lists need the property types and a cursor key.');
+        }
+        if ($query->limit < 1 || $query->limit > PublishedListQuery::MAX_LIMIT) {
+            throw self::invalidQuery();
+        }
+        $schemaId = $this->schemaId($query->target);
+        // The answering slot and the schema it was checked against, in one query; without it the schema is read alone.
+        $answering = $this->siteViews?->answering($schemaId, $query->scopeRef, $query->locale, $this->localeChainKey($query->locale));
+        $list = $answering === null
+            ? $this->listFields($schemaId)
+            : self::listFieldsOf($answering['fields'], $answering['options']);
+        try {
+            $normalized = (new StorageRecordQueryNormalizer($this->propertyTypes))
+                ->normalize($list['fields'], $query->filters, $query->search, $query->sort, false, PublishedListQuery::SYSTEM_SORTS);
+        } catch (StorageRejected) {
+            // One answer for a field that does not exist, one that is not public and a
+            // value that is wrong: the list never says which fields a structure hides.
+            throw self::invalidQuery();
+        }
+        foreach ($normalized['sort'] as $item) {
+            $type = $list['types'][$item['field']] ?? null;
+            if ($type !== null && !in_array($type, self::LIST_SORTABLE_TYPES, true)) {
+                throw self::invalidQuery();
+            }
+        }
+        $queryHash = hash('sha256', PublishedListCursor::canonicalJson(['filters' => $normalized['filters'], 'search' => $normalized['search'], 'sort' => $normalized['sort']]));
+        $slotHash = hash('sha256', PublishedListCursor::canonicalJson([
+            'read' => 'storage.read.published_list',
+            'slot' => PublishedSiteViewSlot::keyOf($schemaId, $query->scopeRef, $query->locale),
+        ]));
+        $cursor = new PublishedListCursor($this->cursorKey);
+        $position = $query->continuation === null
+            ? ['after' => null, 'offset' => 0]
+            : $cursor->decode($query->continuation, $queryHash, $slotHash, count($normalized['sort']));
+
+        if ($normalized['search'] !== null && $list['searchable'] === []) {
+            // Nothing public is searched: no record can match.
+            return new PublishedListPage([], null, $query->countMode === StorageWorkbenchCountMode::Skip ? null : 0, $query->countMode !== StorageWorkbenchCountMode::Skip);
+        }
+
+        $page = $answering === null ? null : $this->listFromSlot(
+            $schemaId,
+            ['registration' => $answering['registration'], 'slot' => $answering['slot']],
+            $query,
+            $normalized,
+            $list,
+            $position,
+            $visibilityFilter,
+            $cursor,
+            $queryHash,
+            $slotHash,
+        );
+        if ($page !== null) {
+            $mode = 'slot';
+
+            return $page;
+        }
+        $mode = 'fallback';
+
+        return $this->listFromRecords($schemaId, $query, $normalized, $list, $position, $visibilityFilter, $cursor, $queryHash, $slotHash);
+    }
+
+    /**
+     * The public fields of a storage's current schema a list may name, by key, each with
+     * the `searchable` flag of its витрина options; their types; and the searchable ones.
+     *
+     * @return array{fields: array<string, array<string, mixed>>, types: array<string, string>, searchable: list<string>}
+     * @phpstan-impure
+     */
+    private function listFields(string $schemaId): array
+    {
+        $row = $this->connection->table(self::SCHEMA_VERSIONS_TABLE)->where('schema_id', $schemaId)->orderByDesc('version')->first(['definition']);
+        $definition = $row === null ? null : PublishedSiteViewIndex::definitionFields(((array) $row)['definition']);
+        if ($definition === null) {
+            // No schema: nothing is public, and any field a query names is unknown.
+            return ['fields' => [], 'types' => [], 'searchable' => []];
+        }
+
+        return self::listFieldsOf($definition, StorageViewFieldOptions::load($this->connection, $schemaId));
+    }
+
+    /**
+     * @param list<array<string, mixed>> $definition The fields of a schema version.
+     * @return array{fields: array<string, array<string, mixed>>, types: array<string, string>, searchable: list<string>}
+     */
+    private static function listFieldsOf(array $definition, ?StorageViewFieldOptions $options): array
+    {
+        $searchable = PublishedSiteViewProjector::options($definition, $options)->searchable;
+        $fields = [];
+        $types = [];
+        foreach (PublishedSiteViewProjector::publicFields($definition) as $field) {
+            $key = (string) $field['key'];
+            $field[StorageViewFieldOptions::SEARCHABLE] = in_array($key, $searchable, true);
+            $fields[$key] = $field;
+            $types[$key] = is_string($field['type'] ?? null) ? $field['type'] : '';
+        }
+
+        return ['fields' => $fields, 'types' => $types, 'searchable' => $searchable];
+    }
+
+    /**
+     * The page from the answering slot, or null when it cannot answer (no ready slot,
+     * a query its columns cannot answer exactly, a page that disagrees with the
+     * publication states): the caller lists from the published records then.
+     *
+     * @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $normalized
+     * @param array{fields: array<string, array<string, mixed>>, types: array<string, string>, searchable: list<string>} $list
+     * @param array{after: array{values: list<int|string|null>, record_id: string}|null, offset: int} $position
+     * @param array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot} $source
+     * @phpstan-impure
+     */
+    private function listFromSlot(
+        string $schemaId,
+        array $source,
+        PublishedListQuery $query,
+        array $normalized,
+        array $list,
+        array $position,
+        ?callable $visibilityFilter,
+        PublishedListCursor $cursor,
+        string $queryHash,
+        string $slotHash,
+    ): ?PublishedListPage {
+        $reader = $this->siteViews;
+        if ($reader === null) {
+            return null;
+        }
+        try {
+            $compiled = $this->compiler->compileLayout($reader->connection(), $source['registration']->tableName, $source['registration']->layout, $list['fields'], $normalized, $source['slot']->id);
+        } catch (Throwable) {
+            return null;
+        }
+        if ($compiled === null) {
+            return null;
+        }
+        $scopeRef = $query->scopeRef;
+        $locale = $query->locale;
+        $after = $position['after'];
+        $offset = $position['offset'];
+        $records = [];
+        $hidden = 0;
+        $scanned = 0;
+        $last = null;
+        $more = false;
+        do {
+            // A keyset page reads after the last row; a position page (a key too long to carry) from its offset.
+            $batchAfter = $after;
+            $batchOffset = $after === null ? $offset + $scanned : 0;
+            $rows = $this->siteRead(
+                $schemaId,
+                $scopeRef,
+                $locale,
+                static function (PublishedSiteViewReader $reader, array $source) use ($compiled, $query, $batchAfter, $batchOffset): ?array {
+                    $ids = $compiled->page($query->limit, $batchOffset, $batchAfter);
+                    $listed = $reader->listed($source, array_column($ids, 'record_id'));
+                    if ($listed === null) {
+                        return null;
+                    }
+                    $rows = [];
+                    foreach ($ids as $id) {
+                        $rows[] = ['record_id' => $id['record_id'], 'keys' => $id['keys'], 'listed' => $listed[$id['record_id']] ?? null];
+                    }
+
+                    return $rows;
+                },
+                fn (array $rows): bool => $this->listAgrees($schemaId, $scopeRef, $locale, $rows),
+                $source,
+            );
+            if ($rows === null) {
+                return null;
+            }
+            $more = count($rows) > $query->limit;
+            $rows = array_slice($rows, 0, $query->limit);
+            foreach ($rows as $index => $row) {
+                $scanned++;
+                $last = $row;
+                $listed = $row['listed'];
+                $entry = is_array($listed) ? ($listed['entry'] ?? null) : null;
+                if (!is_array($entry)) {
+                    // Every row of an agreeing page has its entry.
+                    return null;
+                }
+                if ($visibilityFilter !== null && $visibilityFilter((string) $row['record_id']) !== true) {
+                    $hidden++;
+                } else {
+                    $records[] = $entry;
+                }
+                if (count($records) === $query->limit) {
+                    $more = $more || $index < count($rows) - 1;
+                    break 2;
+                }
+            }
+            if ($last !== null) {
+                $after = ['values' => $last['keys'], 'record_id' => (string) $last['record_id']];
+            }
+        } while ($more && $visibilityFilter !== null && $scanned < self::LIST_VISIBILITY_SCAN);
+
+        $passed = $offset + $scanned;
+        $continuation = $more && $last !== null
+            ? $cursor->encode($queryHash, $slotHash, $last['keys'], (string) $last['record_id'], $passed)
+            : null;
+        if ($visibilityFilter !== null || $query->countMode === StorageWorkbenchCountMode::Skip) {
+            return new PublishedListPage($records, $continuation, null, false, $hidden);
+        }
+        $fromStart = $position['after'] === null && $position['offset'] === 0;
+        if ($query->countMode === StorageWorkbenchCountMode::Auto && !$more && $fromStart) {
+            // The only page holds every match.
+            return new PublishedListPage($records, $continuation, $scanned, true, 0);
+        }
+        try {
+            $count = $this->counter->count($compiled, $query->countMode);
+        } catch (Throwable $exception) {
+            throw new ReadContractRejected('site_view_not_ready', 'The list could not be counted: ' . $exception->getMessage());
+        }
+        // An estimate is never below what the list has already shown.
+        $matched = $count['exact'] ? $count['count'] : max($count['count'], $passed + ($more ? 1 : 0));
+
+        return new PublishedListPage($records, $continuation, $matched, $count['exact'], 0);
+    }
+
+    /**
+     * Whether a slot page agrees with the publication states: every row has its entry,
+     * and each is the published revision of its record, published when the row says.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @phpstan-impure
+     */
+    private function listAgrees(string $schemaId, string $scopeRef, string $locale, array $rows): bool
+    {
+        $states = $this->publishedStates($schemaId, $scopeRef, $locale, array_map('strval', array_column($rows, 'record_id')));
+        foreach ($rows as $row) {
+            $listed = $row['listed'] ?? null;
+            $entry = is_array($listed) ? ($listed['entry'] ?? null) : null;
+            $state = $states[(string) $row['record_id']] ?? null;
+            if ($state === null || !is_array($listed) || !is_array($entry)
+                || ($entry['revision'] ?? null) !== $state['revision']
+                || ($listed['published_at'] ?? null) !== $state['published_at']) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The page from the published records themselves, for a storage whose slot cannot
+     * answer: at most LIST_FALLBACK_LIMIT published records, read in batches, filtered,
+     * searched and sorted in PHP with the semantics the slot compiles to SQL, and paged
+     * by the same keys.
+     *
+     * @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $normalized
+     * @param array{fields: array<string, array<string, mixed>>, types: array<string, string>, searchable: list<string>} $list
+     * @param array{after: array{values: list<int|string|null>, record_id: string}|null, offset: int} $position
+     * @phpstan-impure
+     */
+    private function listFromRecords(
+        string $schemaId,
+        PublishedListQuery $query,
+        array $normalized,
+        array $list,
+        array $position,
+        ?callable $visibilityFilter,
+        PublishedListCursor $cursor,
+        string $queryHash,
+        string $slotHash,
+    ): PublishedListPage {
+        $total = $this->publishedCount($schemaId, $query->scopeRef, $query->locale);
+        if ($total > $this->listFallbackLimit) {
+            throw new ReadContractRejected(
+                'site_view_not_ready',
+                'More than ' . $this->listFallbackLimit . ' published records in ' . $query->scopeRef . '/' . $query->locale . ' and no ready site витрина slot to list them from.',
+            );
+        }
+        $heads = [];
+        $afterId = null;
+        do {
+            $page = $this->publishedHeads($schemaId, $query->scopeRef, $query->locale, self::BATCH, $afterId);
+            array_push($heads, ...$page);
+            $afterId = $page === [] ? null : $page[array_key_last($page)]['record_id'];
+            if (count($heads) > $this->listFallbackLimit) {
+                throw new ReadContractRejected('site_view_not_ready', 'Too many published records to list without a ready site витрина slot.');
+            }
+        } while (count($page) === self::BATCH);
+
+        $sort = $normalized['sort'];
+        $byPublication = false;
+        foreach ($sort as $item) {
+            $byPublication = $byPublication || $item['field'] === PublishedListQuery::SORT_PUBLISHED_AT;
+        }
+        $published = $byPublication ? $this->publishedStates($schemaId, $query->scopeRef, $query->locale, array_column($heads, 'record_id')) : [];
+
+        $matched = [];
+        foreach ($this->projectionEntries($schemaId, $query->scopeRef, $query->locale, $heads, $this->publicFieldKeys($schemaId)) as $entry) {
+            if (!StorageRecordQueryMatcher::filtersMatch($entry['values'], $normalized['filters'], $list['types'])) {
+                continue;
+            }
+            if ($normalized['search'] !== null && !StorageRecordQueryMatcher::searchMatches($entry['values'], $normalized['search'], $list['searchable'])) {
+                continue;
+            }
+            $keys = [];
+            foreach ($sort as $item) {
+                $keys[] = match ($item['field']) {
+                    PublishedListQuery::SORT_RECORD_ID => $entry['record_id'],
+                    PublishedListQuery::SORT_PUBLISHED_AT => $published[$entry['record_id']]['published_at'] ?? null,
+                    default => self::listKey($entry['values'][$item['field']] ?? null, $list['types'][$item['field']] ?? ''),
+                };
+            }
+            $matched[] = ['entry' => $entry, 'keys' => $keys];
+        }
+        $types = [];
+        foreach ($sort as $item) {
+            $types[] = in_array($item['field'], PublishedListQuery::SYSTEM_SORTS, true) ? 'string' : ($list['types'][$item['field']] ?? '');
+        }
+        $compare = static fn (array $leftKeys, string $leftId, array $rightKeys, string $rightId): int => self::compareListRows($sort, $types, $leftKeys, $leftId, $rightKeys, $rightId);
+        usort($matched, static fn (array $left, array $right): int => $compare($left['keys'], $left['entry']['record_id'], $right['keys'], $right['entry']['record_id']));
+
+        $start = 0;
+        $after = $position['after'];
+        if ($after !== null) {
+            while ($start < count($matched) && $compare($matched[$start]['keys'], $matched[$start]['entry']['record_id'], $after['values'], $after['record_id']) <= 0) {
+                $start++;
+            }
+        } else {
+            $start = min($position['offset'], count($matched));
+        }
+        $records = [];
+        $hidden = 0;
+        $scanned = 0;
+        $last = null;
+        $budget = $visibilityFilter === null ? $query->limit : max($query->limit, self::LIST_VISIBILITY_SCAN);
+        for ($index = $start; $index < count($matched) && $scanned < $budget && count($records) < $query->limit; $index++) {
+            $row = $matched[$index];
+            $scanned++;
+            $last = $row;
+            if ($visibilityFilter !== null && $visibilityFilter($row['entry']['record_id']) !== true) {
+                $hidden++;
+
+                continue;
+            }
+            $records[] = $row['entry'];
+        }
+        $more = $start + $scanned < count($matched);
+        $passed = ($after === null ? $start : $position['offset']) + $scanned;
+        $continuation = $more && $last !== null
+            ? $cursor->encode($queryHash, $slotHash, $last['keys'], $last['entry']['record_id'], $passed)
+            : null;
+        if ($visibilityFilter !== null || $query->countMode === StorageWorkbenchCountMode::Skip) {
+            return new PublishedListPage($records, $continuation, null, false, $hidden);
+        }
+
+        return new PublishedListPage($records, $continuation, count($matched), true, 0);
+    }
+
+    /**
+     * A sort key of an entry value as the site row's column holds it, so a page read
+     * from the records and one read from the slot continue each other: integers and
+     * booleans as integers, datetimes with a space, anything else as its string.
+     */
+    private static function listKey(mixed $value, string $type): int|string|null
+    {
+        return match (true) {
+            $value === null, is_array($value) => null,
+            is_bool($value) => $value ? 1 : 0,
+            is_int($value) => $value,
+            $type === 'datetime' && is_string($value) => str_replace('T', ' ', $value),
+            is_scalar($value) => (string) $value,
+            default => null,
+        };
+    }
+
+    /**
+     * Two rows of a list in its order: each sort key (null first ascending, integers and
+     * booleans by value, numbers as decimals, anything else as strings), then the record
+     * id, in the direction of the last key.
+     *
+     * @param list<array{field: string, direction: string}> $sort
+     * @param list<string> $types
+     * @param list<int|string|null> $leftKeys
+     * @param list<int|string|null> $rightKeys
+     */
+    private static function compareListRows(array $sort, array $types, array $leftKeys, string $leftId, array $rightKeys, string $rightId): int
+    {
+        foreach ($sort as $position => $item) {
+            $left = $leftKeys[$position] ?? null;
+            $right = $rightKeys[$position] ?? null;
+            $type = $types[$position] ?? '';
+            $comparison = match (true) {
+                $left === $right => 0,
+                $left === null => -1,
+                $right === null => 1,
+                in_array($type, ['integer', 'boolean'], true) => (int) $left <=> (int) $right,
+                $type === 'number' => StorageRecordQueryMatcher::compareDecimals((string) $left, (string) $right),
+                default => strcmp((string) $left, (string) $right),
+            };
+            if ($comparison !== 0) {
+                return $item['direction'] === 'desc' ? -$comparison : $comparison;
+            }
+        }
+        $tiebreak = strcmp($leftId, $rightId);
+
+        return ($sort[count($sort) - 1]['direction'] ?? 'asc') === 'desc' ? -$tiebreak : $tiebreak;
+    }
+
+    private static function invalidQuery(): ReadContractRejected
+    {
+        return new ReadContractRejected('invalid_query', 'The list query is invalid.');
+    }
+
+    /**
      * The ids of the published records that answer to a key in a scope and locale,
      * found among every published record — not only the first page.
      *
@@ -379,6 +863,44 @@ final class DatabaseReadContracts implements ReadContracts
         }
 
         return $revisions;
+    }
+
+    /**
+     * The published revision of each of these records in a scope and locale and when
+     * it was published there; a record that is not published there is absent. With
+     * `$lock`, read with a shared lock inside the caller's transaction (what the site
+     * витрина writes from).
+     *
+     * @internal
+     * @param list<string> $recordIds
+     * @return array<string, array{revision: int, published_at: ?string}>
+     * @phpstan-impure
+     */
+    public function publishedStates(string $schemaId, string $scopeRef, string $locale, array $recordIds, bool $lock = false): array
+    {
+        $states = [];
+        foreach (array_chunk(array_values(array_unique($recordIds)), self::BATCH) as $chunk) {
+            $query = $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)
+                ->select(['record_id', 'published_revision', 'published_at'])
+                ->where('schema_id', $schemaId)
+                ->where('scope_ref', $scopeRef)
+                ->where('locale', $locale)
+                ->where('state', PublicationStateValue::Published->value)
+                ->whereNotNull('published_revision')
+                ->whereIn('record_id', $chunk);
+            if ($lock) {
+                $query->sharedLock();
+            }
+            foreach ($query->get() as $row) {
+                $row = (array) $row;
+                $states[(string) $row['record_id']] = [
+                    'revision' => (int) $row['published_revision'],
+                    'published_at' => $row['published_at'] === null ? null : (string) $row['published_at'],
+                ];
+            }
+        }
+
+        return $states;
     }
 
     /**
@@ -724,13 +1246,14 @@ final class DatabaseReadContracts implements ReadContracts
      *
      * @param \Closure(PublishedSiteViewReader, array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot}): (list<array<string, mixed>>|null) $read
      * @param \Closure(list<array<string, mixed>>): bool $agrees
+     * @param array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot}|null $source The slot, when the caller found it already.
      * @return list<array<string, mixed>>|null
      * @phpstan-impure
      */
-    private function siteRead(string $schemaId, string $scopeRef, string $locale, \Closure $read, \Closure $agrees): ?array
+    private function siteRead(string $schemaId, string $scopeRef, string $locale, \Closure $read, \Closure $agrees, ?array $source = null): ?array
     {
         $reader = $this->siteViews;
-        $source = $reader === null ? null : $this->siteSource($schemaId, $scopeRef, $locale);
+        $source ??= $reader === null ? null : $this->siteSource($schemaId, $scopeRef, $locale);
         if ($reader === null || $source === null) {
             return null;
         }

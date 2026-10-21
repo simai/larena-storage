@@ -45,6 +45,7 @@ use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\LocalizedValueObserver;
 use Larena\Storage\Contracts\PublishedKeyPolicy;
+use Larena\Storage\Contracts\PublishedListReads;
 use Larena\Storage\Contracts\PublishedReadVisibility;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Contracts\RecordReadVisibility;
@@ -216,6 +217,12 @@ final class StorageServiceProvider extends ServiceProvider
                 new StorageRecordConverter($connection, $app->make(PropertyTypeRegistry::class)),
                 // A ready site витрина slot answers the public reads, checked against the publication states.
                 $app->make(PublishedSiteViewReader::class),
+                DatabaseReadContracts::KEY_SCAN_LIMIT,
+                // A public list normalizes its filter values by the fields' types and seals its cursor with the app key.
+                $app->make(PropertyTypeRegistry::class),
+                is_string($app->make('config')->get('app.key')) ? $app->make('config')->get('app.key') : '',
+                // A host may bind its own counter (a threshold, a time budget); the default counts as decided.
+                $app->bound(StorageViewCounter::class) ? $app->make(StorageViewCounter::class) : null,
             );
         });
         // The reader holds the connection only; it reads at the first public read. A rebuild it asks
@@ -229,6 +236,7 @@ final class StorageServiceProvider extends ServiceProvider
             },
         ));
         $this->app->alias(DatabaseReadContracts::class, ReadContracts::class);
+        $this->app->alias(DatabaseReadContracts::class, PublishedListReads::class);
         // Lang owns the fallback order; the application binds its policy. Without it,
         // a read uses the requested locale alone.
         if (!$this->app->bound(LocaleFallbackResolver::class)) {

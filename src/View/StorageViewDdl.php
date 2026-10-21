@@ -130,6 +130,12 @@ abstract class StorageViewDdl
         return StorageViewNaming::index($table, 'record');
     }
 
+    /** A site table's (slot_id, published_at, record_id) index: a slot's records in publication order. */
+    public static function sitePublishedIndexName(string $table): string
+    {
+        return StorageViewNaming::index($table, 'published');
+    }
+
     /** A site search table's (record_id) index. */
     public static function siteSearchRecordIndexName(string $table): string
     {

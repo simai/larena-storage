@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../Support/mysql-disposable-database.php';
 require_once __DIR__ . '/../Support/storage-view-fixture.php';
 require_once __DIR__ . '/../Support/published-site-view-fixture.php';
+require_once __DIR__ . '/../Support/published-list-fixture.php';
 require_once __DIR__ . '/StorageViewDdlTest.php';
 
 // The витрина on a throwaway MySQL database (opt-in): the DDL (INSTANT/INPLACE
@@ -372,6 +373,32 @@ try {
     $siteRebuilder->rebuild($pagesSchema, 2, true);
     publishedSiteViewParity($site, $pagesSchema, 'mysql site rebuild');
     storageViewExpect(publishedSiteViewSnapshot($site, $pagesSchema) === $reference, 'the MySQL site rebuild differs from the rows kept by publication');
+    // The public list on MySQL: every case equal through the slot (FULLTEXT search, binary
+    // equality, the capped count) and through the published records, as the oracle expects.
+    $listProperties = Larena\Property\Runtime\PropertyTypeRegistry::builtIns();
+    $listKey = 'published-list-mysql-cursor-key-of-at-least-32-bytes';
+    $listReader = static fn (?Larena\Storage\View\Site\PublishedSiteViewReader $reader): Larena\Storage\Runtime\DatabaseReadContracts => new Larena\Storage\Runtime\DatabaseReadContracts(
+        $connection, $siteRuntime['localized'], new PublishedSiteViewChain(), new Larena\Storage\Runtime\StorageMetrics(), null, $reader,
+        Larena\Storage\Runtime\DatabaseReadContracts::KEY_SCAN_LIMIT, $listProperties, $listKey,
+    );
+    $items = $siteWorkbench->createStructure($scope, ['structure_id' => 'workbench.site_items', 'label' => 'Items', 'fields' => publishedListFields()], $actor);
+    $itemsSchema = $items->schema->schemaId;
+    for ($index = 0; $index < 30; $index++) {
+        $item = $siteWorkbench->createRecord($scope, 'workbench.site_items', publishedListValues($index), $actor);
+        $publication->publish($itemsSchema, $item->recordId, 'site:main', 'en', 1, $actor);
+        if ($index % 3 !== 2) {
+            $publication->publish($itemsSchema, $item->recordId, 'site:main', 'kk', 1, $actor);
+        }
+    }
+    publishedSiteViewParity($site, $itemsSchema, 'mysql list seeded');
+    $listAnswered = publishedListMatrix($connection, $listReader($siteRuntime['reader']), $listReader(null), $itemsSchema, StorageViewNaming::siteTable($itemsSchema), ['site:main'], ['en', 'kk'], 'mysql');
+    storageViewExpect($listAnswered === 2 * count(publishedListCases()), 'the MySQL slots answered ' . $listAnswered . ' lists');
+    $capped = new Larena\Storage\Runtime\DatabaseReadContracts(
+        $connection, $siteRuntime['localized'], new PublishedSiteViewChain(), new Larena\Storage\Runtime\StorageMetrics(), null, $siteRuntime['reader'],
+        Larena\Storage\Runtime\DatabaseReadContracts::KEY_SCAN_LIMIT, $listProperties, $listKey, new Larena\Storage\View\StorageViewCounter(5),
+    );
+    $estimated = $capped->publishedList(new Larena\Storage\Contracts\PublishedListQuery($itemsSchema, 'site:main', 'en', limit: 3, countMode: Larena\Storage\Enums\StorageWorkbenchCountMode::Auto));
+    storageViewExpect(!$estimated->countExact && $estimated->matchedCount !== null && $estimated->matchedCount >= 6, 'the MySQL list count above the threshold is not an estimate');
     $archivedPage = $siteWorkbench->archiveRecord($scope, 'workbench.site_pages', $pageRecords[3]->recordId, $pageRecords[3]->revision, $actor);
     $siteWorkbench->purgeRecords($scope, 'workbench.site_pages', [$pageRecords[3]->recordId => $archivedPage->revision], $actor);
     storageViewExpect($connection->table($siteTable)->where('record_id', $pageRecords[3]->recordId)->count() === 0, 'a purged record kept its MySQL site rows');
