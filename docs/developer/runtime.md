@@ -250,6 +250,30 @@ a host without the витрина machinery gets `storage_view_unavailable`. Inc
 `record@1` references checked by a purge come from the referencing storage's
 витрина the same way.
 
+## A Storage Leaves The Site As A SitePack
+
+`StorageSitePack` (implemented by `SitePack\DatabaseStorageSitePack`) exports one
+structure of a scope to a SitePack archive (`larena.storage.sitepack`, version 1;
+`SitePack\StorageSitePackFormat` describes the artifacts): the structure, every
+record with its live versions (the current one and those a publication state of
+the person's site points to as published or scheduled), all locales of their
+translations, the publication states, the outgoing relations, every file a live
+version references (read through the `StorageSitePackFiles` port, each content
+once) and the records of other storages they point at. Older revisions, logs,
+audit, actor and correlation ids, the reserved fields and the витрины stay. A run
+needs `storage.sitepack.export` and, in the scope, the rights to read the
+structure and list its records; the run and its archive belong to the person who
+started it. It is the durable queue job `storage.sitepack.export`: keyset chunks
+of 500 records, each saved with its position (a chunk written but not saved is
+written again at the saved offset), heartbeats between chunks, cancel and retry.
+A field change running refuses the export; a structure that changes under it
+fails it with the retryable `storage_sitepack_structure_changed`, and the retry
+starts over. Without a file port, a storage with file values fails with
+`storage_sitepack_files_unavailable`. Archives live in a private directory
+(`larena-storage.sitepack.directory`, by default
+`storage/app/private/larena-storage-sitepack`, 0700/0600) and
+`larena:storage:sitepack:sweep` removes runs older than seven days.
+
 ## Structure Role Versions And Dependencies
 
 A role row is never edited: a breaking change is a new version. Bindings stay on

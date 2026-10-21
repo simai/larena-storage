@@ -2523,3 +2523,67 @@ operations:
       required:
         - 'operation'
         - 'change'
+  - name: 'storage.sitepack.export'
+    execution_mode: 'sync'
+    risk: 'bulk'
+    reversible: true
+    access_scope: 'storage.sitepack.export'
+    audit_event: 'storage.sitepack.exported'
+    transactional: false
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        scope_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+        structure_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 120
+      required:
+        - 'scope_ref'
+        - 'structure_id'
+    output:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        run:
+          type: 'object'
+          additionalProperties: false
+          properties:
+            run_ref:
+              type: 'string'
+              maxLength: 64
+            state:
+              type: 'string'
+              maxLength: 16
+            phase:
+              type: 'string'
+              maxLength: 16
+          required:
+            - 'run_ref'
+            - 'state'
+            - 'phase'
+      required:
+        - 'run'
+    receipt:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        operation:
+          type: 'string'
+          maxLength: 120
+        target_ref:
+          type: 'string'
+          maxLength: 190
+        change:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+      required:
+        - 'operation'
+        - 'change'

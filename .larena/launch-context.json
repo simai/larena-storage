@@ -174,7 +174,21 @@
     "src/Contracts/PublicationState.php",
     "src/Contracts/PublicationLifecycle.php",
     "src/Runtime/PublicationOperationHandlers.php",
-    "tests/Unit/PublicationTransitionMatrixTest.php"
+    "tests/Unit/PublicationTransitionMatrixTest.php",
+    "database/migrations/platform/2026_10_22_100001_create_larena_storage_sitepack_tables.php",
+    "src/Contracts/StorageSitePack.php",
+    "src/Contracts/StorageSitePackRun.php",
+    "src/Contracts/StorageSitePackArchiveFile.php",
+    "src/SitePack/*",
+    "src/Audit/StorageSitePackAuditEventCatalog.php",
+    "src/Audit/StorageSitePackAuditEventDescriptor.php",
+    "src/Console/Commands/StorageSitePackExportCommand.php",
+    "src/Console/Commands/StorageSitePackSweepCommand.php",
+    "src/Registry/StorageOperationProvider.php",
+    "access.yaml",
+    "tests/Support/storage-sitepack-fixture.php",
+    "tests/Integration/StorageSitePackExportTest.php",
+    "tests/Integration/StorageSitePackExportMySqlTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

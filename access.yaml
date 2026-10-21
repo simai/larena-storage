@@ -64,6 +64,9 @@ operations:
   - code: storage.read.public
     risk: medium
     audit: denial
+  - code: storage.sitepack.export
+    risk: high
+    audit: always
   - code: content.item.list
     risk: high
     audit: denial

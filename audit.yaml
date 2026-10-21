@@ -79,6 +79,12 @@ events:
   - type: storage.publication.swept
     category: storage_publication
     severity: security
+  - type: storage.sitepack.exported
+    category: storage_sitepack
+    severity: security
+  - type: storage.sitepack.downloaded
+    category: storage_sitepack
+    severity: security
 forbidden_payload_fields:
   - definition
   - target_definition

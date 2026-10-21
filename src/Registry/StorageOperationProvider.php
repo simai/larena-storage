@@ -15,6 +15,7 @@ use Larena\Storage\Runtime\ReadContractOperationHandlers;
 use Larena\Storage\Runtime\RecordOperationHandlers;
 use Larena\Storage\Runtime\RelationOperationHandlers;
 use Larena\Storage\Runtime\StructureRoleOperationHandlers;
+use Larena\Storage\SitePack\StorageSitePackOperationHandlers;
 
 /**
  * Storage's contribution to the core operation registry.
@@ -75,6 +76,7 @@ final class StorageOperationProvider implements OperationProvider
             ...PublicationOperationHandlers::descriptors(),
             ...ReadContractOperationHandlers::descriptors(),
             ...RecordOperationHandlers::descriptors(),
+            ...StorageSitePackOperationHandlers::descriptors(),
         ];
     }
 
@@ -106,6 +108,10 @@ final class StorageOperationProvider implements OperationProvider
 
         foreach (array_keys(RecordOperationHandlers::descriptors()) as $name) {
             $refs[$name] = 'storage.handler.record';
+        }
+
+        foreach (array_keys(StorageSitePackOperationHandlers::descriptors()) as $name) {
+            $refs[$name] = 'storage.handler.sitepack';
         }
 
         return $refs;

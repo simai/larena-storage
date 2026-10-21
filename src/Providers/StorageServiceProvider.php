@@ -10,6 +10,16 @@ use Larena\Storage\Console\Commands\PublishedKeyRebuildCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
 use Larena\Storage\Console\Commands\StorageViewCheckCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
+use Larena\Storage\Console\Commands\StorageSitePackExportCommand;
+use Larena\Storage\Console\Commands\StorageSitePackSweepCommand;
+use Larena\Core\Contracts\ScopeMembershipRegistry;
+use Larena\Core\SitePack\SitePackLimits;
+use Larena\Storage\Contracts\StorageSitePack;
+use Larena\Storage\SitePack\DatabaseStorageSitePack;
+use Larena\Storage\SitePack\StorageSitePackFiles;
+use Larena\Storage\SitePack\StorageSitePackJob;
+use Larena\Storage\SitePack\StorageSitePackOperationHandlers;
+use Larena\Storage\SitePack\UnavailableStorageSitePackFiles;
 use Larena\Queue\Contracts\QueueClock;
 use Larena\Queue\Runtime\DurableQueueDispatcher;
 use Larena\Queue\Runtime\JobTypeRegistry;
@@ -301,6 +311,7 @@ final class StorageServiceProvider extends ServiceProvider
                     'storage.handler.publication' => PublicationOperationHandlers::class,
                     'storage.handler.read_contract' => ReadContractOperationHandlers::class,
                     'storage.handler.record' => RecordOperationHandlers::class,
+                    'storage.handler.sitepack' => StorageSitePackOperationHandlers::class,
                 ] as $ref => $class) {
                     if (!$catalog->has($ref)) {
                         $catalog->register($ref, static fn (): OperationHandler => $app->make($class));
@@ -475,6 +486,60 @@ final class StorageServiceProvider extends ServiceProvider
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
 
+        // SitePack export of a storage (storage.sitepack.export). Files are read through a port the application
+        // binds over Filesystem; without one, a storage with file values cannot be exported.
+        $this->app->bindIf(StorageSitePackFiles::class, UnavailableStorageSitePackFiles::class);
+        $this->app->singleton(DatabaseStorageSitePack::class, static function (Application $app): DatabaseStorageSitePack {
+            /** @var DatabaseManager $database */
+            $database = $app->make(DatabaseManager::class);
+            $config = $app->make('config');
+            $directory = $config->get('larena-storage.sitepack.directory');
+
+            return new DatabaseStorageSitePack(
+                $database->connection(),
+                $app->make(StorageWorkbenchContract::class),
+                $app->make(VersionedStorageContract::class),
+                $app->make(PropertyTypeRegistry::class),
+                $app->make(ActorOperationAuthorizer::class),
+                $app->make(QueryScopeProvider::class),
+                // Private: 0700 directories, 0600 files, outside any public disk.
+                is_string($directory) && $directory !== '' ? $directory : self::sitePackDirectory($app),
+                $app->make(StorageSitePackFiles::class),
+                $app->bound(SitePackLimits::class) ? $app->make(SitePackLimits::class) : null,
+                $app->make(StorageSecurityEventSink::class),
+                // The export runs as storage.sitepack.export when there is a queue; otherwise the caller runs it.
+                static function (string $runRef, int $generation) use ($app): ?string {
+                    if (!$app->bound(JobTypeRegistry::class) || !$app->bound(DurableQueueDispatcher::class)
+                        || !$app->make(JobTypeRegistry::class)->has(StorageSitePackJob::JOB_TYPE)) {
+                        return null;
+                    }
+
+                    return $app->make(DurableQueueDispatcher::class)->dispatch(StorageSitePackJob::request($runRef, $generation))->jobId;
+                },
+                // The publication states of the site the person works in go into the pack.
+                static function (string $actor) use ($app): string {
+                    if ($app->bound(ScopeMembershipRegistry::class)) {
+                        try {
+                            $scope = $app->make(ScopeMembershipRegistry::class)->defaultScopeOf($actor);
+                            if ($scope !== null) {
+                                return $scope->ref->toString();
+                            }
+                        } catch (\Throwable) {
+                        }
+                    }
+
+                    return 'site:' . ScopeBaselineInstaller::DEFAULT_SITE_IDENTIFIER;
+                },
+            );
+        });
+        $this->app->alias(DatabaseStorageSitePack::class, StorageSitePack::class);
+        $this->app->bind(StorageSitePackJob::class, static fn (Application $app): StorageSitePackJob => new StorageSitePackJob(
+            $app->make(DatabaseStorageSitePack::class),
+        ));
+        $this->app->singleton(StorageSitePackOperationHandlers::class, static fn (Application $app): StorageSitePackOperationHandlers => new StorageSitePackOperationHandlers(
+            $app->make(StorageSitePack::class),
+        ));
+
         $this->app->afterResolving(
             AccessOperationRegistry::class,
             static fn (AccessOperationRegistry $registry): bool => self::registerAccessOperations($registry),
@@ -508,6 +573,8 @@ final class StorageServiceProvider extends ServiceProvider
                 StorageBenchCommand::class,
                 StorageViewRebuildCommand::class,
                 StorageViewCheckCommand::class,
+                StorageSitePackExportCommand::class,
+                StorageSitePackSweepCommand::class,
             ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
@@ -516,6 +583,12 @@ final class StorageServiceProvider extends ServiceProvider
                     ->runInBackground();
             });
         }
+    }
+
+    /** The default home of SitePack runs: the application's private storage. */
+    private static function sitePackDirectory(Application $app): string
+    {
+        return rtrim($app->storagePath(), '/') . '/app/private/larena-storage-sitepack';
     }
 
     /** Declares Storage's metrics in larena/monitoring's catalog when monitoring is installed. */
@@ -543,6 +616,11 @@ final class StorageServiceProvider extends ServiceProvider
         if (!$registry->has(StorageFieldChangeJob::JOB_TYPE)) {
             $registry->register(StorageFieldChangeJob::descriptor(), new StorageViewRebuildDeferredHandler(
                 static fn (): StorageFieldChangeJob => $app->make(StorageFieldChangeJob::class),
+            ));
+        }
+        if (!$registry->has(StorageSitePackJob::JOB_TYPE)) {
+            $registry->register(StorageSitePackJob::descriptor(), new StorageViewRebuildDeferredHandler(
+                static fn (): StorageSitePackJob => $app->make(StorageSitePackJob::class),
             ));
         }
     }
@@ -602,6 +680,8 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.publication.archive', 'publication_archive', 'archive', 'critical'],
             ['storage.publication.read', 'publication_read', 'read', 'high'],
             ['storage.read.public', 'read_public', 'read', 'normal'],
+            // A whole storage leaves the site in one archive: high risk, always audited.
+            ['storage.sitepack.export', 'sitepack_export', 'export', 'high'],
         ] as [$code, $label, $grant, $risk]) {
             $registered = $registry->register(new AccessOperationDescriptor(
                 code: $code,
@@ -615,7 +695,7 @@ final class StorageServiceProvider extends ServiceProvider
                         ? 'storage.workbench.structure:all'
                         : (str_starts_with($code, 'storage.workbench.record.')
                             ? 'storage.workbench.record:all'
-                            : (preg_match('/^storage\.(role|relation|locale|publication|read)\./', $code, $area) === 1
+                            : (preg_match('/^storage\.(role|relation|locale|publication|read|sitepack)\./', $code, $area) === 1
                                 ? 'storage.' . $area[1] . ':all'
                                 : 'storage.record:all')))),
                 requiredGrant: $grant,

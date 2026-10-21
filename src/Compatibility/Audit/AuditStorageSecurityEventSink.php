@@ -11,6 +11,7 @@ use Larena\Storage\Audit\LocalizedValueAuditEventDescriptor;
 use Larena\Storage\Audit\PublicationAuditEventDescriptor;
 use Larena\Storage\Audit\RelationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageSchemaMigrationAuditEventDescriptor;
+use Larena\Storage\Audit\StorageSitePackAuditEventDescriptor;
 use Larena\Storage\Audit\StorageVersionAuditEventDescriptor;
 use Larena\Storage\Audit\StructureRoleAuditEventDescriptor;
 use Larena\Storage\Contracts\StorageSecurityEvent;
@@ -39,6 +40,7 @@ final readonly class AuditStorageSecurityEventSink implements StorageSecurityEve
             'locale' => new LocalizedValueAuditEventDescriptor($event->type),
             'relation' => new RelationAuditEventDescriptor($event->type),
             'role' => new StructureRoleAuditEventDescriptor($event->type),
+            'sitepack' => new StorageSitePackAuditEventDescriptor($event->type),
             default => new StorageVersionAuditEventDescriptor($event->type),
         };
 
