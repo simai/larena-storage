@@ -318,6 +318,55 @@ try {
     storageViewExpect(publishedSiteViewEntries($site, $pagesSchema, 'site:main', 'kk')[$pageRecords[1]->recordId]['values']['title'] === 'Страница 1', 'the ru fallback did not reach the kk row on MySQL');
     publishedSiteViewListChecks($connection, $site, $pagesSchema, 'site:main', 'en');
     publishedSiteViewListChecks($connection, $site, $pagesSchema, 'site:main', 'kk');
+    // The public reads from the MySQL slots equal the exact path; the key column's
+    // case-insensitive collation only narrows, so PAGE-1 is no key; a forged row
+    // silences its slot and the request is still answered exactly.
+    $siteRead = $siteRuntime['siteRead'];
+    $exactRead = $siteRuntime['read'];
+    $siteAnswered = static function (Closure $call) use ($connection, $siteTable): array {
+        $connection->enableQueryLog();
+        $connection->flushQueryLog();
+        try {
+            $result = $call();
+        } finally {
+            $log = $connection->getQueryLog();
+            $connection->disableQueryLog();
+            $connection->flushQueryLog();
+        }
+        $answered = false;
+        foreach ($log as $entry) {
+            $answered = $answered || str_contains((string) $entry['query'], '`' . $siteTable . '`');
+        }
+
+        return [$result, $answered];
+    };
+    foreach (['en', 'kk'] as $siteLocale) {
+        foreach ([[2, null], [2, $pageRecords[1]->recordId], [500, null]] as [$budget, $after]) {
+            [$sitePage, $answered] = $siteAnswered(static fn () => $siteRead->publishedProjection($pagesSchema, 'site:main', $siteLocale, $budget, null, $after));
+            storageViewExpect($answered && serialize($sitePage) === serialize($exactRead->publishedProjection($pagesSchema, 'site:main', $siteLocale, $budget, null, $after)), 'a MySQL site page differs from the exact path');
+        }
+        foreach ($pageRecords as $page) {
+            storageViewExpect(serialize($siteRead->publishedRecord($pagesSchema, 'site:main', $siteLocale, $page->recordId)) === serialize($exactRead->publishedRecord($pagesSchema, 'site:main', $siteLocale, $page->recordId)), 'a MySQL site record differs');
+        }
+        $connection->transaction(static fn () => (new Larena\Storage\Runtime\PublishedKeyTable($connection))->silenceScope($pagesSchema, 'site:main'));
+        foreach (['page-1', 'PAGE-1', 'page-1 ', 'page-missing'] as $slug) {
+            [$resolved, $answered] = $siteAnswered(static fn () => $siteRead->resolveKey($pagesSchema, 'site:main', $siteLocale, 'slug', $slug));
+            storageViewExpect($answered && serialize($resolved) === serialize($exactRead->resolveKey($pagesSchema, 'site:main', $siteLocale, 'slug', $slug)), 'a MySQL site key differs for ' . $slug);
+            storageViewExpect(($resolved !== null) === ($slug === 'page-1'), 'the MySQL key column collation answered ' . $slug);
+        }
+        storageViewExpect($siteRead->projectionExplain($pagesSchema, 'site:main', $siteLocale) === $exactRead->projectionExplain($pagesSchema, 'site:main', $siteLocale), 'a MySQL site explain differs');
+    }
+    $enSlot = $site->registry()->slot($pagesSchema, 'site:main', 'en', null, true);
+    $expectedPage = $exactRead->publishedProjection($pagesSchema, 'site:main', 'en');
+    $forged = $connection->table($siteTable)->where('slot_id', $enSlot->id)->where('record_id', $pageRecords[1]->recordId)->first();
+    $forgedEntry = Larena\Storage\View\Site\PublishedSiteViewProjector::decodeEntry((string) $forged->entry_json);
+    $forgedEntry['revision'] = 9;
+    $forgedJson = Larena\Storage\View\Site\PublishedSiteViewProjector::encodeEntry($forgedEntry);
+    $connection->table($siteTable)->where('slot_id', $enSlot->id)->where('record_id', $pageRecords[1]->recordId)->update(['revision' => 9, 'entry_json' => $forgedJson, 'entry_hash' => hash('sha256', $forgedJson)]);
+    storageViewExpect(serialize($siteRead->publishedProjection($pagesSchema, 'site:main', 'en')) === serialize($expectedPage), 'a forged MySQL row reached a reader');
+    storageViewExpect($site->registry()->slot($pagesSchema, 'site:main', 'en', null, true)?->state === 'pending', 'a forged MySQL row did not silence its slot');
+    (new Larena\Storage\View\Site\PublishedSiteViewRebuilder($site))->rebuild($pagesSchema);
+    publishedSiteViewParity($site, $pagesSchema, 'mysql site rebuilt after a forged row');
     $reference = publishedSiteViewSnapshot($site, $pagesSchema);
     $siteRebuilder = new Larena\Storage\View\Site\PublishedSiteViewRebuilder($site);
     $siteRebuilder->rebuild($pagesSchema, 2, true);

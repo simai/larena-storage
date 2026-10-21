@@ -180,6 +180,18 @@ Site reads are batched: a projection page reads its versions, localized values
 and projection versions with one `whereIn` per chunk of 500 records, never one
 query per record.
 
+With the site витрина (`PublishedSiteViewReader`, bound by the provider), a
+ready slot answers `publishedProjection`, `publishedRecord`,
+`projectionExplain` and the key lookup the published-key table cannot answer.
+A slot answers only when its registration and itself are ready, its public
+fields hash is current and it was built along the reader's locale chain; a
+page then costs three queries (the slot state, the rows, and one check of
+their record ids and revisions against the publication states), a key goes
+through the key field's column with no scan limit, and an explain counts the
+slot exactly. A check that fails is read again in one snapshot; if it still
+fails the slot is silenced, its rebuild queued, and the request answered by
+the exact path. Both paths return the same values byte for byte.
+
 ## Localized Fields Live In The Schema
 
 A storage schema field declares `localized: true`, and a schema may declare

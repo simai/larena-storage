@@ -13,12 +13,21 @@ use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
+use Larena\Storage\Contracts\PublicationState;
+use Larena\Storage\Exceptions\ReadContractRejected;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Runtime\DatabaseReadContracts;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
+use Larena\Storage\Runtime\RequestedLocaleOnly;
+use Larena\Storage\Runtime\StorageMetrics;
 use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
+use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewReader;
+use Larena\Storage\View\Site\PublishedSiteViewRebuilder;
+use Larena\Storage\View\Site\PublishedSiteViewRegistry;
 use Larena\Storage\View\StorageViewRebuilder;
 use Larena\Storage\View\StorageViewRegistry;
 use Larena\Storage\View\StorageViewSync;
@@ -39,6 +48,12 @@ use Throwable;
  *
  * Writes keep each structure's витрина, as in the application; the seeded
  * records get theirs from one rebuild after seeding (not timed).
+ *
+ * The public reads are measured on a second storage of public fields, every record
+ * published in one scope and locale: a projection page, a deep page, a record and a
+ * key whose published-key set is not built, each through the exact path (`legacy`)
+ * and through the site витрина (`site`), built by one rebuild (timed) and checked to
+ * return the same.
  *
  * The benchmark runs its own runtime with an access policy that admits only the
  * benchmark actor in a fresh benchmark scope, so it never reads other data. Run
@@ -122,14 +137,16 @@ final class StorageBenchmark
      * @param Closure(string): void|null $progress
      * @return array<string, mixed>
      */
-    public function run(array $sizes, int $repeat, bool $keep = false, ?Closure $progress = null): array
+    public function run(array $sizes, int $repeat, bool $keep = false, ?Closure $progress = null, bool $siteOnly = false): array
     {
         $progress ??= static function (string $line): void {
         };
         $runs = [];
         foreach ($sizes as $size) {
             $progress(sprintf('Seeding %d records...', $size));
-            $runs[] = $this->runSize($size, $repeat, $keep, $progress);
+            $runs[] = $siteOnly
+                ? ['records' => $size, 'site' => $this->runSite($this->runId . '_' . $size, $size, $repeat, $keep, $progress)]
+                : $this->runSize($size, $repeat, $keep, $progress);
         }
 
         return [
@@ -163,7 +180,7 @@ final class StorageBenchmark
         $structure = $this->workbench->createStructure($this->scopeRef, self::descriptor('workbench.bench_items_' . $suffix, $sections->structureId), self::ACTOR);
 
         $seedStarted = hrtime(true);
-        $recordIds = $this->seed($structure, $size, $sectionIds);
+        $recordIds = $this->seed($structure, $size, fn (int $index): array => $this->values($index, $sectionIds));
         $seedMs = (hrtime(true) - $seedStarted) / 1e6;
         $optionsMs = null;
         if ($this->views->enabled()) {
@@ -257,6 +274,7 @@ final class StorageBenchmark
         $progress(sprintf('  %-20s %.1f ms, %d version rows written', 'field_retype', $fieldRetype['ms'], $fieldRetype['version_rows_written']));
 
         $cleanup = $keep ? ['kept' => true] : $this->cleanup($structure, $sections);
+        $siteResults = $this->runSite($suffix, $size, $repeat, $keep, $progress);
 
         return [
             'records' => $size,
@@ -271,7 +289,154 @@ final class StorageBenchmark
             'field_add' => $fieldAdd,
             'field_retype' => $fieldRetype,
             'cleanup' => $cleanup,
+            'site' => $siteResults,
         ];
+    }
+
+    /**
+     * The public reads of a storage of public fields with `$size` published records,
+     * through the exact path and through the site витрина.
+     *
+     * @param Closure(string): void $progress
+     * @return array<string, mixed>
+     */
+    private function runSite(string $suffix, int $size, int $repeat, bool $keep, Closure $progress): array
+    {
+        $index = new PublishedSiteViewIndex($this->connection, new DatabaseReadContracts($this->connection), new PublishedSiteViewRegistry($this->connection, 0.0));
+        if (!$index->enabled()) {
+            return ['status' => 'skipped', 'reason' => 'storage_view_unavailable'];
+        }
+        $public = static fn (array $field): array => ['visibility' => 'public'] + $field;
+        $structure = $this->workbench->createStructure($this->scopeRef, [
+            'structure_id' => 'workbench.bench_site_' . $suffix,
+            'label' => 'Benchmark site items',
+            'fields' => [
+                $public(self::field('title', 10, 'string', true, ['max_length' => 200])),
+                $public(self::field('slug', 20, 'string', true, ['max_length' => 120], ['indexed' => true])),
+                $public(self::field('body', 30, 'text')),
+                $public(self::field('price', 40, 'number')),
+                $public(self::field('status', 50, 'choice', false, ['options' => array_map(
+                    static fn (string $value): array => ['value' => $value, 'label' => ucfirst($value)],
+                    self::STATUS,
+                )])),
+                self::field('notes', 60, 'text'),
+            ],
+        ], self::ACTOR);
+        $schemaId = $structure->schema->schemaId;
+        $seedStarted = hrtime(true);
+        $recordIds = $this->seed($structure, $size, fn (int $index): array => [
+            'title' => 'Item ' . $index,
+            'slug' => sprintf('item-%08d', $index),
+            'body' => implode(' ', array_map(static fn (int $salt): string => self::WORDS[($index * 31 + $salt * 17) % count(self::WORDS)], range(1, 24))),
+            'price' => sprintf('%d.%02d', ($index * 13) % 1000, $index % 100),
+            'status' => self::STATUS[$index % 5],
+            'notes' => 'Admin note ' . $index,
+        ]);
+        $this->publishAll($schemaId, $recordIds);
+        $seedMs = (hrtime(true) - $seedStarted) / 1e6;
+        $buildStarted = hrtime(true);
+        $index->prepare($schemaId);
+        (new PublishedSiteViewRebuilder($index))->rebuild($schemaId, PublishedSiteViewRebuilder::MAX_CHUNK);
+        $buildMs = (hrtime(true) - $buildStarted) / 1e6;
+        $progress(sprintf('Site: %d published records seeded in %.1f s, site витрина built in %.1f s; measuring...', $size, $seedMs / 1000, $buildMs / 1000));
+
+        $legacy = new DatabaseReadContracts($this->connection);
+        $site = new DatabaseReadContracts($this->connection, null, new RequestedLocaleOnly(), new StorageMetrics(), null, new PublishedSiteViewReader($this->connection));
+        $sorted = $recordIds;
+        sort($sorted, SORT_STRING);
+        $middle = $sorted[intdiv(count($sorted), 2)];
+        $pick = static fn (int $iteration): string => $recordIds[($iteration * 7919) % count($recordIds)];
+        // The key of the record read last by a scan in record id order: the whole published set is read to find it.
+        $lastKey = $legacy->publishedRecord($schemaId, 'site:main', 'en', $sorted[array_key_last($sorted)])['values']['slug'] ?? '';
+        $operations = [
+            'site_projection_page_1' => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static fn (): int => count($read->publishedProjection($schemaId, 'site:main', 'en', 50)->records),
+            'site_projection_deep' => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static fn (): int => count($read->publishedProjection($schemaId, 'site:main', 'en', 50, null, $middle)->records),
+            'site_published_record' => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static fn (): int => (int) ($read->publishedRecord($schemaId, 'site:main', 'en', $pick($iteration))['revision'] ?? 0),
+            'site_resolve_key_set_silenced' => static fn (DatabaseReadContracts $read): Closure => static fn (int $iteration): Closure => static fn (): int => $read->resolveKey($schemaId, 'site:main', 'en', 'slug', (string) $lastKey)->revision ?? 0,
+        ];
+        /** @return array{0: string, 1: ?string} */
+        $identical = static function (DatabaseReadContracts $read) use ($schemaId, $middle, $pick, $lastKey): array {
+            try {
+                // Past the scan limit the exact path refuses: the slot's answer is not compared then.
+                $key = $read->resolveKey($schemaId, 'site:main', 'en', 'slug', (string) $lastKey);
+            } catch (ReadContractRejected $rejected) {
+                $key = $rejected->reasonCode;
+            }
+
+            return [
+                serialize([
+                    $read->publishedProjection($schemaId, 'site:main', 'en', 50),
+                    $read->publishedProjection($schemaId, 'site:main', 'en', 50, null, $middle),
+                    $read->publishedRecord($schemaId, 'site:main', 'en', $pick(1)),
+                ]),
+                $key === 'key_scan_limit_exceeded' ? null : serialize($key),
+            ];
+        };
+        // Compared once, untimed: this also warms both readers (their table checks are made once).
+        $exact = $identical($legacy);
+        $fromSite = $identical($site);
+        $same = $exact[0] === $fromSite[0] && ($exact[1] === null || $exact[1] === $fromSite[1]);
+        $results = [];
+        foreach ($operations as $name => $operation) {
+            foreach (['legacy' => $legacy, 'site' => $site] as $mode => $read) {
+                $results[$name][$mode] = $this->sample($name, $operation($read), $repeat);
+                $progress(sprintf('  %-30s %-6s %s', $name, $mode, self::summary($results[$name][$mode])));
+            }
+        }
+        $cleanup = $keep ? ['kept' => true] : $this->deleteSiteRows($structure);
+
+        return [
+            'status' => 'ok',
+            'records' => $size,
+            'structure_id' => $structure->structureId,
+            'seed_ms' => round($seedMs, 1),
+            'build_ms' => round($buildMs, 1),
+            'identical' => $same,
+            'operations' => $results,
+            'cleanup' => $cleanup,
+        ];
+    }
+
+    /**
+     * Every seeded record published at revision 1 in `site:main`/`en`, written as the
+     * lifecycle writes a state row (the site витрина is built afterwards).
+     *
+     * @param list<string> $recordIds
+     */
+    private function publishAll(string $schemaId, array $recordIds): void
+    {
+        $now = gmdate('Y-m-d H:i:s');
+        foreach (array_chunk($recordIds, self::SEED_CHUNK) as $chunk) {
+            $rows = [];
+            foreach ($chunk as $recordId) {
+                $rows[] = [
+                    'publication_id' => PublicationState::identity($schemaId, $recordId, 'site:main', 'en'),
+                    'schema_id' => $schemaId, 'record_id' => $recordId, 'scope_ref' => 'site:main', 'locale' => 'en',
+                    'state' => 'published', 'published_revision' => 1, 'previous_published_revision' => null,
+                    'scheduled_at' => null, 'published_at' => $now, 'archived_at' => null,
+                    'updated_by' => self::ACTOR, 'correlation_id' => 'storage-benchmark-seed-' . $this->runId,
+                    'created_at' => $now, 'updated_at' => $now,
+                ];
+            }
+            $this->connection->table('larena_storage_publication_states')->insert($rows);
+        }
+    }
+
+    /**
+     * Removes the site benchmark storage: its publication rows, then its records,
+     * workbench rows, витрина and site витрина, deleting exactly the rows it owns.
+     *
+     * @return array<string, mixed>
+     */
+    private function deleteSiteRows(StorageWorkbenchStructure $structure): array
+    {
+        $schemaId = $structure->schema->schemaId;
+        $this->connection->transaction(function () use ($schemaId): void {
+            $this->connection->table('larena_storage_publication_log')->where('schema_id', $schemaId)->delete();
+            $this->connection->table('larena_storage_publication_states')->where('schema_id', $schemaId)->delete();
+        });
+
+        return ['method' => 'owned_rows_deleted'] + $this->deleteOwnedRows($structure);
     }
 
     /**
@@ -320,11 +485,11 @@ final class StorageBenchmark
                 $started = hrtime(true);
                 try {
                     $value = $timed();
-                } catch (StorageRejected $exception) {
+                } catch (StorageRejected|ReadContractRejected $exception) {
                     // The engine refused: that is the result, not a crash of the run.
                     return [
                         'status' => 'fails',
-                        'reason' => $exception->getMessage(),
+                        'reason' => $exception instanceof ReadContractRejected ? $exception->reasonCode : $exception->getMessage(),
                         'ms' => round((hrtime(true) - $started) / 1e6, 2),
                         'queries' => count($this->connection->getQueryLog()),
                         'peak_memory_bytes' => memory_get_peak_usage() - $base,
@@ -359,10 +524,10 @@ final class StorageBenchmark
     }
 
     /**
-     * @param list<string> $sectionIds
+     * @param Closure(int): array<string, mixed> $valuesOf The values of record number $index.
      * @return list<string>
      */
-    private function seed(StorageWorkbenchStructure $structure, int $size, array $sectionIds): array
+    private function seed(StorageWorkbenchStructure $structure, int $size, Closure $valuesOf): array
     {
         $schemaVersion = $this->storage->schemaVersion($structure->schema);
         $recordIds = [];
@@ -372,7 +537,7 @@ final class StorageBenchmark
             $now = gmdate('Y-m-d H:i:s');
             $correlationId = 'storage-benchmark-seed-' . $this->runId;
             for ($index = $from; $index < min($size, $from + self::SEED_CHUNK); $index++) {
-                $values = $this->values($index, $sectionIds);
+                $values = $valuesOf($index);
                 $values[self::SCOPE_FIELD] = $this->scopeRef;
                 $values[self::STATE_FIELD] = 'active';
                 $valuesJson = $this->normalizer->canonicalJson($this->normalizer->normalizeValues($schemaVersion, $values));

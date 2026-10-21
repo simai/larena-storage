@@ -20,6 +20,7 @@ use Larena\Storage\View\StorageViewRebuildQueue;
 use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewSync;
 use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewReader;
 use Larena\Storage\View\Site\PublishedSiteViewRegistry;
 use Larena\Storage\Runtime\LocalizedValueObserverChain;
 use Larena\Storage\Runtime\PublicationIndexChain;
@@ -213,8 +214,20 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(LocaleFallbackResolver::class),
                 $app->make(StorageMetrics::class),
                 new StorageRecordConverter($connection, $app->make(PropertyTypeRegistry::class)),
+                // A ready site витрина slot answers the public reads, checked against the publication states.
+                $app->make(PublishedSiteViewReader::class),
             );
         });
+        // The reader holds the connection only; it reads at the first public read. A rebuild it asks
+        // for (a mismatch it found, public fields changed under a ready slot) goes through the queue.
+        $this->app->singleton(PublishedSiteViewReader::class, static fn (Application $app): PublishedSiteViewReader => new PublishedSiteViewReader(
+            $app->make(DatabaseManager::class)->connection(),
+            static function (string $schemaId) use ($app): void {
+                if ($app->bound(JobTypeRegistry::class) && $app->bound(DurableQueueDispatcher::class) && $app->bound(QueueClock::class)) {
+                    $app->make(StorageViewRebuildQueue::class)->enqueueSite($schemaId);
+                }
+            },
+        ));
         $this->app->alias(DatabaseReadContracts::class, ReadContracts::class);
         // Lang owns the fallback order; the application binds its policy. Without it,
         // a read uses the requested locale alone.

@@ -16,6 +16,7 @@ use Larena\Storage\Runtime\PublishedKeyIndex;
 use Larena\Storage\View\Site\PublishedSiteViewChecker;
 use Larena\Storage\View\Site\PublishedSiteViewIndex;
 use Larena\Storage\View\Site\PublishedSiteViewProjector;
+use Larena\Storage\View\Site\PublishedSiteViewReader;
 use Larena\Storage\View\Site\PublishedSiteViewRegistry;
 use Larena\Storage\View\StorageViewDdl;
 use Larena\Storage\View\StorageViewNaming;
@@ -26,7 +27,9 @@ require_once __DIR__ . '/storage-view-fixture.php';
  * The site витрина wired as the application wires it, on any connection: the
  * workbench and its admin витрина, localized values, read contracts with a fallback
  * chain (kk falls back to ru), the published-key index (keyed by slug) and the site
- * index, a lifecycle with both indexes, and lifecycles without them.
+ * index, a lifecycle with both indexes, and lifecycles without them; and read
+ * contracts that answer from the site витрина (`siteRead`, through `reader`) beside
+ * the exact ones (`read`), which the indexes build from.
  */
 
 /** Kazakh falls back to Russian; every other locale stands alone. */
@@ -99,8 +102,8 @@ function publishedSiteViewInstall(Connection $connection): void
 }
 
 /**
- * @param (Closure(string): void)|null $siteRebuilds Hears the storages whose site витрина a structure change silenced.
- * @return array{workbench: Larena\Storage\Runtime\DatabaseStorageWorkbench, storage: Larena\Storage\Runtime\VersionedStorage, views: Larena\Storage\View\StorageViewSync, evolution: Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution, localized: DatabaseLocalizedValues, bare: DatabaseLocalizedValues, read: DatabaseReadContracts, keys: PublishedKeyIndex, site: PublishedSiteViewIndex, publication: DatabasePublicationLifecycle, plain: DatabasePublicationLifecycle, keysOnly: DatabasePublicationLifecycle, checker: PublishedSiteViewChecker}
+ * @param (Closure(string): void)|null $siteRebuilds Hears the storages whose site витрина a structure change silenced or a read asked to rebuild.
+ * @return array{workbench: Larena\Storage\Runtime\DatabaseStorageWorkbench, storage: Larena\Storage\Runtime\VersionedStorage, views: Larena\Storage\View\StorageViewSync, evolution: Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution, localized: DatabaseLocalizedValues, bare: DatabaseLocalizedValues, read: DatabaseReadContracts, reader: PublishedSiteViewReader, siteRead: DatabaseReadContracts, keys: PublishedKeyIndex, site: PublishedSiteViewIndex, publication: DatabasePublicationLifecycle, plain: DatabasePublicationLifecycle, keysOnly: DatabasePublicationLifecycle, checker: PublishedSiteViewChecker}
  */
 function publishedSiteViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?Closure $siteRebuilds = null, int $inlineBuildLimit = PublishedSiteViewIndex::INLINE_BUILD_LIMIT, ?LocaleFallbackResolver $chain = null): array
 {
@@ -110,6 +113,7 @@ function publishedSiteViewRuntime(Connection $connection, StorageViewDdl $ddl, s
     $indexes = new PublishedSiteViewIndexes();
     $localized = new DatabaseLocalizedValues($connection, null, null, null, static fn (): LocalizedValueObserver => $indexes->observer());
     $read = new DatabaseReadContracts($connection, $localized, $chain);
+    $reader = new PublishedSiteViewReader($connection, $siteRebuilds);
     $keys = new PublishedKeyIndex($connection, $read, new PublishedSiteViewSlugKeys());
     $site = new PublishedSiteViewIndex($connection, $read, new PublishedSiteViewRegistry($connection, 0.0), $ddl, true, $inlineBuildLimit);
     $indexes->keys = $keys;
@@ -123,6 +127,8 @@ function publishedSiteViewRuntime(Connection $connection, StorageViewDdl $ddl, s
         // Localized values without an observer: a write the indexes never hear of.
         'bare' => new DatabaseLocalizedValues($connection),
         'read' => $read,
+        'reader' => $reader,
+        'siteRead' => new DatabaseReadContracts($connection, $localized, $chain, new Larena\Storage\Runtime\StorageMetrics(), null, $reader),
         'keys' => $keys,
         'site' => $site,
         'publication' => new DatabasePublicationLifecycle($connection, $exists, null, null, null, new PublicationIndexChain([$keys, $site])),

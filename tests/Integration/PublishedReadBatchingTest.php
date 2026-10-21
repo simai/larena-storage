@@ -152,6 +152,8 @@ $page = static function (string $scope, int $count) use ($connection, $plain, $l
 };
 $page('site:small', 5);
 $page('site:large', 300);
+// The reader checks its tables at its first read only: one read before the counts.
+$read->publishedProjection('site.pages', 'site:small', 'en');
 $queries = [];
 foreach (['site:small' => 5, 'site:large' => 300] as $scope => $count) {
     $projection = null;

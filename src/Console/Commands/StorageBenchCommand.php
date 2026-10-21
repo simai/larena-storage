@@ -27,7 +27,8 @@ final class StorageBenchCommand extends Command
         {--keep : Keep the benchmark structures and their records}
         {--connection= : A configured disposable connection (never the default one)}
         {--sqlite= : A new SQLite file to create, install and measure}
-        {--install : Create the Storage tables on the connection first}';
+        {--install : Create the Storage tables on the connection first}
+        {--site-only : Measure only the public reads (exact path and site витрина)}';
 
     protected $description = 'Benchmark Larena Storage lists, filters, search, counts and record writes on a disposable database.';
 
@@ -94,6 +95,7 @@ final class StorageBenchCommand extends Command
                 $repeat,
                 (bool) $this->option('keep'),
                 fn (string $line) => $this->line($line),
+                (bool) $this->option('site-only'),
             );
         } catch (Throwable $exception) {
             $this->error($exception::class . ': ' . $exception->getMessage());

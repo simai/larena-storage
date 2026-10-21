@@ -154,6 +154,20 @@ final readonly class StorageViewFieldOptions
                 ->where('structure_id', (string) $head->structure_id)
                 ->where('version', (int) $head->current_version)
                 ->value('fields_json');
+        } catch (Throwable) {
+            return null;
+        }
+
+        return self::fromFieldsJson($json);
+    }
+
+    /**
+     * The options of a workbench structure version's `fields_json`, or null when there
+     * is none or it cannot be read: what `load` returns for the version it finds.
+     */
+    public static function fromFieldsJson(mixed $json): ?self
+    {
+        try {
             $fields = is_string($json) ? json_decode($json, true, 512, JSON_THROW_ON_ERROR) : null;
         } catch (Throwable) {
             return null;

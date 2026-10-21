@@ -90,6 +90,22 @@ try {
         benchExpect($run200['operations'][$operation]['matched_count'] === $matched, $operation . ' mismatch: ' . json_encode($run200['operations'][$operation]));
     }
     benchExpect($run200['operations']['filter_title_prefix']['matched_count'] > 0 && $run200['operations']['search_common_word']['matched_count'] > 0, 'title prefix or common word matched nothing');
+    // The public reads: each operation through the exact path and the site витрина, the same answers, fewer queries.
+    $site200 = $run200['site'];
+    benchExpect($site200['status'] === 'ok' && $site200['records'] === 200 && $site200['identical'] === true, 'the site reads were not measured or differ: ' . json_encode($site200));
+    foreach (['site_projection_page_1', 'site_projection_deep', 'site_published_record', 'site_resolve_key_set_silenced'] as $operation) {
+        foreach (['legacy', 'site'] as $mode) {
+            $measured = $site200['operations'][$operation][$mode] ?? null;
+            benchExpect(is_array($measured) && $measured['status'] === 'ok' && $measured['samples'] === 2 && $measured['queries'] > 0, $operation . ' ' . $mode . ' was not measured: ' . json_encode($measured));
+        }
+    }
+    foreach (['site_projection_page_1', 'site_projection_deep', 'site_published_record'] as $operation) {
+        benchExpect($site200['operations'][$operation]['site']['queries'] <= $site200['operations'][$operation]['legacy']['queries'], $operation . ' took more queries through the site витрина');
+    }
+    // A key through the slot costs the same few queries however many records are published.
+    benchExpect($site200['operations']['site_resolve_key_set_silenced']['site']['queries'] <= 5, 'a key through the slot took too many queries: ' . json_encode($site200['operations']));
+    benchExpect($site200['operations']['site_projection_page_1']['site']['queries'] <= 3, 'a site page took more than three queries');
+    benchExpect(($site200['cleanup']['method'] ?? null) === 'owned_rows_deleted', 'the site storage was not cleaned up');
     foreach ($run200['cleanup'] as $cleanup) {
         benchExpect($cleanup['method'] === 'engine_purge', 'a small structure was not purged through the engine');
     }
@@ -97,6 +113,9 @@ try {
     benchExpect($connection->table('larena_storage_records')->count() === 0, 'records were left behind');
     benchExpect($connection->table('larena_storage_record_versions')->count() === 0, 'versions were left behind');
     benchExpect($connection->table('larena_storage_workbench_structures')->count() === 0, 'structures were left behind');
+    benchExpect($connection->table('larena_storage_publication_states')->count() === 0 && $connection->table('larena_storage_site_views')->count() === 0
+        && $connection->table('larena_storage_site_view_slots')->count() === 0, 'site rows were left behind');
+    benchExpect(preg_grep('/\\Alarena_storage_site_[0-9a-f]{24}/', array_column($connection->getSchemaBuilder()->getTables(), 'name')) === [], 'site tables were left behind');
 
     // Above the PHP list's 5000-record scan the list reads the витрина and still works.
     [$status, $output] = $run(['--connection' => 'benchmark', '--records' => '5001', '--repeat' => '1', '--json' => $json]);

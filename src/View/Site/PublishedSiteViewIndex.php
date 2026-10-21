@@ -41,8 +41,9 @@ use Throwable;
  *
  * It never writes what it cannot vouch for: a slot whose locale chain changed, a
  * registration whose public fields changed under it, a row that cannot be projected,
- * each silences what it concerns (pending) instead. Until slice 3 nothing reads the
- * site витрина; the read contracts still answer from the versions.
+ * each silences what it concerns (pending) instead. The read contracts answer from a
+ * ready slot through PublishedSiteViewReader, and build the rows written here from
+ * the versions (`entriesForHeads`), never from the slot.
  */
 final class PublishedSiteViewIndex implements PublicationIndex, LocalizedValueObserver
 {
@@ -226,30 +227,53 @@ final class PublishedSiteViewIndex implements PublicationIndex, LocalizedValueOb
             return null;
         }
         $row = (array) $row;
+        $fields = self::definitionFields($row['definition']);
+        if ($fields === null) {
+            return null;
+        }
+
+        return ['version' => (int) $row['version'], 'fields' => $fields, 'options' => StorageViewFieldOptions::load($this->connection, $schemaId)];
+    }
+
+    /**
+     * The fields of a stored schema definition, or null when it cannot be read.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    public static function definitionFields(mixed $definition): ?array
+    {
         try {
-            $definition = json_decode((string) $row['definition'], true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode((string) $definition, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             return null;
         }
         $fields = [];
-        foreach (is_array($definition) && is_array($definition['fields'] ?? null) ? $definition['fields'] : [] as $field) {
+        foreach (is_array($decoded) && is_array($decoded['fields'] ?? null) ? $decoded['fields'] : [] as $field) {
             if (is_array($field)) {
                 $fields[] = $field;
             }
         }
 
-        return ['version' => (int) $row['version'], 'fields' => $fields, 'options' => StorageViewFieldOptions::load($this->connection, $schemaId)];
+        return $fields;
+    }
+
+    /**
+     * The hash of public fields, or null when there is none: what a registration
+     * records and `currentHash` compares.
+     *
+     * @param list<array<string, mixed>> $fields
+     */
+    public static function hashOf(array $fields, ?StorageViewFieldOptions $options): ?string
+    {
+        return PublishedSiteViewProjector::publicFields($fields) === [] ? null : PublishedSiteViewProjector::publicFieldsHash($fields, $options);
     }
 
     /** The hash of a storage's current public fields, or null when it has none (or no schema). */
     public function currentHash(string $schemaId, bool $lock = false): ?string
     {
         $schema = $this->currentSchema($schemaId, $lock);
-        if ($schema === null || PublishedSiteViewProjector::publicFields($schema['fields']) === []) {
-            return null;
-        }
 
-        return PublishedSiteViewProjector::publicFieldsHash($schema['fields'], $schema['options']);
+        return $schema === null ? null : self::hashOf($schema['fields'], $schema['options']);
     }
 
     /**

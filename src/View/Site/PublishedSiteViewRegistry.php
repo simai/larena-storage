@@ -271,6 +271,75 @@ final class PublishedSiteViewRegistry
         return [$slot, $created];
     }
 
+    /**
+     * What a read needs to know whether a slot may answer, in one query and without
+     * the memo: the registration, the slot, the storage's current schema definition
+     * and, with `$withOptions`, the `fields_json` of its current workbench structure
+     * version (the витрина options). Null when the storage has no registration or no
+     * slot in this scope and locale. A missing table fails the query.
+     *
+     * @return array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot, definition: ?string, options_json: ?string}|null
+     */
+    public function readable(string $schemaId, string $scopeRef, string $locale, bool $withOptions = true): ?array
+    {
+        $query = $this->database->table(self::TABLE . ' as v')
+            ->join(self::SLOTS_TABLE . ' as s', 's.schema_id', '=', 'v.schema_id')
+            ->where('v.schema_id', $schemaId)
+            ->where('s.scope_ref', $scopeRef)
+            ->where('s.locale', $locale)
+            ->select([
+                'v.schema_id', 'v.table_name', 'v.layout_json', 'v.layout_hash', 'v.public_fields_hash', 'v.state as view_state', 'v.built_schema_version',
+                's.id as slot_id', 's.scope_ref', 's.locale', 's.state as slot_state', 's.locale_chain', 's.build_cursor', 's.build_run_ref', 's.built_at',
+            ])
+            ->selectSub(fn (Builder $sub) => $sub->from('larena_storage_schema_versions')->select('definition')
+                ->where('schema_id', $schemaId)->orderByDesc('version')->limit(1), 'schema_definition');
+        if ($withOptions) {
+            $query->selectSub(fn (Builder $sub) => $sub->from('larena_storage_workbench_structure_versions as wv')
+                ->join('larena_storage_workbench_structures as ws', static function ($join): void {
+                    $join->on('wv.scope_ref', '=', 'ws.scope_ref')
+                        ->on('wv.structure_id', '=', 'ws.structure_id')
+                        ->on('wv.version', '=', 'ws.current_version');
+                })
+                ->where('ws.storage_schema_id', $schemaId)
+                ->select('wv.fields_json')
+                ->limit(1), 'options_fields_json');
+        }
+        $row = $query->first();
+        if (!$row instanceof stdClass) {
+            return null;
+        }
+        $registration = $this->hydrate((object) [
+            'schema_id' => $row->schema_id,
+            'table_name' => $row->table_name,
+            'layout_json' => $row->layout_json,
+            'layout_hash' => $row->layout_hash,
+            'public_fields_hash' => $row->public_fields_hash,
+            'state' => $row->view_state,
+            'built_schema_version' => $row->built_schema_version,
+        ]);
+        $slot = $this->hydrateSlot((object) [
+            'id' => $row->slot_id,
+            'schema_id' => $row->schema_id,
+            'scope_ref' => $row->scope_ref,
+            'locale' => $row->locale,
+            'state' => $row->slot_state,
+            'locale_chain' => $row->locale_chain,
+            'build_cursor' => $row->build_cursor,
+            'build_run_ref' => $row->build_run_ref,
+            'built_at' => $row->built_at,
+        ]);
+        if ($registration === null || $slot === null) {
+            return null;
+        }
+
+        return [
+            'registration' => $registration,
+            'slot' => $slot,
+            'definition' => $row->schema_definition === null ? null : (string) $row->schema_definition,
+            'options_json' => $withOptions && ($row->options_fields_json ?? null) !== null ? (string) $row->options_fields_json : null,
+        ];
+    }
+
     /** @return list<PublishedSiteViewSlot> Every slot of a storage, by scope and locale. */
     public function slots(string $schemaId): array
     {

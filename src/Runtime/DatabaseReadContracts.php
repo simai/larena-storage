@@ -17,6 +17,10 @@ use Larena\Storage\Enums\FieldVisibility;
 use Larena\Storage\Enums\PublicationStateValue;
 use Larena\Storage\Exceptions\ReadContractRejected;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
+use Larena\Storage\View\Site\PublishedSiteViewReader;
+use Larena\Storage\View\Site\PublishedSiteViewRegistration;
+use Larena\Storage\View\Site\PublishedSiteViewSlot;
+use Throwable;
 
 /**
  * The two read models a site is served from.
@@ -41,6 +45,18 @@ use Larena\Storage\SchemaEvolution\StorageRecordConverter;
  * never one query per record. A key is looked up in the published-key table when its
  * set is ready for the current locale chain, and found by a batched scan of the
  * published records otherwise.
+ *
+ * With a site витрина reader, a slot that answers (ready, its public fields current,
+ * built along this reader's locale chain) serves `publishedProjection`,
+ * `publishedRecord`, `projectionExplain` and the key lookup the published-key table
+ * cannot answer: a page in three queries, a record by its key, a count, a key through
+ * the key field's column. Every answer is checked against the publication states in
+ * one query (the page's record ids and revisions, the record's revision, the count,
+ * the holders' revisions); a disagreement is read once more in one snapshot, and if
+ * it stays the slot is silenced, its rebuild queued and the request answered by the
+ * exact path. Both paths return the same values, byte for byte. What the site
+ * витрина is built from (`entriesForHeads`, `publishedHeadPage`, `keyValuesAt`,
+ * `publicValuesAt`) always reads the versions.
  */
 final class DatabaseReadContracts implements ReadContracts
 {
@@ -60,11 +76,15 @@ final class DatabaseReadContracts implements ReadContracts
      */
     public const KEY_SCAN_LIMIT = 50_000;
 
+    /** How many record ids an exact count through a visibility filter asks for at a time. */
+    private const COUNT_PAGE = 1000;
+
     /** How many records one batched read asks for at most. */
     public const BATCH = 500;
 
     private readonly PublishedKeyTable $keys;
     private readonly StorageRecordConverter $converter;
+    private bool $schemaReady = false;
 
     public function __construct(
         private readonly Connection $connection,
@@ -73,6 +93,10 @@ final class DatabaseReadContracts implements ReadContracts
         private readonly StorageMetrics $metrics = new StorageMetrics(),
         // Reads a revision written under an older schema version under the current one.
         ?StorageRecordConverter $converter = null,
+        // A ready site витрина slot answers the public reads; without it every read takes the exact path.
+        private readonly ?PublishedSiteViewReader $siteViews = null,
+        // How many published records a key scan reads at most before it refuses.
+        private readonly int $keyScanLimit = self::KEY_SCAN_LIMIT,
     ) {
         $this->keys = new PublishedKeyTable($connection);
         $this->converter = $converter ?? new StorageRecordConverter($connection);
@@ -143,6 +167,30 @@ final class DatabaseReadContracts implements ReadContracts
 
             $limit = $this->budget($budget);
             $schemaId = $this->schemaId($roleRefOrSchemaId);
+
+            $site = $this->siteRead(
+                $schemaId,
+                $scopeRef,
+                $locale,
+                static fn (PublishedSiteViewReader $reader, array $source): ?array => $reader->page($source, $limit + 1, $afterRecordId),
+                fn (array $entries): bool => self::sameHeads($entries, $this->publishedHeads($schemaId, $scopeRef, $locale, $limit + 1, $afterRecordId)),
+            );
+            if (is_array($site)) {
+                $truncated = count($site) > $limit;
+                $visible = [];
+                $filtered = 0;
+                foreach (array_slice($site, 0, $limit) as $entry) {
+                    if ($visibilityFilter !== null && $visibilityFilter($entry['record_id']) !== true) {
+                        ++$filtered;
+
+                        continue;
+                    }
+                    $visible[] = $entry;
+                }
+
+                return new PublishedProjectionPage($visible, $filtered, $truncated, $limit);
+            }
+
             $publicFields = $this->publicFieldKeys($schemaId);
 
             $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, $limit + 1, $afterRecordId);
@@ -184,6 +232,21 @@ final class DatabaseReadContracts implements ReadContracts
             LocaleFallbackChain::assertLocale($locale);
 
             $schemaId = $this->schemaId($roleRefOrSchemaId);
+            $site = $this->siteRead(
+                $schemaId,
+                $scopeRef,
+                $locale,
+                static fn (PublishedSiteViewReader $reader, array $source): ?array => $reader->record($source, $recordId),
+                fn (array $entries): bool => self::sameHeads($entries, $this->publishedHeads($schemaId, $scopeRef, $locale, 1, null, [$recordId])),
+            );
+            if (is_array($site)) {
+                if ($site === [] || ($visibilityFilter !== null && $visibilityFilter($recordId) !== true)) {
+                    return null;
+                }
+
+                return $site[0];
+            }
+
             $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, 1, null, [$recordId]);
             if ($heads === [] || ($visibilityFilter !== null && $visibilityFilter($recordId) !== true)) {
                 return null;
@@ -352,10 +415,15 @@ final class DatabaseReadContracts implements ReadContracts
         $this->assertSchema();
 
         $schemaId = $this->schemaId($roleRefOrSchemaId);
-        $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, self::DEFAULT_BUDGET);
-        $visible = $visibilityFilter === null
-            ? count($heads)
-            : count(array_filter($heads, static fn (array $head): bool => $visibilityFilter($head['record_id']) === true));
+        [$visible, $total] = $this->siteCount($schemaId, $scopeRef, $locale, $visibilityFilter) ?? [null, null];
+        if ($visible === null || $total === null) {
+            // The exact path counts the first page of published records.
+            $heads = $this->publishedHeads($schemaId, $scopeRef, $locale, self::DEFAULT_BUDGET);
+            $total = count($heads);
+            $visible = $visibilityFilter === null
+                ? $total
+                : count(array_filter($heads, static fn (array $head): bool => $visibilityFilter($head['record_id']) === true));
+        }
 
         return [
             'schema_id' => $schemaId,
@@ -363,7 +431,7 @@ final class DatabaseReadContracts implements ReadContracts
             'locale' => $locale,
             'public_field_keys' => $this->publicFieldKeys($schemaId),
             'published_record_count' => $visible,
-            'filtered_record_count' => count($heads) - $visible,
+            'filtered_record_count' => $total - $visible,
             'budget' => self::DEFAULT_BUDGET,
             'derived' => true,
             'note' => 'the projection is rebuildable from Storage; no consumer may treat a copy of it as a source of truth',
@@ -536,6 +604,31 @@ final class DatabaseReadContracts implements ReadContracts
             return array_slice($indexed, 0, $stopAfter);
         }
 
+        // The site витрина finds the key through its column, however many records are published.
+        $site = $this->siteRead(
+            $schemaId,
+            $scopeRef,
+            $locale,
+            static fn (PublishedSiteViewReader $reader, array $source): ?array => $reader->keyHolders($source, $keyField, $keyValue, $stopAfter),
+            function (array $entries) use ($schemaId, $scopeRef, $locale): bool {
+                $published = $this->publishedRevisions($schemaId, $scopeRef, $locale, array_column($entries, 'record_id'));
+                foreach ($entries as $entry) {
+                    if (($published[$entry['record_id']] ?? null) !== $entry['revision']) {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+        );
+        if (is_array($site)) {
+            return array_map(static fn (array $entry): array => [
+                'head' => ['record_id' => (string) $entry['record_id'], 'revision' => (int) $entry['revision']],
+                'values' => $entry['values'],
+                'sources' => $entry['value_sources'],
+            ], $site);
+        }
+
         $holders = [];
         $after = null;
         $scanned = 0;
@@ -553,10 +646,10 @@ final class DatabaseReadContracts implements ReadContracts
                 }
             }
             $scanned += count($page);
-            if ($scanned > self::KEY_SCAN_LIMIT) {
+            if ($scanned > $this->keyScanLimit) {
                 throw new ReadContractRejected(
                     'key_scan_limit_exceeded',
-                    'More than ' . self::KEY_SCAN_LIMIT . ' published records in ' . $scopeRef . '/' . $locale . '; a key lookup refuses rather than miss.',
+                    'More than ' . $this->keyScanLimit . ' published records in ' . $scopeRef . '/' . $locale . '; a key lookup refuses rather than miss.',
                 );
             }
             $after = $page === [] ? null : $page[array_key_last($page)]['record_id'];
@@ -607,6 +700,148 @@ final class DatabaseReadContracts implements ReadContracts
         }
 
         return $holders;
+    }
+
+    /**
+     * The slot that answers for a storage in a scope and locale along this reader's
+     * locale chain, or null (no site reader, no ready slot, changed public fields, a
+     * slot built along another chain).
+     *
+     * @return array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot}|null
+     */
+    private function siteSource(string $schemaId, string $scopeRef, string $locale): ?array
+    {
+        return $this->siteViews?->source($schemaId, $scopeRef, $locale, $this->localeChainKey($locale));
+    }
+
+    /**
+     * Entries read from the answering slot, once the publication states agree with
+     * them; null sends the caller to the exact path. A disagreement is read once more
+     * in one snapshot (a publication may have committed between the two reads); if it
+     * stays, the slot is silenced and its rebuild queued. A failed site read (a table
+     * being made again) is the exact path too; a failure of the states read is not
+     * hidden.
+     *
+     * @param \Closure(PublishedSiteViewReader, array{registration: PublishedSiteViewRegistration, slot: PublishedSiteViewSlot}): (list<array<string, mixed>>|null) $read
+     * @param \Closure(list<array<string, mixed>>): bool $agrees
+     * @return list<array<string, mixed>>|null
+     * @phpstan-impure
+     */
+    private function siteRead(string $schemaId, string $scopeRef, string $locale, \Closure $read, \Closure $agrees): ?array
+    {
+        $reader = $this->siteViews;
+        $source = $reader === null ? null : $this->siteSource($schemaId, $scopeRef, $locale);
+        if ($reader === null || $source === null) {
+            return null;
+        }
+        $attempt = static function () use ($reader, $source, $read, $agrees): array {
+            try {
+                $entries = $read($reader, $source);
+            } catch (Throwable) {
+                return ['failed' => true, 'entries' => null, 'agrees' => false];
+            }
+
+            return ['failed' => false, 'entries' => $entries, 'agrees' => $entries !== null && $agrees($entries)];
+        };
+        $result = $attempt();
+        if ($result['failed']) {
+            return null;
+        }
+        if ($result['agrees']) {
+            return $result['entries'];
+        }
+        if ($this->connection->transactionLevel() === 0) {
+            try {
+                $result = $this->connection->transaction($attempt);
+            } catch (Throwable) {
+                return null;
+            }
+            if ($result['failed']) {
+                return null;
+            }
+            if ($result['agrees']) {
+                return $result['entries'];
+            }
+        }
+        $reader->mismatch($source);
+
+        return null;
+    }
+
+    /**
+     * The exact count of the answering slot, and how many of its records the filter
+     * admits, once the publication states hold as many published records; null sends
+     * the caller to the exact path.
+     *
+     * @return array{0: int, 1: int}|null [visible, total]
+     * @phpstan-impure
+     */
+    private function siteCount(string $schemaId, string $scopeRef, string $locale, ?callable $visibilityFilter): ?array
+    {
+        $count = $this->siteRead(
+            $schemaId,
+            $scopeRef,
+            $locale,
+            static fn (PublishedSiteViewReader $reader, array $source): array => [['total' => $reader->count($source), 'source' => $source]],
+            fn (array $rows): bool => $rows[0]['total'] === $this->publishedCount($schemaId, $scopeRef, $locale),
+        );
+        if ($count === null || $this->siteViews === null) {
+            return null;
+        }
+        $total = (int) $count[0]['total'];
+        if ($visibilityFilter === null) {
+            return [$total, $total];
+        }
+        $visible = 0;
+        $after = null;
+        do {
+            try {
+                $ids = $this->siteViews->recordIds($count[0]['source'], self::COUNT_PAGE, $after);
+            } catch (Throwable) {
+                return null;
+            }
+            foreach ($ids as $recordId) {
+                if ($visibilityFilter($recordId) === true) {
+                    ++$visible;
+                }
+            }
+            $after = $ids === [] ? null : $ids[array_key_last($ids)];
+        } while (count($ids) === self::COUNT_PAGE);
+
+        return [$visible, $total];
+    }
+
+    /** @phpstan-impure */
+    private function publishedCount(string $schemaId, string $scopeRef, string $locale): int
+    {
+        return $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)
+            ->where('schema_id', $schemaId)
+            ->where('scope_ref', $scopeRef)
+            ->where('locale', $locale)
+            ->where('state', PublicationStateValue::Published->value)
+            ->whereNotNull('published_revision')
+            ->count();
+    }
+
+    /**
+     * Whether entries are exactly these heads: the same records, in the same order, at
+     * the same revisions.
+     *
+     * @param list<array<string, mixed>> $entries
+     * @param list<array{record_id: string, revision: int}> $heads
+     */
+    private static function sameHeads(array $entries, array $heads): bool
+    {
+        if (count($entries) !== count($heads)) {
+            return false;
+        }
+        foreach ($heads as $index => $head) {
+            if (($entries[$index]['record_id'] ?? null) !== $head['record_id'] || ($entries[$index]['revision'] ?? null) !== $head['revision']) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -798,14 +1033,23 @@ final class DatabaseReadContracts implements ReadContracts
         return min($budget, self::DEFAULT_BUDGET);
     }
 
-    /** @phpstan-impure */
+    /**
+     * The read tables exist. Only a yes is remembered: two table lookups less on every
+     * read once they are there, and a missing table is still refused at every call.
+     *
+     * @phpstan-impure
+     */
     private function assertSchema(): void
     {
+        if ($this->schemaReady) {
+            return;
+        }
         $schema = $this->connection->getSchemaBuilder();
         foreach ([self::VERSIONS_TABLE, DatabasePublicationLifecycle::STATES_TABLE] as $table) {
             if (!$schema->hasTable($table)) {
                 throw new ReadContractRejected('schema_missing', 'The table ' . $table . ' is not migrated.');
             }
         }
+        $this->schemaReady = true;
     }
 }

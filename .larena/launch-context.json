@@ -156,7 +156,8 @@
     "src/Runtime/LocalizedValueObserverChain.php",
     "tests/Support/published-site-view-fixture.php",
     "tests/Integration/PublishedSiteViewMaintenanceTest.php",
-    "tests/Integration/PublishedSiteViewRebuildTest.php"
+    "tests/Integration/PublishedSiteViewRebuildTest.php",
+    "tests/Integration/PublishedSiteViewReadTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
