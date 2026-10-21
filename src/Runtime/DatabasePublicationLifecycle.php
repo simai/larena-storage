@@ -47,6 +47,13 @@ use Larena\Storage\View\Site\PublishedSiteViewRegistry;
  * in the same transaction, after the log row (an entry's projection version counts
  * it). An index the lifecycle was built without cannot follow the change, so its
  * sets or slots of the storage and scope stop answering until they are rebuilt.
+ *
+ * A schedule on a published record keeps it published: the head goes on serving the
+ * site and the state row carries the pending revision (`scheduled_revision`,
+ * `scheduled_at`) until the sweep promotes it with a `sweep_publish` transition, which
+ * the derived indexes and observers see like any publish. Scheduling again replaces the
+ * pending schedule; a publish, an unpublish or an archive clears it. A schedule on a
+ * record that is not published makes it `scheduled`, which is not live.
  */
 final class DatabasePublicationLifecycle implements PublicationLifecycle
 {
@@ -66,11 +73,13 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         Transition::Unpublish->value => [State::Published, State::Scheduled],
         Transition::Schedule->value => [State::Draft, State::Scheduled, State::Published],
         Transition::Archive->value => [State::Draft, State::Scheduled, State::Published, State::Archived],
-        Transition::SweepPublish->value => [State::Scheduled],
+        // From published only with a pending schedule: the revision waiting behind the live head.
+        Transition::SweepPublish->value => [State::Scheduled, State::Published],
     ];
 
     private ?PublishedKeyTable $keyTable = null;
     private ?PublishedSiteViewRegistry $siteViews = null;
+    private bool $scheduledRevisionColumn = false;
 
     /**
      * @param callable(string $schemaId, string $recordId, int $revision): bool|null $revisionExists
@@ -199,10 +208,10 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         $correlationId ??= self::newCorrelationId();
 
         foreach ($this->dueSchedules($moment, $limit) as $state) {
-            // The scheduled revision is the one the schedule recorded, which the
-            // schedule transition keeps in the log rather than in the state row —
-            // the state row deliberately does not call a scheduled revision a head.
-            $scheduledRevision = $this->scheduledRevision($state->publicationId);
+            // The scheduled revision is the one the schedule recorded: on the state row
+            // beside the head (never as the head), or in the log for a schedule written
+            // before the row kept it.
+            $scheduledRevision = $state->scheduledRevision;
             if ($scheduledRevision === null) {
                 continue;
             }
@@ -258,8 +267,10 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             throw new PublicationRejected('invalid_limit', 'A due-schedule limit must be a positive integer.');
         }
 
+        // A scheduled record, or a published one with a newer revision waiting: only a
+        // pending schedule has `scheduled_at`.
         $rows = $this->connection->table(self::STATES_TABLE)
-            ->where('state', State::Scheduled->value)
+            ->whereIn('state', [State::Scheduled->value, State::Published->value])
             ->whereNotNull('scheduled_at')
             ->where('scheduled_at', '<=', $now ?? $this->now())
             ->orderBy('scheduled_at')
@@ -339,10 +350,12 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             'published_revision' => $state?->publishedRevision,
             'previous_published_revision' => $state?->previousPublishedRevision,
             'scheduled_at' => $state?->scheduledAt,
+            'scheduled_revision' => $state?->scheduledRevision,
+            'has_pending_revision' => $state?->hasPendingRevision() ?? false,
             'transition_count' => count($transitions),
             'allowed_transitions' => $state === null
                 ? [Transition::Publish->value, Transition::Schedule->value, Transition::Archive->value]
-                : $this->allowedFrom($state->state),
+                : $this->allowedFrom($state),
             'audit_events' => PublicationAuditEventCatalog::all(),
         ];
     }
@@ -350,11 +363,14 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
     /**
      * @return list<string>
      */
-    private function allowedFrom(State $state): array
+    private function allowedFrom(PublicationState $state): array
     {
         $allowed = [];
         foreach (self::ALLOWED_FROM as $transition => $states) {
-            if (in_array($state, $states, true)) {
+            if ($transition === Transition::SweepPublish->value && $state->scheduledAt === null) {
+                continue;
+            }
+            if (in_array($state->state, $states, true)) {
                 $allowed[] = $transition;
             }
         }
@@ -409,6 +425,15 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             );
         }
 
+        // The sweep promotes only the schedule that is still pending: one an editor
+        // published, unpublished, archived or replaced since the due list was read is
+        // not swept over the editor's change.
+        if ($transition === Transition::SweepPublish
+            && ($existing?->scheduledAt === null
+                || ($existing->scheduledRevision !== null && $existing->scheduledRevision !== $revision))) {
+            throw new PublicationRejected('schedule_not_pending', 'Nothing is scheduled for this revision any more.');
+        }
+
         // A new head must pass the guard, such as key uniqueness, before anything
         // is written.
         if ($this->guard !== null && $revision !== null
@@ -446,9 +471,10 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             &$logId
         ): void {
             $now = $this->now();
-            $to = $this->targetState($transition);
 
             $next = $this->applyTransition($transition, $existing, $revision, $scheduledAt, $now, $publicationId, $schemaId, $recordId, $scopeRef, $locale);
+            // A schedule on a published record stays published: the log says so.
+            $to = $next->state;
 
             $payload = [
                 'schema_id' => $schemaId,
@@ -465,6 +491,9 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                 'correlation_id' => $correlationId,
                 'updated_at' => $now,
             ];
+            if ($this->scheduledRevisionColumn) {
+                $payload['scheduled_revision'] = $next->scheduledRevision;
+            }
 
             if ($existing === null) {
                 $this->connection->table(self::STATES_TABLE)->insert(
@@ -526,6 +555,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                     'published_revision' => $next->publishedRevision,
                     'previous_published_revision' => $next->previousPublishedRevision,
                     'scheduled_at' => $scheduledAt,
+                    'scheduled_revision' => $next->scheduledRevision,
                     'log_id' => $logId,
                 ],
             ));
@@ -564,16 +594,6 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         return 'storage-publication:' . bin2hex(random_bytes(16));
     }
 
-    private function targetState(Transition $transition): State
-    {
-        return match ($transition) {
-            Transition::Publish, Transition::SweepPublish => State::Published,
-            Transition::Unpublish => State::Draft,
-            Transition::Schedule => State::Scheduled,
-            Transition::Archive => State::Archived,
-        };
-    }
-
     private function applyTransition(
         Transition $transition,
         ?PublicationState $existing,
@@ -587,6 +607,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         string $locale,
     ): PublicationState {
         $currentHead = $existing?->publishedRevision;
+        $live = $existing !== null && $existing->isPublished();
 
         return match ($transition) {
             Transition::Publish, Transition::SweepPublish => new PublicationState(
@@ -617,20 +638,23 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                 publishedAt: $existing?->publishedAt,
                 archivedAt: null,
             ),
-            // Scheduling records an intention and leaves the head alone: a scheduled
-            // record is not a published one.
+            // Scheduling records an intention and leaves the head alone. A published
+            // record stays published, its head live, with the newer revision pending; a
+            // record that is not published is scheduled, which is not live. Scheduling
+            // again replaces the pending schedule.
             Transition::Schedule => new PublicationState(
                 publicationId: $publicationId,
                 schemaId: $schemaId,
                 recordId: $recordId,
                 scopeRef: $scopeRef,
                 locale: $locale,
-                state: State::Scheduled,
+                state: $live ? State::Published : State::Scheduled,
                 publishedRevision: $currentHead,
                 previousPublishedRevision: $existing?->previousPublishedRevision,
                 scheduledAt: $scheduledAt,
                 publishedAt: $existing?->publishedAt,
                 archivedAt: null,
+                scheduledRevision: $revision,
             ),
             Transition::Archive => new PublicationState(
                 publicationId: $publicationId,
@@ -671,6 +695,12 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
      */
     private function hydrate(array $row): PublicationState
     {
+        $scheduledRevision = ($row['scheduled_revision'] ?? null) === null ? null : (int) $row['scheduled_revision'];
+        if ($scheduledRevision === null && $row['scheduled_at'] !== null) {
+            // A schedule written before the state row kept its revision.
+            $scheduledRevision = $this->scheduledRevision((string) $row['publication_id']);
+        }
+
         return new PublicationState(
             publicationId: (string) $row['publication_id'],
             schemaId: (string) $row['schema_id'],
@@ -685,6 +715,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             scheduledAt: $row['scheduled_at'] === null ? null : (string) $row['scheduled_at'],
             publishedAt: $row['published_at'] === null ? null : (string) $row['published_at'],
             archivedAt: $row['archived_at'] === null ? null : (string) $row['archived_at'],
+            scheduledRevision: $scheduledRevision,
         );
     }
 
@@ -695,6 +726,10 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         if (!$schema->hasTable(self::STATES_TABLE) || !$schema->hasTable(self::LOG_TABLE)) {
             throw new PublicationRejected('schema_missing', 'The publication tables are not migrated.');
         }
+        // Tables migrated before the pending revision had a column keep it in the log only;
+        // once the column is there it stays.
+        $this->scheduledRevisionColumn = $this->scheduledRevisionColumn
+            || $schema->hasColumn(self::STATES_TABLE, 'scheduled_revision');
     }
 
     private function now(): string

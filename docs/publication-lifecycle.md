@@ -23,8 +23,25 @@ editor can save and schedule without holding the right to publish.
 $publication->schedule($schemaId, $recordId, 'site:main', 'en', $revision, '2026-10-01 09:00:00', $actorId);
 ```
 
-The state becomes `scheduled` and the live head keeps serving. The sweep publishes what
-is due:
+A record that is not published becomes `scheduled`, which is not live. A record that is
+published stays `published`: its head keeps serving the site, and the state row carries
+the pending revision (`scheduled_revision`, `scheduled_at`; `PublicationState::
+hasPendingRevision()`) until the sweep promotes it. The old page stays on the site until
+the new one goes out.
+
+| With a pending schedule | Result |
+| --- | --- |
+| the sweep, when due | the scheduled revision becomes the head (`sweep_publish`); the published-key index, the site витрина and observers move with it |
+| schedule again | the new schedule replaces the pending one; the head stays live |
+| publish | the published revision becomes the head; the schedule is cleared |
+| unpublish | the record leaves the site; the schedule is cleared |
+| archive | the record is archived; the schedule is cleared |
+
+A schedule the guard refuses at sweep time (a key taken in the meantime) stays pending
+and the old head stays live. The sweep promotes only a schedule that is still pending
+when it reaches the record.
+
+The sweep publishes what is due:
 
 ```php
 $publication->sweep($actorId);           // run by a worker, the console, or a request boundary
@@ -39,7 +56,7 @@ A read never publishes. A read that mutated state would make every page view a w
 | --- | --- | --- | --- | --- |
 | absent / draft | ✓ | ✗ | ✓ | ✓ |
 | scheduled | ✓ | ✓ | ✓ | ✓ |
-| published | ✓ | ✓ | ✓ | ✓ |
+| published (with or without a pending schedule) | ✓ | ✓ | ✓ | ✓ |
 | archived | ✓ | ✗ | ✗ | ✓ |
 
 An illegal transition writes nothing and says `invalid_transition`.

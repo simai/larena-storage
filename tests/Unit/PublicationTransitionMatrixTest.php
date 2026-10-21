@@ -113,11 +113,27 @@ larena_storage_role_assert($scheduled->publishedRevision === null, 'scheduling d
 larena_storage_role_assert(!$scheduled->isPublished(), 'and a scheduled record is not published');
 larena_storage_role_assert($scheduled->scheduledAt === '2099-01-01 00:00:00');
 
-// Scheduling a record that is already published leaves the live head alone: readers
-// keep seeing the current version until the schedule fires.
+larena_storage_role_assert($scheduled->scheduledRevision === 4, 'the schedule keeps its revision on the state row');
+
+// Scheduling a record that is already published leaves it published with the live head:
+// readers keep seeing the current version until the schedule fires.
 $publication->publish('site.pages', 'node-3', 'site:main', 'en', 1, 'actor:editor');
 $rescheduled = $publication->schedule('site.pages', 'node-3', 'site:main', 'en', 2, '2099-01-01 00:00:00', 'actor:editor');
-larena_storage_role_assert($rescheduled->state === PublicationStateValue::Scheduled);
-larena_storage_role_assert($rescheduled->publishedRevision === 1, 'the live head survives a schedule');
+larena_storage_role_assert($rescheduled->state === PublicationStateValue::Published, 'a schedule does not take a published record down');
+larena_storage_role_assert($rescheduled->isPublished() && $rescheduled->publishedRevision === 1, 'the live head survives a schedule');
+larena_storage_role_assert($rescheduled->scheduledRevision === 2 && $rescheduled->scheduledAt === '2099-01-01 00:00:00');
+larena_storage_role_assert($rescheduled->hasPendingRevision() && !$scheduled->hasPendingRevision());
+$history = $publication->history('site.pages', 'node-3', 'site:main', 'en');
+larena_storage_role_assert(
+    $history[1]->fromState === PublicationStateValue::Published && $history[1]->toState === PublicationStateValue::Published,
+    'the log says the record stayed published',
+);
+$explained = $publication->explain('site.pages', 'node-3', 'site:main', 'en');
+larena_storage_role_assert($explained['scheduled_revision'] === 2 && $explained['has_pending_revision'] === true);
+larena_storage_role_assert(in_array('sweep_publish', $explained['allowed_transitions'], true), 'a pending schedule may be swept');
+larena_storage_role_assert(
+    !in_array('sweep_publish', $publication->explain('site.pages', 'node-1', 'site:main', 'en')['allowed_transitions'], true),
+    'nothing to sweep without a schedule',
+);
 
 echo "Publication transition matrix passed.\n";

@@ -19,7 +19,7 @@ require_once __DIR__ . '/../Support/published-site-view-fixture.php';
 
 // The site витрина kept by publication on SQLite (shadow writes; reads still take the
 // exact path): every transition (publish, a newer revision, unpublish, schedule from
-// published, sweep, archive), translations (exact, fallback, of a revision that is not
+// published, which keeps the old row until the sweep, sweep, archive), translations (exact, fallback, of a revision that is not
 // published), purge and history prune keep each slot equal to the read contracts'
 // entries; every path around the indexes silences what it could change; only public
 // fields of the published revision ever reach a site table.
@@ -96,13 +96,13 @@ $publication->publish($schemaId, $r[1]->recordId, 'site:main', 'en', $r[1]->revi
 storageViewExpect($entry($r[1]->recordId)['revision'] === 2 && $entry($r[1]->recordId)['values']['title'] === 'Page 1 b', 'the newer revision did not replace the row');
 publishedSiteViewParity($site, $schemaId, 'republish');
 
-// --- Unpublish, schedule from published (the page goes until the sweep), sweep, archive. ---
+// --- Unpublish, schedule from published (the old page stays until the sweep), sweep, archive. ---
 $publication->unpublish($schemaId, $r[3]->recordId, 'site:main', 'en', $actor);
 storageViewExpect($entry($r[3]->recordId) === null, 'an unpublished record kept its row');
 publishedSiteViewParity($site, $schemaId, 'unpublish');
 $r[2] = $workbench->updateRecord($scope, 'workbench.pages', $r[2]->recordId, $r[2]->revision, ['title' => 'Page 2 scheduled', 'slug' => 'page-2', 'secret' => 'SENTINEL-SECRET-2b'], $actor);
 $publication->schedule($schemaId, $r[2]->recordId, 'site:main', 'en', $r[2]->revision, '2020-01-01 00:00:00', $actor);
-storageViewExpect($entry($r[2]->recordId) === null, 'a scheduled record kept its row');
+storageViewExpect($entry($r[2]->recordId)['revision'] === 1 && $entry($r[2]->recordId)['values']['title'] === 'Page 2', 'a published record with a schedule lost its live row');
 publishedSiteViewParity($site, $schemaId, 'schedule from published');
 storageViewExpect($publication->sweep('system:scheduler', '2026-10-21 12:00:00')['published_count'] === 1, 'the sweep did not publish');
 storageViewExpect($entry($r[2]->recordId)['values']['title'] === 'Page 2 scheduled', 'the swept revision has no row');

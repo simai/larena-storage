@@ -31,7 +31,8 @@ interface PublicationLifecycle
 
     /**
      * Record an intention. Scheduling does not publish: the head stays what it was
-     * until the sweep runs.
+     * until the sweep runs. A published record stays published with the revision
+     * pending; scheduling again replaces a pending schedule.
      */
     public function schedule(
         string $schemaId,

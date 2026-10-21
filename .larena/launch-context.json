@@ -167,7 +167,14 @@
     "tests/Support/published-list-fixture.php",
     "tests/Integration/StorageWorkbenchFieldTypesFiltersTest.php",
     "tests/Integration/StorageViewListReadinessTest.php",
-    "tests/Support/storage-reference-list.php"
+    "tests/Support/storage-reference-list.php",
+    "database/migrations/platform/2026_10_22_000002_add_larena_storage_publication_scheduled_revision.php",
+    "tests/Integration/PublicationPendingRevisionTest.php",
+    "docs/publication-lifecycle.md",
+    "src/Contracts/PublicationState.php",
+    "src/Contracts/PublicationLifecycle.php",
+    "src/Runtime/PublicationOperationHandlers.php",
+    "tests/Unit/PublicationTransitionMatrixTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

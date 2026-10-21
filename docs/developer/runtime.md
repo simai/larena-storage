@@ -100,6 +100,13 @@ line starts the Laravel scheduler:
 Each publication made by the sweep is recorded in the record's publication
 history under the actor `system:scheduler`.
 
+A schedule on a published record keeps it published: reads, the published-key
+index and the site витрина go on serving the live head until the sweep promotes
+the pending revision (`scheduled_revision` on the state row, migration
+`2026_10_22_000002`). Publish, unpublish and archive clear a pending schedule;
+scheduling again replaces it. A schedule on a record that is not published makes
+it `scheduled`, not live.
+
 ## Published Projection As A Search Source
 
 Search indexes the published projection. Each entry carries

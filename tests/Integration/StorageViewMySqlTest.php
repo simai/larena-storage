@@ -280,6 +280,7 @@ try {
         '/platform/2026_09_29_000001_create_larena_storage_publication_tables.php',
         '/platform/2026_10_20_000002_create_larena_storage_published_key_tables.php',
         '/platform/2026_10_22_000001_create_larena_storage_site_view_tables.php',
+        '/platform/2026_10_22_000002_add_larena_storage_publication_scheduled_revision.php',
     ] as $file) {
         (require __DIR__ . '/../../database/migrations' . $file)->up();
     }
@@ -316,6 +317,15 @@ try {
     $publication->unpublish($pagesSchema, $pageRecords[2]->recordId, 'site:main', 'en', $actor);
     // The record left its slot; the first one, published again above, is in both.
     publishedSiteViewParity($site, $pagesSchema, 'mysql site writes');
+    // A newer revision scheduled on a published page: the old row stays until the sweep promotes it.
+    $pageRecords[3] = $siteWorkbench->updateRecord($scope, 'workbench.site_pages', $pageRecords[3]->recordId, $pageRecords[3]->revision, ['title' => 'Page 3 next', 'slug' => 'page-3', 'body' => 'Long body 3', 'tags' => ['b'], 'secret' => 'SENTINEL-3b'], $actor);
+    $publication->schedule($pagesSchema, $pageRecords[3]->recordId, 'site:main', 'en', 2, '2020-01-01 00:00:00', $actor);
+    $pendingRow = publishedSiteViewEntries($site, $pagesSchema, 'site:main', 'en')[$pageRecords[3]->recordId] ?? null;
+    storageViewExpect(($pendingRow['revision'] ?? null) === 1 && $pendingRow['values']['title'] === 'Page 3', 'a published page with a schedule lost its row on MySQL');
+    publishedSiteViewParity($site, $pagesSchema, 'mysql pending revision');
+    storageViewExpect($publication->sweep('system:scheduler', '2026-10-22 12:00:00')['published_count'] === 1, 'the pending revision was not swept on MySQL');
+    storageViewExpect((publishedSiteViewEntries($site, $pagesSchema, 'site:main', 'en')[$pageRecords[3]->recordId]['values']['title'] ?? null) === 'Page 3 next', 'the promoted revision has no row on MySQL');
+    publishedSiteViewParity($site, $pagesSchema, 'mysql promoted revision');
     storageViewExpect(publishedSiteViewEntries($site, $pagesSchema, 'site:main', 'kk')[$pageRecords[1]->recordId]['values']['title'] === 'Страница 1', 'the ru fallback did not reach the kk row on MySQL');
     publishedSiteViewListChecks($connection, $site, $pagesSchema, 'site:main', 'en');
     publishedSiteViewListChecks($connection, $site, $pagesSchema, 'site:main', 'kk');

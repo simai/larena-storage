@@ -86,7 +86,7 @@ final class PublishedSiteViewQueued
     }
 }
 
-/** The storage, workbench, localized, publication, published-key and site migrations. */
+/** The storage, workbench, localized, publication (with the pending revision), published-key and site migrations. */
 function publishedSiteViewInstall(Connection $connection): void
 {
     storageViewInstall($connection);
@@ -96,6 +96,7 @@ function publishedSiteViewInstall(Connection $connection): void
         '/platform/2026_09_29_000001_create_larena_storage_publication_tables.php',
         '/platform/2026_10_20_000002_create_larena_storage_published_key_tables.php',
         '/platform/2026_10_22_000001_create_larena_storage_site_view_tables.php',
+        '/platform/2026_10_22_000002_add_larena_storage_publication_scheduled_revision.php',
     ] as $file) {
         (require $root . $file)->up();
     }

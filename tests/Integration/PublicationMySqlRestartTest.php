@@ -71,6 +71,7 @@ try {
     (require __DIR__ . '/../../database/migrations/2026_07_13_000001_create_larena_storage_version_tables.php')->up();
     (require __DIR__ . '/../../database/migrations/2026_07_14_000001_validate_larena_storage_version_table_shapes.php')->up();
     (require __DIR__ . '/../../database/migrations/platform/2026_09_29_000001_create_larena_storage_publication_tables.php')->up();
+    (require __DIR__ . '/../../database/migrations/platform/2026_10_22_000002_add_larena_storage_publication_scheduled_revision.php')->up();
 
     [$storage, $publication] = $runtime($connection);
     $schema = $storage->registerSchemaVersion([
@@ -82,15 +83,25 @@ try {
     $v2 = $storage->compareAndSwap('site:main', $v1->ref, $schema->ref, ['title' => 'Вторая'], 'user:admin_identity:1', 'mysql-r2')->version;
     $recordId = $v1->ref->recordId;
 
-    // en: published 1, then 2, withdrawn, republished 2. ru: scheduled and swept.
+    // en: published 1, then 2, withdrawn, republished 2. ru: scheduled and swept. de:
+    // published 1 with 2 scheduled, live at 1 until the sweep promotes 2.
     $publication->publish('site.pages', $recordId, 'site:main', 'en', 1, 'actor:editor', 'mysql-pub-1');
     $publication->publish('site.pages', $recordId, 'site:main', 'en', 2, 'actor:editor', 'mysql-pub-2');
     $publication->unpublish('site.pages', $recordId, 'site:main', 'en', 'actor:editor', 'mysql-unpub');
     $publication->publish('site.pages', $recordId, 'site:main', 'en', 2, 'actor:editor', 'mysql-repub');
     $publication->schedule('site.pages', $recordId, 'site:main', 'ru', 1, '2020-01-01 00:00:00', 'actor:editor', 'mysql-schedule');
+    $publication->publish('site.pages', $recordId, 'site:main', 'de', 1, 'actor:editor', 'mysql-de-pub');
+    $pending = $publication->schedule('site.pages', $recordId, 'site:main', 'de', 2, '2020-01-02 00:00:00', 'actor:editor', 'mysql-de-schedule');
+    larena_storage_mysql_expect($pending->isPublished() && $pending->publishedRevision === 1 && $pending->scheduledRevision === 2, 'storage_mysql_de_pending_wrong');
+    larena_storage_mysql_expect($publication->head('site.pages', $recordId, 'site:main', 'de')?->scheduledRevision === 2, 'storage_mysql_de_pending_readback_wrong');
     $publication->sweep('system:scheduler', '2026-10-01 12:00:00');
+    $de = $publication->head('site.pages', $recordId, 'site:main', 'de');
+    larena_storage_mysql_expect($de !== null && $de->publishedRevision === 2 && $de->previousPublishedRevision === 1 && $de->scheduledRevision === null && $de->scheduledAt === null, 'storage_mysql_de_promote_wrong');
 
-    $before = ['en' => $snapshot($publication, 'site.pages', $recordId, 'en'), 'ru' => $snapshot($publication, 'site.pages', $recordId, 'ru')];
+    $before = [];
+    foreach (['en', 'ru', 'de'] as $locale) {
+        $before[$locale] = $snapshot($publication, 'site.pages', $recordId, $locale);
+    }
     $en = $publication->head('site.pages', $recordId, 'site:main', 'en');
     larena_storage_mysql_expect($en !== null && $en->isPublished() && $en->publishedRevision === 2, 'storage_mysql_en_head_wrong');
     larena_storage_mysql_expect(count($publication->history('site.pages', $recordId, 'site:main', 'en')) === 4, 'storage_mysql_en_history_wrong');
@@ -101,7 +112,7 @@ try {
     $connection->disconnect();
     $reconnected = larena_storage_mysql_connect($database['config']);
     [$storageAfter, $publicationAfter] = $runtime($reconnected);
-    foreach (['en', 'ru'] as $locale) {
+    foreach (['en', 'ru', 'de'] as $locale) {
         larena_storage_mysql_expect(
             $snapshot($publicationAfter, 'site.pages', $recordId, $locale) === $before[$locale],
             'storage_mysql_' . $locale . '_readback_differs',
@@ -114,11 +125,11 @@ try {
 
     // Every transition reached the audit pipeline, the sweep included.
     $publicationEvents = array_values(array_filter($recorded->events, static fn (AuditEvent $event): bool => $event->category === 'storage_publication'));
-    larena_storage_mysql_expect(count($publicationEvents) === 6, 'storage_mysql_publication_audit_count_' . count($publicationEvents));
+    larena_storage_mysql_expect(count($publicationEvents) === 9, 'storage_mysql_publication_audit_count_' . count($publicationEvents));
     $first = $publicationEvents[0];
     larena_storage_mysql_expect($first->type === 'storage.publication.published' && $first->actor === 'actor:editor' && $first->correlationId === 'mysql-pub-1', 'storage_mysql_audit_attribution_wrong');
     larena_storage_mysql_expect($first->payload['scope_ref'] === 'site:main' && $first->payload['locale'] === 'en', 'storage_mysql_audit_scope_wrong');
-    $swept = $publicationEvents[5];
+    $swept = $publicationEvents[7];
     larena_storage_mysql_expect($swept->type === 'storage.publication.swept' && $swept->actor === 'system:scheduler' && str_starts_with($swept->correlationId, 'storage-publication:'), 'storage_mysql_sweep_audit_wrong');
 } finally {
     ($database['drop'])();

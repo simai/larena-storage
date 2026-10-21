@@ -33,6 +33,8 @@ function larena_storage_publication_connection(): Connection
         $table->string('updated_by', 191);
         $table->string('correlation_id', 191)->nullable();
         $table->timestamps();
+        // 2026_10_22_000002: the revision a pending schedule will publish.
+        $table->unsignedBigInteger('scheduled_revision')->nullable();
         $table->unique(['schema_id', 'record_id', 'scope_ref', 'locale'], 'storage_pub_record_scope_locale_uq');
         $table->index(['scope_ref', 'locale', 'state'], 'storage_pub_scope_locale_state_idx');
         $table->index(['state', 'scheduled_at'], 'storage_pub_state_scheduled_idx');

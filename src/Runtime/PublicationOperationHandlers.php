@@ -197,6 +197,7 @@ final readonly class PublicationOperationHandlers implements OperationProposalHa
                     static fn ($state): array => [
                         'publication_id' => $state->publicationId,
                         'scheduled_at' => $state->scheduledAt,
+                        'scheduled_revision' => $state->scheduledRevision,
                     ],
                     $due,
                 ),

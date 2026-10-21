@@ -12,6 +12,12 @@ use Larena\Storage\Enums\PublicationStateValue;
  * `previousPublishedRevision` exists so that unpublishing can report the head it
  * withdrew without reading the log: the question "what did I just take down" is asked
  * at exactly the moment the answer is most useful.
+ *
+ * A pending schedule is `scheduledRevision` with `scheduledAt`. On a `scheduled` record
+ * nothing is live yet. On a `published` one the head keeps serving until the sweep
+ * promotes the scheduled revision: the old page stays on the site until the new one
+ * goes out. A schedule written before the state row kept its revision has
+ * `scheduledAt` without `scheduledRevision`; its revision is in the log.
  */
 final readonly class PublicationState
 {
@@ -29,6 +35,7 @@ final readonly class PublicationState
         public ?string $scheduledAt = null,
         public ?string $publishedAt = null,
         public ?string $archivedAt = null,
+        public ?int $scheduledRevision = null,
     ) {
     }
 
@@ -40,6 +47,12 @@ final readonly class PublicationState
     public function isPublished(): bool
     {
         return $this->state->isPublished() && $this->publishedRevision !== null;
+    }
+
+    /** Whether a newer revision waits for the sweep while this one stays live. */
+    public function hasPendingRevision(): bool
+    {
+        return $this->isPublished() && $this->scheduledAt !== null;
     }
 
     /** @return array<string, mixed> */
@@ -58,6 +71,8 @@ final readonly class PublicationState
             'published_at' => $this->publishedAt,
             'archived_at' => $this->archivedAt,
             'is_published' => $this->isPublished(),
+            'scheduled_revision' => $this->scheduledRevision,
+            'has_pending_revision' => $this->hasPendingRevision(),
         ];
     }
 }
