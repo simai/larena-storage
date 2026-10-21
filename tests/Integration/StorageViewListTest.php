@@ -355,6 +355,45 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     $lastPage = $estimating->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, limit: 10, page: (int) ceil($active / 10)), $actor);
     storageViewExpect($lastPage->countExact && $lastPage->matchedCount === $active, 'the last page did not know the total');
 
+    // A sort without an index of its own: the page names the field, and says whether the list is large
+    // (here from 20 records, by the counter's count). An indexed sort, no sort or the PHP list says nothing.
+    $sizing = storageViewListWorkbench($connection, $runtime, $actor, $scope, $views, new StorageViewCounter(StorageViewCounter::THRESHOLD, 250, true, 20));
+    $byTitle = [['field' => 'title', 'direction' => 'asc']];
+    $unindexedPage = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10), $actor);
+    storageViewExpect($unindexedPage->sortUnindexed === ['title'] && $unindexedPage->large, 'a large list sorted by a string without an index did not say so');
+    $twoKeys = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId,
+        sort: [['field' => 'qty', 'direction' => 'desc'], ['field' => 'label', 'direction' => 'asc']], limit: 10), $actor);
+    storageViewExpect($twoKeys->sortUnindexed === ['label'] && $twoKeys->large, 'only the unindexed key of a sort is named');
+    $indexedPage = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: [['field' => 'qty', 'direction' => 'asc']], limit: 10), $actor);
+    storageViewExpect($indexedPage->sortUnindexed === [] && !$indexedPage->large, 'an indexed sort was reported as slow');
+    $unsorted = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, limit: 10), $actor);
+    storageViewExpect($unsorted->sortUnindexed === [] && !$unsorted->large, 'a list without a sort was reported as slow');
+    $narrow = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle,
+        filters: ['title' => ['operator' => 'starts_with', 'value' => 'zeta']], limit: 10), $actor);
+    storageViewExpect($narrow->sortUnindexed === ['title'] && !$narrow->large, 'a small filtered list was called large');
+    $skipFirst = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10,
+        countMode: StorageWorkbenchCountMode::Skip), $actor);
+    storageViewExpect($skipFirst->sortUnindexed === ['title'] && $skipFirst->large, 'an uncounted first page was not sized');
+    $skipNext = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10,
+        countMode: StorageWorkbenchCountMode::Skip, continuation: $skipFirst->continuation), $actor);
+    storageViewExpect($skipNext->sortUnindexed === ['title'] && !$skipNext->large, 'a reader paging on was counted again');
+    $exactLarge = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10,
+        countMode: StorageWorkbenchCountMode::Exact), $actor);
+    storageViewExpect($exactLarge->large, 'an exactly counted large list was not large');
+    $phpSorted = $php->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10), $actor);
+    storageViewExpect($phpSorted->sortUnindexed === [] && !$phpSorted->large, 'the PHP list reported a витрина sort');
+    storageViewExpect(!$sql->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10), $actor)->large,
+        'a list under 50 000 records was called large');
+    // A string indexed on request sorts by its own index.
+    $codes = $sql->createStructure($scope, ['structure_id' => 'workbench.codes', 'label' => 'Codes',
+        'fields' => [storageViewField('code', 10, 'string', ['max_length' => 40], true) + ['indexed' => true]]], $actor);
+    foreach (['b', 'a', 'c'] as $code) {
+        $sql->createRecord($scope, $codes->structureId, ['code' => $code], $actor);
+    }
+    $codePage = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $codes->structureId, sort: [['field' => 'code', 'direction' => 'asc']]), $actor);
+    storageViewExpect($codePage->sortUnindexed === [] && array_map(static fn ($record) => $record->values['code'], $codePage->items) === ['a', 'b', 'c'],
+        'a string indexed on request was reported as unindexed');
+
     // Incoming references come from the витрина of the structure that holds them.
     $referenced = null;
     foreach ($created as $record) {

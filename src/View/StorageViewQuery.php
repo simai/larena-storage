@@ -42,6 +42,7 @@ final class StorageViewQuery
      * @param list<array{column: string, direction: 'asc'|'desc'}> $sort Columns of the витрина table.
      * @param (Closure(Builder): void)|null $search The search as a check of each row.
      * @param (Closure(Builder): void)|null $searchIndexed The same search through the FULLTEXT index.
+     * @param list<string> $unindexedSort The sorted fields whose column has no index of its own.
      */
     public function __construct(
         public readonly Connection $connection,
@@ -50,6 +51,7 @@ final class StorageViewQuery
         public readonly array $sort,
         private readonly ?Closure $search = null,
         private readonly ?Closure $searchIndexed = null,
+        public readonly array $unindexedSort = [],
     ) {
     }
 

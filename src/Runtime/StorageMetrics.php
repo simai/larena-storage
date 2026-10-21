@@ -31,6 +31,9 @@ final class StorageMetrics
 
     public const array COUNTS = ['exact', 'approx', 'skip'];
 
+    /** How a list was sorted: every sorted field indexed, one without an index (or sorted in PHP), or no sort. */
+    public const array SORTS = ['indexed', 'unindexed', 'none'];
+
     public const array OPERATIONS = ['create', 'update', 'archive', 'restore', 'purge', 'revert'];
 
     public const array OUTCOMES = ['ok', 'rejected', 'error'];
@@ -81,8 +84,11 @@ final class StorageMetrics
         return max(0.0, (hrtime(true) - $startedNs) / 1_000_000);
     }
 
-    /** @param ?string $count exact, approx or skip; left out when the list failed before it counted */
-    public function list(string $mode, ?string $count, string $outcome, float $ms): void
+    /**
+     * @param ?string $count exact, approx or skip; left out when the list failed before it counted
+     * @param ?string $sort indexed, unindexed or none; left out when the list failed before its query was known
+     */
+    public function list(string $mode, ?string $count, string $outcome, float $ms, ?string $sort = null): void
     {
         $tags = [
             'mode' => in_array($mode, self::MODES, true) ? $mode : 'legacy',
@@ -90,6 +96,9 @@ final class StorageMetrics
         ];
         if ($count !== null) {
             $tags['count'] = in_array($count, self::COUNTS, true) ? $count : 'exact';
+        }
+        if ($sort !== null) {
+            $tags['sort'] = in_array($sort, self::SORTS, true) ? $sort : 'none';
         }
         $this->timing('storage.list', $ms, $tags);
     }

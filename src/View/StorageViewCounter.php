@@ -29,6 +29,8 @@ final class StorageViewCounter
 {
     public const THRESHOLD = 10_000;
     public const BUDGET_MS = 250;
+    /** From this many matched records a list is large: sorting it without an index is slow. */
+    public const LARGE_LIST = 50_000;
 
     private ?bool $mariaDb = null;
 
@@ -36,7 +38,14 @@ final class StorageViewCounter
         private readonly int $threshold = self::THRESHOLD,
         private readonly int $budgetMs = self::BUDGET_MS,
         private readonly bool $exactOnSqlite = true,
+        private readonly int $largeList = self::LARGE_LIST,
     ) {
+    }
+
+    /** Whether a list of this many matched records is large (LARGE_LIST unless told otherwise). */
+    public function large(int $count): bool
+    {
+        return $count >= $this->largeList;
     }
 
     /** @return array{count: int, exact: bool} */

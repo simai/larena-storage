@@ -3,10 +3,12 @@
 # schema ids, titles or values.
 metrics:
   # One workbench record list. mode is sql (read from the витрина) or legacy (the versions scan); count is exact,
-  # approx (an estimate above the threshold) or skip; outcome ok, rejected (a refused query or access) or error.
+  # approx (an estimate above the threshold) or skip; sort is indexed (every sorted field has an index), unindexed
+  # (a sorted field has none: slow on a large list; the versions scan always) or none (no sort asked); outcome ok,
+  # rejected (a refused query or access) or error.
   storage.list:
     type: duration
-    tags: [mode, count]
+    tags: [mode, count, sort]
     thresholds: { p95_ms: 300, error_rate: 0.05 }
     retention: { raw: 7d, aggregate: 90d }
   # One public list (storage.read.published_list, GET /api/v1/site/list). path is slot (the site витрина slot

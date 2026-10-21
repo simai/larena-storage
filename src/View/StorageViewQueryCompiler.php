@@ -231,6 +231,9 @@ final class StorageViewQueryCompiler
         }
 
         $sort = [];
+        // The sorted fields whose column has no index of its own: on a large list the database
+        // sorts every matched row for them (a string without «indexed», an index over the budget).
+        $unindexedSort = [];
         foreach ($query['sort'] as $item) {
             $direction = $item['direction'] === 'desc' ? 'desc' : 'asc';
             $field = $item['field'];
@@ -252,6 +255,9 @@ final class StorageViewQueryCompiler
                 return null;
             }
             $sort[] = ['column' => (string) $column->column, 'direction' => $direction];
+            if (!$column->indexed) {
+                $unindexedSort[] = $field;
+            }
         }
 
         if ($needsLower && !$mysql) {
@@ -270,7 +276,7 @@ final class StorageViewQueryCompiler
             }
         };
 
-        return new StorageViewQuery($connection, $table, $where, $sort, $searchCheck, $searchIndexed);
+        return new StorageViewQuery($connection, $table, $where, $sort, $searchCheck, $searchIndexed, $unindexedSort);
     }
 
     /** A LIKE pattern part that matches the value literally (escape character `!`). */

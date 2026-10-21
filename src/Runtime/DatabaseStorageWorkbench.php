@@ -1575,20 +1575,28 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     {
         $started = hrtime(true);
         $mode = 'legacy';
+        $sort = null;
         try {
-            $page = $this->listRecordsFrom($query, $actor, $mode);
+            $page = $this->listRecordsFrom($query, $actor, $mode, $sort);
         } catch (Throwable $exception) {
-            $this->metrics->list($mode, null, StorageMetrics::outcomeOf($exception), StorageMetrics::elapsedMs($started));
+            $this->metrics->list($mode, null, StorageMetrics::outcomeOf($exception), StorageMetrics::elapsedMs($started), $sort);
             throw $exception;
         }
         $count = $query->countMode === StorageWorkbenchCountMode::Skip ? 'skip' : ($page->countExact ? 'exact' : 'approx');
-        $this->metrics->list($mode, $count, 'ok', StorageMetrics::elapsedMs($started));
+        $this->metrics->list($mode, $count, 'ok', StorageMetrics::elapsedMs($started), $sort);
 
         return $page;
     }
 
-    // $mode is set to the path the list took: sql (the витрина) or legacy (the versions scan).
-    private function listRecordsFrom(StorageWorkbenchRecordQuery $query, string $actor, string &$mode): StorageWorkbenchRecordPage
+    /**
+     * $mode is set to the path the list took: sql (the витрина) or legacy (the versions scan);
+     * $sort to how it was sorted once the query is known: none (no sort asked), indexed (every
+     * sorted field has an index on the витрина) or unindexed (one has none, or the versions
+     * scan sorted in PHP).
+     *
+     * @param-out 'indexed'|'unindexed'|'none'|null $sort null while the query is not yet known
+     */
+    private function listRecordsFrom(StorageWorkbenchRecordQuery $query, string $actor, string &$mode, ?string &$sort): StorageWorkbenchRecordPage
     {
         $this->assertStructureId($query->structureId);
         $decision = $this->assertScope($actor, 'storage.workbench.record.list', $query->scopeRef, self::RECORD_RESOURCE);
@@ -1616,8 +1624,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 throw StoragePersistenceFailed::from($exception);
             }
         }
+        $sort = $normalizedQuery['sort'] === [] ? 'none' : 'unindexed';
         if ($compiled !== null) {
             $mode = 'sql';
+            if ($normalizedQuery['sort'] !== [] && $compiled->unindexedSort === []) {
+                $sort = 'indexed';
+            }
 
             return $this->listFromView($compiled, $query, $structure, $queryHash, $scopeHash);
         }
@@ -1740,18 +1752,28 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $continuation = $keyset->encode($queryHash, $scopeHash, $last['keys'], $last['record_id'], $passed)
                     ?? $this->encodeContinuation($passed, $queryHash, $scopeHash);
             }
+            $unindexed = $compiled->unindexedSort;
             if ($query->countMode === StorageWorkbenchCountMode::Skip) {
-                return new StorageWorkbenchRecordPage($items, $continuation, $passed + ($more ? 1 : 0), !$more);
+                // A list that pages on uncounted is sized only on its first page and when its sort has no
+                // index, by the capped Auto count: a reader paging on (an export) pays nothing more.
+                $large = $unindexed !== [] && ($more
+                    ? $offset === 0 && $after === null
+                        && $this->counter->large($this->counter->count($compiled, StorageWorkbenchCountMode::Auto)['count'])
+                    : $this->counter->large($passed));
+
+                return new StorageWorkbenchRecordPage($items, $continuation, $passed + ($more ? 1 : 0), !$more, $unindexed, $large);
             }
             // The last page read by offset knows the total already.
             if ($query->countMode === StorageWorkbenchCountMode::Auto && !$more && $after === null && ($rows !== [] || $offset === 0)) {
-                return new StorageWorkbenchRecordPage($items, $continuation, $passed, true);
+                return new StorageWorkbenchRecordPage($items, $continuation, $passed, true, $unindexed,
+                    $unindexed !== [] && $this->counter->large($passed));
             }
             $count = $this->counter->count($compiled, $query->countMode);
             // An estimate is never below the rows the list has already shown.
             $matched = $count['exact'] ? $count['count'] : max($count['count'], $passed + ($more ? 1 : 0));
 
-            return new StorageWorkbenchRecordPage($items, $continuation, $matched, $count['exact']);
+            return new StorageWorkbenchRecordPage($items, $continuation, $matched, $count['exact'], $unindexed,
+                $unindexed !== [] && $this->counter->large($matched));
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (Throwable $exception) {
