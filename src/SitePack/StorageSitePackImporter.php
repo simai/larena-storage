@@ -592,7 +592,15 @@ final class StorageSitePackImporter
                 continue;
             }
             try {
-                $this->roles->bindStructure($role['role_ref'], $schemaId, $this->siteRef, $fields, $this->actor, [], null, $this->correlationId);
+                // The source structure was bound to this role, so it declared the role's relations and lifecycle:
+                // the binding carries them again, or the role (and the key uniqueness it guards) would silently not bind.
+                $definition = $this->roles->read($role['role_ref']);
+                if ($definition === null) {
+                    throw new StorageRejected('storage_sitepack_role_unknown');
+                }
+                $this->roles->bindStructure($role['role_ref'], $schemaId, $this->siteRef, $fields, $this->actor,
+                    array_map(static fn (array $relation): string => $relation['relation_key'], $definition->requiredRelations),
+                    $definition->lifecycle->value, $this->correlationId);
                 $counts['roles_bound'] = ($counts['roles_bound'] ?? 0) + 1;
             } catch (Throwable) {
                 $counts['roles_skipped'] = ($counts['roles_skipped'] ?? 0) + 1;
