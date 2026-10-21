@@ -176,23 +176,28 @@ final readonly class StorageViewRebuilder
                 }
                 $projections = [];
                 $last = null;
+                $converter = $this->views->converter();
                 foreach ($rows as $row) {
-                    if ((int) $row->schema_version !== $locked->layout->schemaVersion) {
-                        // A record is at a schema version the layout does not describe. A build fails;
-                        // a backfill stops and leaves the ready витрина to the schema apply that moved it.
+                    $rowVersion = (int) $row->schema_version;
+                    if ($rowVersion > $locked->layout->schemaVersion) {
+                        // A record is at a schema version the layout does not describe yet. A build fails;
+                        // a backfill stops and leaves the ready витрина to the change that moved it.
                         if ($walkState === StorageViewRegistration::STATE_BUILDING) {
                             $registry->put($locked->withState(StorageViewRegistration::STATE_FAILED));
                         }
 
                         return -2;
                     }
+                    // A version written under an older schema version is read through the converter:
+                    // a field change rewrites no version.
+                    $values = $converter->convert($schemaId, $rowVersion, $locked->layout->schemaVersion, $this->decode((string) $row->values_json));
                     $projections[] = $this->views->projector()->project(
                         $locked->layout,
                         (string) $row->record_id,
                         (int) $row->current_revision,
-                        (int) $row->schema_version,
+                        $rowVersion,
                         (string) $row->content_hash,
-                        $this->decode((string) $row->values_json),
+                        $values,
                         (string) $row->created_at,
                         (string) $row->updated_at,
                     );

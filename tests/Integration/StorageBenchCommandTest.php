@@ -77,6 +77,10 @@ try {
         benchExpect($measured['queries'] > 0 && $measured['peak_memory_bytes'] >= 0, $operation . ' has no query count');
     }
     benchExpect($run200['operations']['matched_count']['matched_count'] === 200, 'matched count mismatch');
+    // Field changes write no record version: an added field, and a retype checked record by record.
+    benchExpect(($run200['field_add']['version_rows_written'] ?? null) === 0 && ($run200['field_add']['state'] ?? null) === 'switched', 'adding a field wrote versions: ' . json_encode($run200['field_add'] ?? null));
+    benchExpect(($run200['field_retype']['version_rows_written'] ?? null) === 0 && ($run200['field_retype']['state'] ?? null) === 'switched'
+        && ($run200['field_retype']['schema_version'] ?? null) === ($run200['field_add']['schema_version'] ?? 0) + 1, 'the retype did not switch without versions: ' . json_encode($run200['field_retype'] ?? null));
     benchExpect($run200['operations']['matched_count_exact']['matched_count'] === 200, 'exact count mismatch');
     benchExpect($run200['operations']['filter_choice']['matched_count'] === 40, 'choice filter mismatch');
     benchExpect($run200['operations']['search_text']['matched_count'] === 2, 'search mismatch');

@@ -225,7 +225,7 @@ try {
         $workbench = $runtime['workbench'];
         $views = $runtime['views'];
         $php = new DatabaseStorageWorkbench($connection, Larena\Property\Runtime\PropertyTypeRegistry::builtIns(), new StorageViewFixtureAccess($actor, $scope),
-            new StorageViewFixtureAccess($actor, $scope), $runtime['storage'], $runtime['evolution'], (static function () {
+            new StorageViewFixtureAccess($actor, $scope), $runtime['storage'], (static function () {
                 $policies = new Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry();
                 $policies->seal();
 

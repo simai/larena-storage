@@ -165,7 +165,6 @@ function workbenchRuntime(Connection $connection, ?WorkbenchScopeProvider $scope
         $authorizer,
         $scope,
         $versioned,
-        $evolution,
         $policies,
         'goal2-storage-workbench-test-cursor-key-minimum-32',
         AuditStorageSecurityEventSink::fromObject($audit),
@@ -554,8 +553,11 @@ try {
     workbenchExpect($metadataOnly->version === 2 && $metadataOnly->schema->version === 1, 'metadata-only field order update changed schema');
     $evolved = $workbench->updateStructure('scope:tenant-alpha', $inventory->structureId, 2, inventoryDescriptor(true, true), 'actor:admin:alpha');
     workbenchExpect($evolved->version === 3 && $evolved->schema->version === 2, 'optional field evolution mismatch');
+    // An optional field is added without rewriting a record: the record keeps its revision and the
+    // schema version it was written under, and reads under the new one (the field is empty).
     $afterMigration = $workbench->readRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 'actor:admin:alpha');
-    workbenchExpect($afterMigration->revision === 3 && $afterMigration->schemaVersion === 2, 'record was not schema-migrated');
+    workbenchExpect($afterMigration->revision === 2 && $afterMigration->schemaVersion === 1, 'adding an optional field rewrote the record');
+    workbenchExpect(workbenchCanonicalJson($afterMigration->values) === workbenchCanonicalJson($updated->values), 'the record does not read the same under the new schema version');
     $incompatible = inventoryDescriptor(true, true);
     $incompatible['fields'][0]['required'] = false;
     $beforeIncompatible = workbenchState($opened['connection']);
@@ -566,21 +568,22 @@ try {
     workbenchExpect(workbenchState($opened['connection']) === $beforeIncompatible, 'incompatible schema update mutated state');
 
     $history = $workbench->recordHistory('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 'actor:admin:alpha');
-    workbenchExpect(array_map(static fn ($record): int => $record->revision, $history) === [3, 2, 1], 'immutable record history mismatch');
-    $deleted = $workbench->archiveRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 3, 'actor:admin:alpha', 'alpha-delete');
+    workbenchExpect(array_map(static fn ($record): int => $record->revision, $history) === [2, 1], 'immutable record history mismatch');
+    $deleted = $workbench->archiveRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 2, 'actor:admin:alpha', 'alpha-delete');
+    workbenchExpect($deleted->schemaVersion === 2, 'a write after the field was added is not at the new schema version');
     workbenchExpect($deleted->state === 'archived' && $deleted->operation === 'delete' && $deleted->receipt()->operation === 'delete', 'record delete lifecycle mismatch');
-    $restored = $workbench->restoreRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 4, 'actor:admin:alpha', 'alpha-restore');
-    workbenchExpect($restored->state === 'active' && $restored->revision === 5 && $restored->operation === 'restore', 'record restore lifecycle mismatch');
+    $restored = $workbench->restoreRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 3, 'actor:admin:alpha', 'alpha-restore');
+    workbenchExpect($restored->state === 'active' && $restored->revision === 4 && $restored->operation === 'restore', 'record restore lifecycle mismatch');
     workbenchExpect($restored->values['related_to'] === $relationUuid, 'restore lost typed relation');
     workbenchRejects(
-        static fn () => $workbench->restoreRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 5, 'actor:admin:alpha'),
+        static fn () => $workbench->restoreRecord('scope:tenant-alpha', $inventory->structureId, $alpha->recordId, 4, 'actor:admin:alpha'),
         'storage_workbench_record_not_archived',
     );
     $currentBeta = $workbench->readRecord('scope:tenant-alpha', $inventory->structureId, $beta->recordId, 'actor:admin:alpha');
     $currentGamma = $workbench->readRecord('scope:tenant-alpha', $inventory->structureId, $gamma->recordId, 'actor:admin:alpha');
     $beforeAtomic = workbenchState($opened['connection']);
     try {
-        $workbench->bulkArchive('scope:tenant-alpha', $inventory->structureId, [$beta->recordId => $currentBeta->revision, $gamma->recordId => 1], 'actor:admin:alpha');
+        $workbench->bulkArchive('scope:tenant-alpha', $inventory->structureId, [$beta->recordId => $currentBeta->revision, $gamma->recordId => $currentGamma->revision + 1], 'actor:admin:alpha');
         throw new RuntimeException('stale bulk archive unexpectedly accepted');
     } catch (StorageConflict $exception) {
         workbenchExpect($exception->reasonCode === 'storage_workbench_record_revision_conflict', 'bulk conflict reason mismatch');

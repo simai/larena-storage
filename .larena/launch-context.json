@@ -141,7 +141,16 @@
     "src/Console/Commands/PublishedKeyRebuildCommand.php",
     "database/migrations/platform/2026_10_20_000002_create_larena_storage_published_key_tables.php",
     "tests/Integration/PublishedReadBatchingTest.php",
-    "tests/Integration/StorageViewFieldOptionsTest.php"
+    "tests/Integration/StorageViewFieldOptionsTest.php",
+    "src/Runtime/DatabaseAdminRecordTreeReader.php",
+    "database/migrations/platform/2026_10_21_000001_create_larena_storage_field_changes_table.php",
+    "src/Contracts/StorageWorkbenchFieldChange.php",
+    "src/SchemaEvolution/StorageFieldChangeJob.php",
+    "src/SchemaEvolution/StorageFieldChangeRow.php",
+    "src/SchemaEvolution/StorageFieldChangeRunner.php",
+    "src/SchemaEvolution/StorageFieldChanges.php",
+    "src/SchemaEvolution/StorageRecordConverter.php",
+    "tests/Integration/StorageFieldChangeTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

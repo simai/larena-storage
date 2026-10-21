@@ -85,6 +85,8 @@ use Larena\Storage\Runtime\StructureRoleOperationHandlers;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
 use Larena\Storage\Runtime\VersionedStorage;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
+use Larena\Storage\SchemaEvolution\StorageFieldChangeJob;
+use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 
 final class StorageServiceProvider extends ServiceProvider
@@ -187,11 +189,14 @@ final class StorageServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(DatabaseReadContracts::class, static function (Application $app): DatabaseReadContracts {
+            $connection = $app->make(DatabaseManager::class)->connection();
+
             return new DatabaseReadContracts(
-                $app->make(DatabaseManager::class)->connection(),
+                $connection,
                 $app->make(LocalizedValues::class),
                 $app->make(LocaleFallbackResolver::class),
                 $app->make(StorageMetrics::class),
+                new StorageRecordConverter($connection, $app->make(PropertyTypeRegistry::class)),
             );
         });
         $this->app->alias(DatabaseReadContracts::class, ReadContracts::class);
@@ -234,10 +239,15 @@ final class StorageServiceProvider extends ServiceProvider
             return new SlugUniquenessGuard($app->make(DatabaseReadContracts::class));
         });
 
-        $this->app->bind(AdminRecordTreeReader::class, static fn (Application $app): AdminRecordTreeReader => new DatabaseAdminRecordTreeReader(
-            $app->make(DatabaseManager::class)->connection(),
-            $app->make(ActorOperationAuthorizer::class),
-        ));
+        $this->app->bind(AdminRecordTreeReader::class, static function (Application $app): AdminRecordTreeReader {
+            $connection = $app->make(DatabaseManager::class)->connection();
+
+            return new DatabaseAdminRecordTreeReader(
+                $connection,
+                $app->make(ActorOperationAuthorizer::class),
+                new StorageRecordConverter($connection, $app->make(PropertyTypeRegistry::class)),
+            );
+        });
         $this->app->singleton(RecordOperationHandlers::class, static fn (Application $app): RecordOperationHandlers => new RecordOperationHandlers(
             $app->make(VersionedStorageContract::class),
         ));
@@ -315,9 +325,14 @@ final class StorageServiceProvider extends ServiceProvider
         $this->app->singleton(StorageMetrics::class, static fn (Application $app): StorageMetrics => StorageMetrics::fromContainer($app));
         $this->registerMetricCatalog();
         // Each storage's витрина (typed read table), kept in the write transaction.
-        $this->app->singleton(StorageViewSync::class, static fn (Application $app): StorageViewSync => StorageViewSync::for(
-            $app->make(DatabaseManager::class)->connection(),
-        ));
+        $this->app->singleton(StorageViewSync::class, static function (Application $app): StorageViewSync {
+            $connection = $app->make(DatabaseManager::class)->connection();
+            $views = StorageViewSync::for($connection);
+            // A rebuild reads older record versions through the converter, with the application's Property types.
+            $views->useConverter(new StorageRecordConverter($connection, $app->make(PropertyTypeRegistry::class)));
+
+            return $views;
+        });
         // The витрина rebuild as a durable queue job (storage.view.rebuild).
         $this->app->bind(StorageViewRebuildJob::class, static fn (Application $app): StorageViewRebuildJob => new StorageViewRebuildJob(
             $app->make(StorageViewSync::class),
@@ -328,6 +343,10 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(JobTypeRegistry::class),
             $app->make(DurableQueueDispatcher::class),
             $app->make(QueueClock::class),
+        ));
+        // A field change that checks every record, as a durable queue job (storage.schema.migrate).
+        $this->app->bind(StorageFieldChangeJob::class, static fn (Application $app): StorageFieldChangeJob => new StorageFieldChangeJob(
+            $app->make(DatabaseStorageWorkbench::class),
         ));
         $this->app->afterResolving(JobTypeRegistry::class, static function (JobTypeRegistry $registry, Application $app): void {
             self::registerQueueJobs($registry, $app);
@@ -377,7 +396,6 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(ActorOperationAuthorizer::class),
                 $app->make(QueryScopeProvider::class),
                 $app->make(VersionedStorageContract::class),
-                $app->make(StorageSchemaEvolutionContract::class),
                 $app->make(StorageSchemaEvolutionOwnerPolicyRegistry::class),
                 is_string($app->make('config')->get('app.key'))
                     ? $app->make('config')->get('app.key')
@@ -392,6 +410,16 @@ final class StorageServiceProvider extends ServiceProvider
                     if ($app->bound(JobTypeRegistry::class) && $app->bound(DurableQueueDispatcher::class) && $app->bound(QueueClock::class)) {
                         $app->make(StorageViewRebuildQueue::class)->enqueue($schemaId);
                     }
+                },
+                // A large field change runs as storage.schema.migrate; without a queue it runs in the request.
+                static function (string $changeRef) use ($app): bool {
+                    if (!$app->bound(JobTypeRegistry::class) || !$app->bound(DurableQueueDispatcher::class)
+                        || !$app->make(JobTypeRegistry::class)->has(StorageFieldChangeJob::JOB_TYPE)) {
+                        return false;
+                    }
+                    $app->make(DurableQueueDispatcher::class)->dispatch(StorageFieldChangeJob::request($changeRef));
+
+                    return true;
                 },
             );
         });
@@ -459,6 +487,12 @@ final class StorageServiceProvider extends ServiceProvider
         if (!$registry->has(StorageViewRebuildJob::JOB_TYPE)) {
             $registry->register(StorageViewRebuildJob::descriptor(), new StorageViewRebuildDeferredHandler(
                 static fn (): StorageViewRebuildJob => $app->make(StorageViewRebuildJob::class),
+            ));
+        }
+        // Deferred as well: the workbench (and its connection) is made only when a worker runs the job.
+        if (!$registry->has(StorageFieldChangeJob::JOB_TYPE)) {
+            $registry->register(StorageFieldChangeJob::descriptor(), new StorageViewRebuildDeferredHandler(
+                static fn (): StorageFieldChangeJob => $app->make(StorageFieldChangeJob::class),
             ));
         }
     }

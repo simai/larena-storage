@@ -16,6 +16,7 @@ use Larena\Storage\Contracts\ResolvedKey;
 use Larena\Storage\Enums\FieldVisibility;
 use Larena\Storage\Enums\PublicationStateValue;
 use Larena\Storage\Exceptions\ReadContractRejected;
+use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 
 /**
  * The two read models a site is served from.
@@ -63,14 +64,18 @@ final class DatabaseReadContracts implements ReadContracts
     public const BATCH = 500;
 
     private readonly PublishedKeyTable $keys;
+    private readonly StorageRecordConverter $converter;
 
     public function __construct(
         private readonly Connection $connection,
         private readonly ?LocalizedValues $localizedValues = null,
         private readonly LocaleFallbackResolver $localeFallback = new RequestedLocaleOnly(),
         private readonly StorageMetrics $metrics = new StorageMetrics(),
+        // Reads a revision written under an older schema version under the current one.
+        ?StorageRecordConverter $converter = null,
     ) {
         $this->keys = new PublishedKeyTable($connection);
+        $this->converter = $converter ?? new StorageRecordConverter($connection);
     }
 
     /** @phpstan-impure */
@@ -610,7 +615,9 @@ final class DatabaseReadContracts implements ReadContracts
                 $wanted[$head['record_id']] = $head['revision'];
             }
             foreach ($this->connection->table(self::VERSIONS_TABLE)
-                ->select(['record_id', 'revision', 'values_json'])
+                ->select(['record_id', 'revision', 'schema_version', 'values_json'])
+                // The schema's current version, in the same query.
+                ->selectSub(fn ($query) => $query->from(self::SCHEMA_VERSIONS_TABLE)->selectRaw('max(version)')->where('schema_id', $schemaId), 'latest_schema_version')
                 ->where('schema_id', $schemaId)
                 ->whereIn('record_id', array_values(array_unique(array_column($chunk, 'record_id'))))
                 ->whereIn('revision', array_values(array_unique(array_column($chunk, 'revision'))))
@@ -622,7 +629,16 @@ final class DatabaseReadContracts implements ReadContracts
                 }
 
                 $decoded = json_decode((string) $row['values_json'], true);
-                $values = is_array($decoded) ? $decoded : [];
+                $values = [];
+                foreach (is_array($decoded) ? $decoded : [] as $key => $value) {
+                    $values[(string) $key] = $value;
+                }
+                // A field change rewrites no revision: one written under an older schema version
+                // reads under the current one (a removed field is gone, a retyped one converted).
+                $currentVersion = (int) $row['latest_schema_version'];
+                if ((int) $row['schema_version'] < $currentVersion) {
+                    $values = $this->converter->convert($schemaId, (int) $row['schema_version'], $currentVersion, $values);
+                }
                 $shared = [];
                 $sources = [];
                 foreach ($fieldKeys as $fieldKey) {

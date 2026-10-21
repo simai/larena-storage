@@ -16,12 +16,14 @@ use Larena\Access\ValueObjects\AccessDecision;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageRecordVersion;
 use Larena\Storage\Contracts\StorageRecordVersionRef;
-use Larena\Storage\Contracts\StorageSchemaEvolution;
+use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
+use Larena\Storage\Contracts\StorageSchemaEvolutionTransactionScope;
 use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\Contracts\StorageSchemaVersionRef;
 use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
+use Larena\Storage\Contracts\StorageWorkbenchFieldChange;
 use Larena\Storage\Contracts\StorageWorkbenchPurgeReceipt;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
 use Larena\Storage\Contracts\StorageWorkbenchRecordPage;
@@ -33,6 +35,10 @@ use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
+use Larena\Storage\SchemaEvolution\StorageFieldChangeRow;
+use Larena\Storage\SchemaEvolution\StorageFieldChangeRunner;
+use Larena\Storage\SchemaEvolution\StorageFieldChanges;
+use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 use Larena\Storage\View\StorageViewColumn;
 use Larena\Storage\View\StorageViewCounter;
@@ -84,12 +90,18 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
     private const LOCK_UPDATE = 'update';
     private const LOCK_SHARED = 'shared';
+    // A field change that checks every record runs in the request up to this many records
+    // (the same memory budget as the PHP list); above it, in the background.
+    public const INLINE_FIELD_CHANGE_LIMIT = 5000;
+    private const INLINE_FIELD_CHANGE_CHUNK = 1000;
 
     private SchemaDefinitionNormalizer $normalizer;
     private StorageSecurityEventSink $events;
     private StorageViewQueryCompiler $compiler;
     private StorageViewCounter $counter;
     private StorageMetrics $metrics;
+    private StorageRecordConverter $converter;
+    private StorageFieldChanges $fieldChanges;
 
     public function __construct(
         private ConnectionInterface $database,
@@ -97,7 +109,6 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         private ActorOperationAuthorizer $authorizer,
         private QueryScopeProvider $scopeProvider,
         private VersionedStorage $storage,
-        private StorageSchemaEvolution $schemaEvolution,
         private StorageSchemaEvolutionOwnerPolicyRegistry $ownerPolicies,
         private string $cursorKey,
         ?StorageSecurityEventSink $events = null,
@@ -109,12 +120,20 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         ?StorageMetrics $metrics = null,
         // Queues the витрина rebuild a change of field options needs (storage.view.rebuild).
         private ?Closure $viewBuilds = null,
+        // Queues a field change that runs in the background (storage.schema.migrate); returns
+        // true when it is queued. Without it every field change runs in the request.
+        private ?Closure $fieldChangeJobs = null,
+        // Up to this many records a field change runs in the request; above it, in the background.
+        private int $inlineFieldChangeLimit = self::INLINE_FIELD_CHANGE_LIMIT,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
         $this->compiler = new StorageViewQueryCompiler();
         $this->counter = $counter ?? new StorageViewCounter();
         $this->metrics = $metrics ?? new StorageMetrics();
+        // Reads every record version written under an older schema version under the current one.
+        $this->converter = new StorageRecordConverter($database, $propertyTypes);
+        $this->fieldChanges = new StorageFieldChanges($database);
     }
 
     public function filterOperators(): array
@@ -226,139 +245,25 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         if ($normalized['structure_id'] !== $structureId) {
             throw new StorageRejected('storage_workbench_structure_identity_changed');
         }
-        $correlationId = $this->correlationId($correlationId);
-        $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], false);
 
-        try {
-            $viewBuild = false;
-            $updated = $this->database->transaction(function () use (
-                $scopeRef,
-                $structureId,
-                $expectedVersion,
-                $normalized,
-                $actor,
-                $correlationId,
-                &$viewBuild,
-            ): StorageWorkbenchStructure {
-                $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
-                if ((int) $head->current_version !== $expectedVersion) {
-                    throw new StorageConflict('storage_workbench_structure_version_conflict');
-                }
-                if ($this->headArchivedAt($head) !== null) {
-                    throw new StorageRejected('storage_workbench_structure_archived');
-                }
-                $current = $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
-                $currentSchema = $this->storage->schemaVersion($current->schema, true);
-                $candidateDefinition = $this->schemaDefinitionForUpdate($currentSchema, $normalized['fields']);
-                $schemaVersion = $current->schema->version;
-                $targetSchema = $currentSchema;
-                $options = StorageViewFieldOptions::resolve($normalized['fields']);
-                if ($this->canonicalJson($candidateDefinition) !== $this->canonicalJson(
-                    $this->schemaDefinitionFromVersion($currentSchema),
-                )) {
-                    // The schema apply plans the витрина of the target version with the fields' new options.
-                    $result = $this->withViewIntent($current->schema->schemaId, $options, fn () => $this->ownerPolicies->withinTransaction(
-                        $this->database,
-                        function ($transactionScope) use ($current, $candidateDefinition, $actor, $correlationId) {
-                            $plan = $this->schemaEvolution->plan(
-                                $current->schema,
-                                $candidateDefinition,
-                                $actor,
-                                $correlationId,
-                                $transactionScope,
-                                $this,
-                            );
-
-                            return $this->schemaEvolution->apply(
-                                $plan->planRef,
-                                $plan->planHash,
-                                $actor,
-                                $correlationId,
-                                $transactionScope,
-                                $this,
-                            );
-                        },
-                    ));
-                    $schemaVersion = $result->target->version;
-                    $targetSchema = $this->storage->schemaVersion($result->target, true);
-                }
-                // Options alone change the витрина, never a record version.
-                $viewBuild = $this->views?->applyOptions($targetSchema, $options) ?? false;
-
-                $nextVersion = $expectedVersion + 1;
-                $now = $this->timestamp();
-                $hash = $this->descriptorHash(
-                    $structureId,
-                    $scopeRef,
-                    $nextVersion,
-                    $schemaVersion,
-                    $normalized['label'],
-                    $normalized['fields'],
-                );
-                $updated = $this->database->table('larena_storage_workbench_structures')
-                    ->where('structure_id', $structureId)
-                    ->where('scope_ref', $scopeRef)
-                    ->where('current_version', $expectedVersion)
-                    ->update([
-                        'current_version' => $nextVersion,
-                        'current_schema_version' => $schemaVersion,
-                        'current_hash' => $hash,
-                        'updated_at' => $now,
-                    ]);
-                if ($updated !== 1) {
-                    throw new StorageConflict('storage_workbench_structure_version_conflict');
-                }
-                $this->insertStructureVersion(
-                    $structureId,
-                    $nextVersion,
-                    $scopeRef,
-                    (string) $head->storage_schema_id,
-                    $normalized['label'],
-                    $normalized['fields'],
-                    $schemaVersion,
-                    $hash,
-                    $actor,
-                    $correlationId,
-                    $now,
-                );
-
-                return new StorageWorkbenchStructure(
-                    $structureId,
-                    $scopeRef,
-                    $nextVersion,
-                    new StorageSchemaVersionRef((string) $head->storage_schema_id, $schemaVersion),
-                    $normalized['label'],
-                    $normalized['fields'],
-                    $hash,
-                    $now,
-                    'update',
-                    $actor,
-                    $correlationId,
-                );
-            });
-            $this->views?->settle();
-            if ($viewBuild) {
-                $this->requestViewBuild($updated->schema->schemaId);
-            }
-
-            return $updated;
-        } catch (StorageRejected $exception) {
-            throw $exception;
-        } catch (QueryException $exception) {
-            if ($this->isConstraintConflict($exception) || $this->isLockConflict($exception)) {
-                throw new StorageConflict('storage_workbench_structure_version_conflict');
-            }
-            throw StoragePersistenceFailed::from($exception);
-        } catch (Throwable $exception) {
-            throw StoragePersistenceFailed::from($exception);
-        }
+        return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), false);
     }
 
     /**
-     * Changes a structure in ways that rewrite its records: removed fields lose
-     * their values, retyped fields are converted, fields may become required.
-     * Every record is rewritten in one transaction or none is; history keeps
-     * the earlier revisions.
+     * Changes a structure in ways an update refuses: fields may be removed, retyped,
+     * made required or given other constraints. No record version is rewritten: each
+     * keeps the schema version it was written under and is read through the converter
+     * (StorageRecordConverter), so a removed field's value is not read any more and a
+     * retyped one reads converted. History keeps the earlier revisions as written.
+     *
+     * - Removing fields and adding optional ones switch the structure at once.
+     * - A change that every record must pass (a retype, a field made required, changed
+     *   constraints) is a field change: every current record is checked, and the
+     *   витрина's new columns filled, before the structure switches. Up to
+     *   INLINE_FIELD_CHANGE_LIMIT records (or without a queue) it runs in this call,
+     *   refused as a whole when a record does not convert; above it, it runs in the
+     *   background as the `storage.schema.migrate` job, and the structure returned keeps
+     *   its fields and carries the running change (StorageWorkbenchStructure::$fieldChange).
      */
     public function migrateStructure(
         string $scopeRef,
@@ -377,19 +282,86 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         if ($normalized['structure_id'] !== $structureId) {
             throw new StorageRejected('storage_workbench_structure_identity_changed');
         }
+
+        return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), true);
+    }
+
+    /**
+     * Runs a field change to its end: the `storage.schema.migrate` job, and a small change
+     * inline. Resumable, idempotent (a change that ended returns its state) and cancel-safe:
+     * the structure switches in one transaction only while the change is still running.
+     *
+     * @param Closure(): void|null $checkpoint Runs between chunks (the job's heartbeat).
+     * @return array{state: string, checked: int, resumed: bool}
+     */
+    public function runFieldChange(string $changeRef, int $chunk = StorageFieldChangeRunner::DEFAULT_CHUNK, ?Closure $checkpoint = null): array
+    {
+        $runner = new StorageFieldChangeRunner($this->database, $this->normalizer, $this->fieldChanges, $this->views, $this->converter);
+        try {
+            return $runner->run($changeRef, $chunk, $checkpoint, function (StorageFieldChangeRow $change, array $filled, Closure $recheck): void {
+                $this->switchFieldChange($change, $filled, $recheck);
+            });
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isLockConflict($exception)) {
+                throw new StorageConflict('storage_field_change_interrupted');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /**
+     * Stops a field change that runs in the background. Nothing it did is kept: the
+     * structure keeps its fields and the columns it reserved are dropped by the next change.
+     */
+    public function cancelFieldChange(string $scopeRef, string $structureId, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
+    {
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.structure.migrate', $scopeRef, self::STRUCTURE_RESOURCE);
         $correlationId = $this->correlationId($correlationId);
-        $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], true);
+        $structure = $this->database->transaction(function () use ($scopeRef, $structureId, $actor, $correlationId): StorageWorkbenchStructure {
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_UPDATE);
+            $running = $this->fieldChanges->running($structure->schema->schemaId, true);
+            if ($running === null) {
+                throw new StorageRejected('storage_workbench_field_change_not_running');
+            }
+            $this->fieldChanges->put($running->ended(StorageWorkbenchFieldChange::STATE_CANCELLED, null, $this->timestamp()));
+            $this->emitFieldChange('storage.schema_migration.rejected', $running, $actor, $correlationId, 'storage_field_change_cancelled');
+
+            return $structure;
+        });
+
+        return $this->stated([$structure])[0];
+    }
+
+    /**
+     * @param array{structure_id: string, label: string, fields: list<array<string, mixed>>} $normalized
+     */
+    private function changeStructure(
+        string $scopeRef,
+        string $structureId,
+        int $expectedVersion,
+        array $normalized,
+        string $actor,
+        string $correlationId,
+        bool $migrate,
+    ): StorageWorkbenchStructure {
+        $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], $migrate);
 
         try {
             $viewBuild = false;
-            $migrated = $this->database->transaction(function () use (
+            $changeRef = null;
+            $changed = $this->database->transaction(function () use (
                 $scopeRef,
                 $structureId,
                 $expectedVersion,
                 $normalized,
                 $actor,
                 $correlationId,
+                $migrate,
                 &$viewBuild,
+                &$changeRef,
             ): StorageWorkbenchStructure {
                 $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 if ((int) $head->current_version !== $expectedVersion) {
@@ -399,101 +371,36 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     throw new StorageRejected('storage_workbench_structure_archived');
                 }
                 $current = $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
+                $this->assertNoFieldChange($current->schema->schemaId);
                 $currentSchema = $this->storage->schemaVersion($current->schema, true);
-                $candidateDefinition = $this->schemaDefinition($current->schema->schemaId, $normalized['fields']);
-                $schemaVersion = $current->schema->version;
-                $targetSchema = $currentSchema;
-                $options = StorageViewFieldOptions::resolve($normalized['fields']);
-                if ($this->canonicalJson($candidateDefinition) !== $this->canonicalJson(
-                    $this->schemaDefinitionFromVersion($currentSchema),
-                )) {
-                    // The schema apply plans the витрина of the target version with the fields' new options.
-                    $result = $this->withViewIntent($current->schema->schemaId, $options, fn () => $this->ownerPolicies->withinTransaction(
-                        $this->database,
-                        function ($transactionScope) use ($current, $candidateDefinition, $actor, $correlationId) {
-                            $plan = $this->schemaEvolution->plan(
-                                $current->schema,
-                                $candidateDefinition,
-                                $actor,
-                                $correlationId,
-                                $transactionScope,
-                                $this,
-                                true,
-                            );
+                $candidateDefinition = $migrate
+                    ? $this->schemaDefinition($current->schema->schemaId, $normalized['fields'])
+                    : $this->schemaDefinitionForUpdate($currentSchema, $normalized['fields']);
+                $checked = $migrate ? $this->checkedFields($currentSchema, $candidateDefinition) : [];
+                if ($checked !== []) {
+                    // Every record must pass: the change checks them first, and switches after.
+                    $changeRef = $this->startFieldChange($head, $current, $currentSchema, $normalized, $candidateDefinition, $checked, $actor, $correlationId);
 
-                            return $this->schemaEvolution->apply(
-                                $plan->planRef,
-                                $plan->planHash,
-                                $actor,
-                                $correlationId,
-                                $transactionScope,
-                                $this,
-                            );
-                        },
-                    ));
-                    $schemaVersion = $result->target->version;
-                    $targetSchema = $this->storage->schemaVersion($result->target, true);
+                    return $current;
                 }
-                // Options alone change the витрина, never a record version.
-                $viewBuild = $this->views?->applyOptions($targetSchema, $options) ?? false;
-
-                $nextVersion = $expectedVersion + 1;
-                $now = $this->timestamp();
-                $hash = $this->descriptorHash(
-                    $structureId,
-                    $scopeRef,
-                    $nextVersion,
-                    $schemaVersion,
-                    $normalized['label'],
-                    $normalized['fields'],
-                );
-                $updated = $this->database->table('larena_storage_workbench_structures')
-                    ->where('structure_id', $structureId)
-                    ->where('scope_ref', $scopeRef)
-                    ->where('current_version', $expectedVersion)
-                    ->update([
-                        'current_version' => $nextVersion,
-                        'current_schema_version' => $schemaVersion,
-                        'current_hash' => $hash,
-                        'updated_at' => $now,
-                    ]);
-                if ($updated !== 1) {
-                    throw new StorageConflict('storage_workbench_structure_version_conflict');
-                }
-                $this->insertStructureVersion(
-                    $structureId,
-                    $nextVersion,
-                    $scopeRef,
-                    (string) $head->storage_schema_id,
-                    $normalized['label'],
-                    $normalized['fields'],
-                    $schemaVersion,
-                    $hash,
+                [$structure, $viewBuild] = $this->switchStructure(
+                    $head,
+                    $current,
+                    $currentSchema,
+                    $normalized,
+                    $candidateDefinition,
                     $actor,
                     $correlationId,
-                    $now,
+                    $migrate ? 'migrate' : 'update',
+                    [],
                 );
 
-                return new StorageWorkbenchStructure(
-                    $structureId,
-                    $scopeRef,
-                    $nextVersion,
-                    new StorageSchemaVersionRef((string) $head->storage_schema_id, $schemaVersion),
-                    $normalized['label'],
-                    $normalized['fields'],
-                    $hash,
-                    $now,
-                    'migrate',
-                    $actor,
-                    $correlationId,
-                );
+                return $structure;
             });
             $this->views?->settle();
             if ($viewBuild) {
-                $this->requestViewBuild($migrated->schema->schemaId);
+                $this->requestViewBuild($changed->schema->schemaId);
             }
-
-            return $migrated;
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (QueryException $exception) {
@@ -504,6 +411,439 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         } catch (Throwable $exception) {
             throw StoragePersistenceFailed::from($exception);
         }
+        if ($changeRef === null) {
+            return $this->stated([$changed])[0];
+        }
+        $change = $this->fieldChanges->find($changeRef);
+        if ($change !== null && $change->total > $this->inlineFieldChangeLimit && $this->enqueueFieldChange($changeRef)) {
+            return $this->stated([$this->readStructureInternal($scopeRef, $structureId)])[0];
+        }
+        $this->runFieldChange($changeRef, self::INLINE_FIELD_CHANGE_CHUNK);
+
+        return $this->stated([$this->readStructureInternal($scopeRef, $structureId)])[0];
+    }
+
+    /**
+     * In the structure change's transaction: the schema version of the new fields
+     * (when they changed), the витрина in step with it, and the structure's next
+     * version. No record version is written.
+     *
+     * @param array{structure_id: string, label: string, fields: list<array<string, mixed>>} $normalized
+     * @param array<string, mixed> $candidateDefinition
+     * @param list<string> $filled The витрина columns a field change filled.
+     * @return array{0: StorageWorkbenchStructure, 1: bool} The structure, and whether its витрина needs the rebuild job.
+     */
+    private function switchStructure(
+        stdClass $head,
+        StorageWorkbenchStructure $current,
+        StorageSchemaVersion $currentSchema,
+        array $normalized,
+        array $candidateDefinition,
+        string $actor,
+        string $correlationId,
+        string $operation,
+        array $filled,
+    ): array {
+        $structureId = $current->structureId;
+        $scopeRef = $current->scopeRef;
+        $expectedVersion = $current->version;
+        $schemaVersion = $current->schema->version;
+        $targetSchema = $currentSchema;
+        $options = StorageViewFieldOptions::resolve($normalized['fields']);
+        $viewBuild = false;
+        if ($this->canonicalJson($candidateDefinition) !== $this->canonicalJson(
+            $this->schemaDefinitionFromVersion($currentSchema),
+        )) {
+            $targetSchema = $this->switchSchema($currentSchema, $candidateDefinition, $actor, $correlationId);
+            $schemaVersion = $targetSchema->ref->version;
+            $viewBuild = $this->views?->switchSchema($currentSchema, $targetSchema, $options, $filled) ?? false;
+        }
+        // Options alone change the витрина, never a record version.
+        $viewBuild = ($this->views?->applyOptions($targetSchema, $options) ?? false) || $viewBuild;
+
+        $nextVersion = $expectedVersion + 1;
+        $now = $this->timestamp();
+        $hash = $this->descriptorHash(
+            $structureId,
+            $scopeRef,
+            $nextVersion,
+            $schemaVersion,
+            $normalized['label'],
+            $normalized['fields'],
+        );
+        $updated = $this->database->table('larena_storage_workbench_structures')
+            ->where('structure_id', $structureId)
+            ->where('scope_ref', $scopeRef)
+            ->where('current_version', $expectedVersion)
+            ->update([
+                'current_version' => $nextVersion,
+                'current_schema_version' => $schemaVersion,
+                'current_hash' => $hash,
+                'updated_at' => $now,
+            ]);
+        if ($updated !== 1) {
+            throw new StorageConflict('storage_workbench_structure_version_conflict');
+        }
+        $this->insertStructureVersion(
+            $structureId,
+            $nextVersion,
+            $scopeRef,
+            (string) $head->storage_schema_id,
+            $normalized['label'],
+            $normalized['fields'],
+            $schemaVersion,
+            $hash,
+            $actor,
+            $correlationId,
+            $now,
+        );
+
+        return [new StorageWorkbenchStructure(
+            $structureId,
+            $scopeRef,
+            $nextVersion,
+            new StorageSchemaVersionRef((string) $head->storage_schema_id, $schemaVersion),
+            $normalized['label'],
+            $normalized['fields'],
+            $hash,
+            $now,
+            $operation,
+            $actor,
+            $correlationId,
+            $current->archivedAt,
+            $current->archivedBy,
+            $current->historyKeep,
+        ), $viewBuild];
+    }
+
+    /**
+     * Registers the next schema version of a workbench storage without rewriting a
+     * record: the records keep their schema versions and read through the converter.
+     *
+     * @param array<string, mixed> $candidateDefinition
+     */
+    private function switchSchema(StorageSchemaVersion $current, array $candidateDefinition, string $actor, string $correlationId): StorageSchemaVersion
+    {
+        // The same Access operations the planned migration asked for.
+        $this->authorizer->assertAllowed($actor, 'storage.schema_migration.plan');
+        $this->authorizer->assertAllowed($actor, 'storage.schema_migration.dispatch');
+        $definition = $this->normalizer->normalize($candidateDefinition);
+        if ($definition['schema_id'] !== $current->ref->schemaId || $definition['owner_package'] !== $current->ownerPackage) {
+            throw new StorageRejected('storage_schema_migration_identity_changed');
+        }
+        $definitionJson = $this->normalizer->canonicalJson($definition);
+        $hash = hash('sha256', $definitionJson);
+        // The owner's policy still decides who changes a workbench schema: the workbench itself.
+        $this->ownerPolicies->withinTransaction($this->database, function (StorageSchemaEvolutionTransactionScope $scope) use ($current, $actor, $hash): void {
+            $this->ownerPolicies->authorize($current->ownerPackage, new StorageSchemaEvolutionOwnerContext(
+                operation: 'apply',
+                actor: $actor,
+                source: $current->ref,
+                sourceHash: $current->definitionHash,
+                targetHash: $hash,
+                planRef: null,
+                planHash: null,
+                connection: $this->database,
+                transactionScope: $scope,
+            ), $this);
+        });
+        $schemaHead = $this->database->table('larena_storage_schemas')
+            ->where('schema_id', $current->ref->schemaId)
+            ->lockForUpdate()
+            ->first();
+        if (!$schemaHead instanceof stdClass
+            || (int) $schemaHead->current_version !== $current->ref->version
+            || !hash_equals((string) $schemaHead->current_hash, $current->definitionHash)) {
+            throw new StorageRejected('storage_schema_migration_schema_head_stale');
+        }
+        $target = new StorageSchemaVersionRef($current->ref->schemaId, $current->ref->version + 1);
+        $now = $this->timestamp();
+        $updated = $this->database->table('larena_storage_schemas')
+            ->where('schema_id', $current->ref->schemaId)
+            ->where('current_version', $current->ref->version)
+            ->update(['current_version' => $target->version, 'current_hash' => $hash, 'updated_at' => $now]);
+        if ($updated !== 1) {
+            throw new StorageConflict('storage_schema_migration_conflict');
+        }
+        $this->database->table('larena_storage_schema_versions')->insert([
+            'schema_id' => $target->schemaId,
+            'version' => $target->version,
+            'definition' => $definitionJson,
+            'definition_hash' => $hash,
+            'owner_package' => $definition['owner_package'],
+            'created_by' => $actor,
+            'correlation_id' => $correlationId,
+            'created_at' => $now,
+        ]);
+        $this->events->emit(new StorageSecurityEvent(
+            'schema_migration',
+            'storage.schema_migration.applied',
+            $actor,
+            'storage-schema:' . $target->schemaId,
+            $correlationId,
+            [
+                'schema_id' => $target->schemaId,
+                'source_version' => $current->ref->version,
+                'target_version' => $target->version,
+                // Read through the converter: no record version is rewritten.
+                'record_count' => 0,
+            ],
+        ));
+
+        return new StorageSchemaVersion($target, $definition['owner_package'], $definition['fields'], $hash, $actor, $correlationId, $now);
+    }
+
+    /**
+     * The fields of a declared change that every record must pass: a retyped field, a
+     * field made required, changed constraints, an added field that is required. Empty
+     * when the change only removes fields, adds optional ones, or changes what values
+     * do not depend on (visibility, order, the localized flag).
+     *
+     * @param array<string, mixed> $candidateDefinition
+     * @return list<string>
+     */
+    private function checkedFields(StorageSchemaVersion $current, array $candidateDefinition): array
+    {
+        $from = StorageRecordConverter::byKey($current->fields);
+        $fields = is_array($candidateDefinition['fields'] ?? null) ? $candidateDefinition['fields'] : [];
+        $checked = [];
+        foreach ($fields as $field) {
+            if (!is_array($field) || !is_string($field['key'] ?? null)) {
+                continue;
+            }
+            $key = $field['key'];
+            $source = $from[$key] ?? null;
+            if ($source === null) {
+                // An optional added field is empty in every record, whatever its constraints.
+                if (($field['required'] ?? false) !== false) {
+                    $checked[] = $key;
+                }
+                continue;
+            }
+            if (($source['type'] ?? null) !== ($field['type'] ?? null)
+                || ($source['type_version'] ?? 1) !== ($field['type_version'] ?? 1)
+                || $this->canonicalJson($source['constraints'] ?? []) !== $this->canonicalJson($field['constraints'] ?? [])
+                || (($source['required'] ?? false) === false && ($field['required'] ?? false) === true)) {
+                $checked[] = $key;
+            }
+        }
+
+        return $checked;
+    }
+
+    /**
+     * In the structure change's transaction: records the field change, to be run.
+     *
+     * @param array{structure_id: string, label: string, fields: list<array<string, mixed>>} $normalized
+     * @param array<string, mixed> $candidateDefinition
+     * @param list<string> $checked
+     */
+    private function startFieldChange(
+        stdClass $head,
+        StorageWorkbenchStructure $current,
+        StorageSchemaVersion $currentSchema,
+        array $normalized,
+        array $candidateDefinition,
+        array $checked,
+        string $actor,
+        string $correlationId,
+    ): string {
+        $this->authorizer->assertAllowed($actor, 'storage.schema_migration.plan');
+        $definition = $this->normalizer->normalize($candidateDefinition);
+        $now = $this->timestamp();
+        $change = new StorageFieldChangeRow(
+            'storage-field-change-' . bin2hex(random_bytes(16)),
+            $current->schema->schemaId,
+            $current->scopeRef,
+            $current->structureId,
+            $currentSchema->ref->version,
+            (int) $head->current_version,
+            ['schema_id' => $definition['schema_id'], 'owner_package' => $definition['owner_package'], 'fields' => $definition['fields']],
+            hash('sha256', $this->normalizer->canonicalJson($definition)),
+            $normalized,
+            $checked,
+            StorageWorkbenchFieldChange::STATE_RUNNING,
+            null,
+            null,
+            0,
+            $this->database->table('larena_storage_records')->where('schema_id', $current->schema->schemaId)->count(),
+            null,
+            $actor,
+            $correlationId,
+            $now,
+            $now,
+            null,
+        );
+        $this->fieldChanges->insert($change);
+        $this->emitFieldChange('storage.schema_migration.planned', $change, $actor, $correlationId, null);
+
+        return $change->changeRef;
+    }
+
+    /**
+     * The switch at the end of a field change, in one transaction that holds the
+     * storage for update (writers wait): the records written since the walk checked
+     * them are checked, then the structure takes the target fields and the витрина
+     * its filled columns. Refused when the change was cancelled or the structure
+     * moved meanwhile; a record that does not convert fails the change.
+     *
+     * @param list<string> $filled
+     * @param Closure(): int $recheck
+     */
+    private function switchFieldChange(StorageFieldChangeRow $change, array $filled, Closure $recheck): void
+    {
+        $viewBuild = false;
+        try {
+            $this->database->transaction(function () use ($change, $filled, $recheck, &$viewBuild): void {
+                // Writers hold the storage for share: once this is taken, every write has committed.
+                $this->database->table('larena_storage_schemas')->where('schema_id', $change->schemaId)->lockForUpdate()->first();
+                $head = $this->structureHead($change->scopeRef, $change->structureId, self::LOCK_UPDATE);
+                $locked = $this->fieldChanges->find($change->changeRef, true);
+                if ($locked === null || !$locked->running() || $locked->runRef !== $change->runRef) {
+                    throw new StorageConflict('storage_field_change_interrupted');
+                }
+                $current = $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
+                if ((int) $head->current_version !== $change->expectedStructureVersion || $this->headArchivedAt($head) !== null
+                    || $current->schema->version !== $change->sourceSchemaVersion) {
+                    throw new StorageRejected('storage_field_change_structure_moved');
+                }
+                $currentSchema = $this->storage->schemaVersion($current->schema, true);
+                $recheck();
+                [, $viewBuild] = $this->switchStructure(
+                    $head,
+                    $current,
+                    $currentSchema,
+                    $change->descriptor,
+                    $change->targetDefinition,
+                    $change->createdBy,
+                    $change->correlationId ?? $this->correlationId(null),
+                    'migrate',
+                    $filled,
+                );
+                $this->fieldChanges->put($locked->ended(StorageWorkbenchFieldChange::STATE_DONE, null, $this->timestamp()));
+            });
+        } catch (StorageConflict $exception) {
+            throw $exception;
+        } catch (StorageRejected $exception) {
+            // Nothing switched: the change failed, and says why.
+            $this->database->transaction(function () use ($change, $exception): void {
+                $locked = $this->fieldChanges->find($change->changeRef, true);
+                if ($locked !== null && $locked->running()) {
+                    $this->fieldChanges->put($locked->ended(StorageWorkbenchFieldChange::STATE_FAILED, $exception->reasonCode, $this->timestamp()));
+                }
+            });
+            $this->emitFieldChange('storage.schema_migration.rejected', $change, $change->createdBy, $change->correlationId ?? $this->correlationId(null), $exception->reasonCode);
+            throw $exception;
+        }
+        $this->views?->settle();
+        if ($viewBuild) {
+            $this->requestViewBuild($change->schemaId);
+        }
+    }
+
+    /** A structure whose field change runs takes no other change until it ends. */
+    private function assertNoFieldChange(string $schemaId): void
+    {
+        if ($this->fieldChanges->running($schemaId, true) !== null) {
+            throw new StorageRejected('storage_workbench_field_change_running');
+        }
+    }
+
+    /** Queues the change's job; false when there is no queue (the change then runs inline). */
+    private function enqueueFieldChange(string $changeRef): bool
+    {
+        if ($this->fieldChangeJobs === null || !$this->fieldChanges->available()) {
+            return false;
+        }
+        try {
+            return ($this->fieldChangeJobs)($changeRef) === true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function emitFieldChange(string $type, StorageFieldChangeRow $change, string $actor, string $correlationId, ?string $reason): void
+    {
+        $this->events->emit(new StorageSecurityEvent(
+            'schema_migration',
+            $type,
+            $actor,
+            'storage-schema:' . $change->schemaId,
+            $correlationId,
+            [
+                'schema_id' => $change->schemaId,
+                'source_version' => $change->sourceSchemaVersion,
+                'target_version' => $change->sourceSchemaVersion + 1,
+                'change_ref' => $change->changeRef,
+                'record_count' => $change->total,
+            ] + ($reason === null ? [] : ['reason_code' => $reason]),
+        ));
+    }
+
+    /**
+     * The structures with the state of their витрина and of their field change, read
+     * cheaply: the registry row (memoized for the request) and one query for the changes.
+     *
+     * @param list<StorageWorkbenchStructure> $structures
+     * @return list<StorageWorkbenchStructure>
+     */
+    private function stated(array $structures): array
+    {
+        if ($structures === []) {
+            return [];
+        }
+        try {
+            $open = $this->fieldChanges->latestOpen(array_values(array_unique(array_map(
+                static fn (StorageWorkbenchStructure $structure): string => $structure->schema->schemaId,
+                $structures,
+            ))));
+        } catch (Throwable) {
+            $open = [];
+        }
+        // One registry read for a list, the memoized row for one structure.
+        $registrations = null;
+        if (count($structures) > 1) {
+            try {
+                $registrations = [];
+                foreach ($this->views !== null && $this->views->enabled() ? $this->views->registry()->all() : [] as $registration) {
+                    $registrations[$registration->schemaId] = $registration;
+                }
+            } catch (Throwable) {
+                $registrations = [];
+            }
+        }
+        $stated = [];
+        foreach ($structures as $structure) {
+            $registration = null;
+            try {
+                $registration = $registrations !== null
+                    ? ($registrations[$structure->schema->schemaId] ?? null)
+                    : ($this->views !== null && $this->views->enabled() ? $this->views->registry()->find($structure->schema->schemaId) : null);
+            } catch (Throwable) {
+            }
+            $pending = [];
+            foreach ($registration?->layout->inState(StorageViewColumn::STATE_BACKFILLING) ?? [] as $column) {
+                $pending[] = $column->fieldKey;
+            }
+            $change = $open[$structure->schema->schemaId] ?? null;
+            if ($change !== null && !$change->running() && $change->expectedStructureVersion !== $structure->version) {
+                // It ended before a later change of the structure.
+                $change = null;
+            }
+            if ($change !== null && $change->running()) {
+                $pending = array_merge($pending, $change->fields);
+            }
+            $pending = array_values(array_unique($pending));
+            sort($pending, SORT_STRING);
+            $stated[] = $structure->withState(
+                $registration?->state,
+                $registration?->backfillPending() ?? false,
+                $pending,
+                $change?->contract(),
+            );
+        }
+
+        return $stated;
     }
 
     public function readStructure(string $scopeRef, string $structureId, string $actor): StorageWorkbenchStructure
@@ -511,7 +851,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->assertStructureId($structureId);
         $this->assertScope($actor, 'storage.workbench.structure.read', $scopeRef, self::STRUCTURE_RESOURCE);
 
-        return $this->readStructureInternal($scopeRef, $structureId);
+        return $this->stated([$this->readStructureInternal($scopeRef, $structureId)])[0];
     }
 
     public function listStructures(string $scopeRef, string $actor, bool $includeArchived = false): array
@@ -533,7 +873,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 throw new StorageRejected('storage_workbench_structure_list_limit_exceeded');
             }
 
-            return array_map(fn (stdClass $row): StorageWorkbenchStructure => $this->hydrateStructureVersion($row), $rows);
+            return $this->stated(array_map(fn (stdClass $row): StorageWorkbenchStructure => $this->hydrateStructureVersion($row), $rows));
         } catch (StorageRejected $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -1145,6 +1485,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 if (!$archive && !$archived) {
                     throw new StorageRejected('storage_workbench_structure_not_archived');
                 }
+                if ($archive) {
+                    $this->assertNoFieldChange((string) $head->storage_schema_id);
+                }
                 $now = $this->timestamp();
                 $updated = $this->database->table('larena_storage_workbench_structures')
                     ->where('scope_ref', $scopeRef)
@@ -1197,6 +1540,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 return;
             }
             $current = $this->hydrateStructureVersion($head);
+            // A running field change fills its reserved columns: nothing reshapes them meanwhile.
+            if ($this->fieldChanges->running($current->schema->schemaId) !== null) {
+                return;
+            }
             $currentSchema = $this->storage->schemaVersion($current->schema);
             $candidate = $migrate
                 ? $this->schemaDefinition($current->schema->schemaId, $fields)
@@ -1642,23 +1989,6 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     }
 
     /**
-     * Runs a schema apply with the fields' витрина options known to the витрина sync.
-     *
-     * @template T
-     * @param Closure(): T $apply
-     * @return T
-     */
-    private function withViewIntent(string $schemaId, StorageViewFieldOptions $options, Closure $apply): mixed
-    {
-        $this->views?->intend($schemaId, $options);
-        try {
-            return $apply();
-        } finally {
-            $this->views?->intend($schemaId, null);
-        }
-    }
-
-    /**
      * After a structure change that left rows of its витрина to fill: queues the
      * rebuild that fills them. Best effort; without a queue the витрина stays as it
      * is (lists keep reading it, a search goes to the PHP list) until
@@ -1846,7 +2176,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             }
             // An added field is optional and unconstrained, so no stored record changes meaning; a
             // record@1 field carries only its target, and a choice field only its options (and, for
-            // several choices, how many), which existing records (without the field) ignore.
+            // several choices, how many), which existing records (without the field) ignore. Other
+            // constraints go through migrateStructure, which adds the field the same way.
             $constraints = $field['constraints'] ?? null;
             $constraintKeys = is_array($constraints) ? array_keys($constraints) : null;
             if ($constraintKeys !== null) {
@@ -2088,6 +2419,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             throw new StorageRejected('storage_workbench_record_corrupt');
         }
         $values = $version->values;
+        if ($version->schema->version !== $structure->schema->version) {
+            // Written under an older schema version: read under the structure's current one.
+            $values = $this->converter->convert($structure->schema->schemaId, $version->schema->version, $structure->schema->version, $values);
+        }
         unset($values[self::SCOPE_FIELD], $values[self::STATE_FIELD]);
 
         return new StorageWorkbenchRecord(

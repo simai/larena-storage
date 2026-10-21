@@ -208,20 +208,33 @@ final readonly class StorageViewLayout
      * This layout plus the columns another layout reserves (state `adding`) that
      * this one does not have yet. Writers keep writing this layout's columns; the
      * reserved ones only exist so the table can gain them ahead of a schema change.
+     *
+     * A reservation nothing uses any more (left by a change that failed or was
+     * cancelled) gives way to the target's: it is dropping, and goes once settled.
      */
     public function reserving(self $target): self
     {
         $columns = $this->columns;
         $known = [];
         $incoming = [];
-        foreach ($this->columns as $column) {
+        $reserved = [];
+        foreach ($this->columns as $position => $column) {
             $known[$column->column ?? ('side:' . $column->fieldKey . ':' . $column->state)] = true;
             if ($column->state === StorageViewColumn::STATE_ADDING || $column->state === StorageViewColumn::STATE_BACKFILLING) {
                 $incoming[$column->fieldKey] = true;
             }
+            if ($column->state === StorageViewColumn::STATE_ADDING && $column->column !== null) {
+                $reserved[$column->fieldKey] = $position;
+            }
         }
         foreach ($target->inState(StorageViewColumn::STATE_ADDING) as $column) {
             $key = $column->column ?? ('side:' . $column->fieldKey . ':' . $column->state);
+            $stale = $reserved[$column->fieldKey] ?? null;
+            if ($stale !== null && !isset($known[$key])
+                && ($columns[$stale]->kind !== $column->kind || $columns[$stale]->sqlType !== $column->sqlType)) {
+                $columns[$stale] = $columns[$stale]->withState(StorageViewColumn::STATE_DROPPING);
+                unset($incoming[$column->fieldKey], $reserved[$column->fieldKey]);
+            }
             // A field already taking a new column gets the next one with the change itself.
             if (!isset($known[$key]) && !isset($incoming[$column->fieldKey])) {
                 $incoming[$column->fieldKey] = true;
@@ -229,6 +242,7 @@ final readonly class StorageViewLayout
                 $known[$key] = true;
             }
         }
+        $columns = array_values($columns);
 
         return new self($this->schemaVersion, max($this->nextOrdinal, $target->nextOrdinal), $columns, $this->searchFields, $this->searchState);
     }

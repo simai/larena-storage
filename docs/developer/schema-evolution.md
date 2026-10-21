@@ -46,6 +46,109 @@ unchanged. The Storage workbench uses this class through
 `StorageWorkbench::migrateStructure()` under
 `storage.workbench.structure.migrate`.
 
+## Workbench Field Changes (no record rewrite)
+
+The Storage workbench no longer plans and applies a rewrite for its own
+structures. A field change registers the next schema version and leaves every
+record version as it was written: each version keeps its schema version, and
+every reader of current values passes it through `StorageRecordConverter`.
+
+- **Adding an optional field** (`updateStructure`, or `migrateStructure` with any
+  constraints on the added optional field): a new schema version, an empty
+  витрина column added online before the transaction (MySQL `ALGORITHM=INSTANT`),
+  ready at once, nothing backfilled, no record version written. The field reads
+  empty until a record is written with it.
+- **Removing a field** (`migrateStructure`): a new schema version at once, no
+  record version written; the витрина column is dropped after the commit and its
+  side rows go. If the field was searched (or titled the rows) the search text is
+  refilled by the `storage.view.rebuild` backfill; lists do not search it meanwhile.
+- **A change every record must pass** (a retype, a field made required, changed
+  constraints, a required added field): a field change. Every current record is
+  converted and validated against the target fields; the витрина columns the target
+  needs for existing fields (a retyped field's new column) are reserved before and
+  filled during the walk, while lists keep answering from the old columns. Then the
+  structure switches in one transaction and the old columns are dropped. Up to
+  `DatabaseStorageWorkbench::INLINE_FIELD_CHANGE_LIMIT` (5000) records, or without
+  a queue, it runs inside `migrateStructure` and is refused as a whole
+  (`storage_schema_migration_record_unconvertible`) when a record does not convert.
+  Above it, it runs as the `storage.schema.migrate` job and `migrateStructure`
+  returns the unchanged structure carrying the running change.
+
+### The read converter
+
+`StorageRecordConverter::convert($schemaId, $from, $to, $values)` walks the schema
+versions one change at a time, so a field removed and later added again under the
+same key starts empty. One step:
+
+- a value whose field is gone is dropped (the owner removed it);
+- a value whose field keeps its type and type version is kept as stored;
+- a value whose field changed type is converted by `DeclaredFieldValueTransform`
+  and normalized and validated by the target Property type with its constraints; a
+  value that cannot be converted is dropped. A current record always converts (a
+  retype switches only after every current record passed, strictly); only an older
+  history version can lose a value this way;
+- an absent field stays absent: an optional field added later reads empty.
+
+It is used by the workbench (single reads, lists, history), `VersionedStorage::
+listCurrentRecords`, the published projection (`DatabaseReadContracts`), the
+admin tree reader and the витрина rebuild. `readAdminVersion` and
+`projectPublicVersion` still return a version exactly as stored, with its own
+schema version.
+
+History, revert, export and publication: the stored versions never change, so
+history keeps what was written; read through the converter, a removed field's
+value does not come back. A revert of an older version (admin: its history
+values, written as a new revision) therefore writes only values of the current
+fields and cannot resurrect what the owner removed. A write over a record whose
+current version is at an older schema version is accepted and written at the
+current one. Export reads the list, so it reads converted values.
+
+### The field change job
+
+`storage.schema.migrate`, payload `{"change_ref": "storage-field-change-<32 hex>",
+"chunk": 500}` (`StorageFieldChangeJob`, registered deferred: the workbench is made
+only when a worker runs it; maintenance priority, 1800 s an attempt, 50 attempts
+15 s apart, a 300 s lease). The change is a row of `larena_storage_field_changes`
+(target definition and descriptor, position, state `running|done|failed|cancelled`,
+progress `checked/total`, reason); `DatabaseStorageWorkbench::runFieldChange()`
+runs it (the job, and inline), `cancelFieldChange()` cancels it.
+
+- Resumable: the position is saved with every chunk; a retry or a new job resumes
+  (the request's idempotency key follows the position).
+- Between chunks the job heartbeats and checks the queue checkpoint; a queue cancel
+  or a timeout stops it after a committed chunk and leaves the change running.
+- Idempotent: a change that ended is not run again. A newer run takes it over.
+- Cancel-safe: the switch happens in one transaction only while the change is still
+  running; a cancelled or failed change changed nothing (its reserved columns are
+  dropped by the next change).
+- Writes during the change are accepted under the current fields. The walk records
+  the revision it checked of each record (`larena_storage_field_change_records`);
+  before the switch every record written or created since is checked again, the last
+  ones inside the switch's transaction, which holds the storage for update (writers
+  hold it for share). A record that does not convert fails the change. No clock is
+  involved.
+- While it runs the structure accepts no other change
+  (`storage_workbench_field_change_running`), nor an archive.
+
+### Structure state for the admin
+
+`StorageWorkbenchStructure` (from `readStructure`, `listStructures` and the change
+calls) carries, read cheaply (the registry row, and one query for the changes):
+
+- `viewState`: `?string` — `ready`, `building`, `pending`, `failed`, or null without
+  a витрина;
+- `viewBackfillPending`: `bool` — a ready витрина still fills rows (a new column,
+  the search text): «индексируется…»;
+- `viewPendingFields`: `list<string>` — the fields whose column is still filled, by a
+  backfill or a running field change;
+- `fieldChange`: `?StorageWorkbenchFieldChange` — the running change, or the last one
+  that failed or was cancelled since the structure's current version
+  (`changeRef`, `state`, `checked`, `total`, `fields`, `reason`, `startedAt`,
+  `finishedAt`); `changing()` is true while one runs.
+
+The generic `StorageSchemaEvolution` plan/apply below is unchanged: owners that
+use it (content, docara) still rewrite their records through it.
+
 ## Public Flow
 
 ```php

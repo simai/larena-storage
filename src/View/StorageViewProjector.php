@@ -78,26 +78,53 @@ final readonly class StorageViewProjector
     /** @param array<string, mixed> $values */
     public function title(StorageViewLayout $layout, array $values): ?string
     {
-        $candidates = [];
-        foreach ($layout->written() as $column) {
-            if (in_array($column->kind, ['string', 'text'], true)) {
-                $candidates[] = $column->fieldKey;
-            }
-        }
-        $key = null;
-        foreach (self::TITLE_KEYS as $preferred) {
-            if (in_array($preferred, $candidates, true)) {
-                $key = $preferred;
-                break;
-            }
-        }
-        $key ??= $candidates[0] ?? null;
+        $key = $this->titleKey($layout);
         $value = $key === null ? null : ($values[$key] ?? null);
         if (!is_string($value) || $value === '') {
             return null;
         }
 
         return function_exists('mb_substr') ? mb_substr($value, 0, self::TITLE_LENGTH, 'UTF-8') : substr($value, 0, self::TITLE_LENGTH);
+    }
+
+    /** The field whose value is the row's title: `title`, `name`, or the first string or text field. */
+    public function titleKey(StorageViewLayout $layout): ?string
+    {
+        $candidates = [];
+        foreach ($layout->written() as $column) {
+            if (in_array($column->kind, ['string', 'text'], true)) {
+                $candidates[] = $column->fieldKey;
+            }
+        }
+        foreach (self::TITLE_KEYS as $preferred) {
+            if (in_array($preferred, $candidates, true)) {
+                return $preferred;
+            }
+        }
+
+        return $candidates[0] ?? null;
+    }
+
+    /**
+     * One column's value, for a walk that fills a column a layout has not started
+     * writing yet (a field change fills the new column of a retyped field).
+     */
+    public function cell(StorageViewColumn $column, mixed $value): mixed
+    {
+        return $this->columnValue($column, $value);
+    }
+
+    /**
+     * The side rows one multi-value field holds for a record.
+     *
+     * @return list<array{record_id: string, field_key: string, value: string}>
+     */
+    public function sideRows(string $recordId, string $fieldKey, mixed $value): array
+    {
+        return array_map(
+            static fn (string $item): array => ['record_id' => $recordId, 'field_key' => $fieldKey, 'value' => $item],
+            $this->multiValues($value),
+        );
     }
 
     /**

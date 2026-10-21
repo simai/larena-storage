@@ -6,7 +6,11 @@ use Illuminate\Support\Facades\Facade;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 
 // Declared structure migration: removing fields, changing their type and making
-// them required rewrites every record in one transaction, or none of them.
+// them required. No record version is rewritten: every current record is checked
+// first (all or nothing), then the structure switches and the versions read
+// through the converter. History keeps the stored versions; read under the
+// current fields, a removed field's value does not come back, so a revert of an
+// older version cannot resurrect what the owner removed.
 
 require __DIR__ . '/StorageWorkbenchTest.php';
 
@@ -54,9 +58,16 @@ try {
     $after = $records();
     workbenchExpect($after['Anna']->values === ['age' => 30, 'name' => 'Anna', 'vip' => true], 'Anna was not converted: ' . json_encode($after['Anna']->values));
     workbenchExpect($after['Boris']->values === ['age' => 41, 'name' => 'Boris', 'vip' => false], 'Boris was not converted');
-    workbenchExpect($after['Anna']->revision === $anna->revision + 1 && $after['Anna']->operation === 'schema_migration', 'migration revision missing');
+    workbenchExpect($after['Anna']->revision === $anna->revision && $after['Anna']->operation === 'create' && $after['Anna']->schemaVersion === 1, 'the migration rewrote a record');
+    workbenchExpect($connection->table('larena_storage_record_versions')->count() === 2, 'the migration wrote record versions');
+    // The stored version keeps the removed value; read under the current fields it is gone.
+    $stored = json_decode((string) $connection->table('larena_storage_record_versions')->where('record_id', $anna->recordId)->value('values_json'), true);
+    workbenchExpect(is_array($stored) && ($stored['note'] ?? null) === 'first' && ($stored['age'] ?? null) === '30', 'the stored version changed');
     $history = $workbench->recordHistory($scope, 'workbench.clients', $anna->recordId, $actor);
-    workbenchExpect(($history[1]->values['note'] ?? null) === 'first', 'history lost the removed value');
+    workbenchExpect(count($history) === 1 && !array_key_exists('note', $history[0]->values) && $history[0]->values['age'] === 30, 'history does not read under the current fields');
+    // A revert of that version writes the current fields' values: the removed one stays removed.
+    $reverted = $workbench->updateRecord($scope, 'workbench.clients', $anna->recordId, $anna->revision, $history[0]->values, $actor);
+    workbenchExpect($reverted->revision === 2 && $reverted->schemaVersion === $migrated->schema->version && !array_key_exists('note', $reverted->values), 'a revert resurrected a removed value');
 
     // A value that cannot be converted refuses the whole migration and changes nothing.
     $workbench->createRecord($scope, 'workbench.clients', ['name' => 'Vera', 'age' => 7], $actor);

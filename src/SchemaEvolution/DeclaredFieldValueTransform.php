@@ -44,6 +44,15 @@ final readonly class DeclaredFieldValueTransform
         return $result;
     }
 
+    /**
+     * One value of a field whose type changed, by the same fixed rules. Refuses
+     * (storage_schema_migration_value_unconvertible) what it cannot convert exactly.
+     */
+    public function convertValue(mixed $value, string $to): mixed
+    {
+        return $this->convert($value, $to);
+    }
+
     private function convert(mixed $value, string $to): mixed
     {
         return match ($to) {

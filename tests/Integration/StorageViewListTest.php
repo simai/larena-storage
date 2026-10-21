@@ -63,7 +63,7 @@ function storageViewListWorkbench(Connection $connection, array $runtime, string
     $policies = new StorageSchemaEvolutionOwnerPolicyRegistry();
     $policies->seal();
 
-    return new DatabaseStorageWorkbench($connection, PropertyTypeRegistry::builtIns(), $access, $access, $runtime['storage'], $runtime['evolution'],
+    return new DatabaseStorageWorkbench($connection, PropertyTypeRegistry::builtIns(), $access, $access, $runtime['storage'],
         $policies, 'storage-view-fixture-cursor-key-minimum-32-bytes', new NullStorageSecurityEventSink(), $views, $counter);
 }
 

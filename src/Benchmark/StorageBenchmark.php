@@ -17,7 +17,6 @@ use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
 use Larena\Storage\Runtime\VersionedStorage;
-use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 use Larena\Storage\View\StorageViewRebuilder;
@@ -92,7 +91,6 @@ final class StorageBenchmark
             $access,
             $access,
             $this->storage,
-            new DatabaseStorageSchemaEvolution($connection, $propertyTypes, $access, $events, $policies, $this->views),
             $policies,
             $cursorKey,
             $events,
@@ -242,20 +240,64 @@ final class StorageBenchmark
             $progress(sprintf('  %-20s %s', $name, self::summary($results[$name])));
         }
 
+        $fieldCount = count($structure->fields);
+        // Field changes on the filled storage, timed once each: an optional field added (no
+        // record version written) and a field retyped (every record checked, the витрина's new
+        // column filled, then the switch; no record version written either).
+        [$structure, $fieldAdd] = $this->fieldChange($structure, static function (array $fields): array {
+            $fields[] = self::field('extra_note', 210, 'string');
+
+            return $fields;
+        }, false);
+        $progress(sprintf('  %-20s %.1f ms, %d version rows written', 'field_add', $fieldAdd['ms'], $fieldAdd['version_rows_written']));
+        [$structure, $fieldRetype] = $this->fieldChange($structure, static fn (array $fields): array => array_map(
+            static fn (array $field): array => $field['key'] === 'rank' ? ['type' => 'number'] + $field : $field,
+            $fields,
+        ), true);
+        $progress(sprintf('  %-20s %.1f ms, %d version rows written', 'field_retype', $fieldRetype['ms'], $fieldRetype['version_rows_written']));
+
         $cleanup = $keep ? ['kept' => true] : $this->cleanup($structure, $sections);
 
         return [
             'records' => $size,
             'structure_id' => $structure->structureId,
-            'field_count' => count($structure->fields),
+            'field_count' => $fieldCount,
             'deep_page' => $deepPage,
             'seed_ms' => round($seedMs, 1),
             'seed_records_per_second' => $seedMs > 0 ? (int) round($size / ($seedMs / 1000)) : null,
             // Switching the field options on the filled storage: the structure change and the backfill.
             'options_backfill_ms' => $optionsMs === null ? null : round($optionsMs, 1),
             'operations' => $results,
+            'field_add' => $fieldAdd,
+            'field_retype' => $fieldRetype,
             'cleanup' => $cleanup,
         ];
+    }
+
+    /**
+     * One structure change on the filled storage, timed, with the record version rows it wrote.
+     *
+     * @param Closure(list<array<string, mixed>>): list<array<string, mixed>> $change
+     * @return array{0: StorageWorkbenchStructure, 1: array{ms: float, version_rows_written: int, schema_version: int, state: string}}
+     */
+    private function fieldChange(StorageWorkbenchStructure $structure, Closure $change, bool $migrate): array
+    {
+        $schemaId = $structure->schema->schemaId;
+        $rows = fn (): int => $this->connection->table('larena_storage_record_versions')->where('schema_id', $schemaId)->count();
+        $before = $rows();
+        $descriptor = ['structure_id' => $structure->structureId, 'label' => $structure->label, 'fields' => $change($structure->fields)];
+        $started = hrtime(true);
+        $changed = $migrate
+            ? $this->workbench->migrateStructure($this->scopeRef, $structure->structureId, $structure->version, $descriptor, self::ACTOR)
+            : $this->workbench->updateStructure($this->scopeRef, $structure->structureId, $structure->version, $descriptor, self::ACTOR);
+        $ms = (hrtime(true) - $started) / 1e6;
+
+        return [$changed, [
+            'ms' => round($ms, 1),
+            'version_rows_written' => $rows() - $before,
+            'schema_version' => $changed->schema->version,
+            'state' => $changed->fieldChange->state ?? 'switched',
+        ]];
     }
 
     /**

@@ -88,6 +88,7 @@ function storageViewInstall(Connection $connection): void
         '/2026_09_30_000001_add_larena_storage_workbench_structure_archive_state.php',
         '/2026_10_19_000001_add_larena_storage_workbench_history_keep.php',
         '/platform/2026_10_20_000001_create_larena_storage_views_table.php',
+        '/platform/2026_10_21_000001_create_larena_storage_field_changes_table.php',
     ] as $file) {
         (require $root . $file)->up();
     }
@@ -95,9 +96,10 @@ function storageViewInstall(Connection $connection): void
 
 /**
  * @param Closure(string): void|null $viewBuilds Receives the storages whose витрина a structure change left to fill.
+ * @param Closure(string): bool|null $fieldChangeJobs Queues a field change; without it every change runs inline.
  * @return array{workbench: DatabaseStorageWorkbench, storage: VersionedStorage, views: StorageViewSync, evolution: DatabaseStorageSchemaEvolution}
  */
-function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null, ?Closure $viewBuilds = null): array
+function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null, ?Closure $viewBuilds = null, ?Closure $fieldChangeJobs = null, int $inlineFieldChangeLimit = DatabaseStorageWorkbench::INLINE_FIELD_CHANGE_LIMIT): array
 {
     $metrics ??= new StorageMetrics();
     $properties = PropertyTypeRegistry::builtIns();
@@ -118,7 +120,7 @@ function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string 
     );
     $policies->seal();
     $evolution = new DatabaseStorageSchemaEvolution($connection, $properties, $access, $events, $policies, $views);
-    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $evolution, $policies, $cursorKey, $events, $views, null, $metrics, $viewBuilds);
+    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $policies, $cursorKey, $events, $views, null, $metrics, $viewBuilds, $fieldChangeJobs, $inlineFieldChangeLimit);
 
     return ['workbench' => $workbench, 'storage' => $storage, 'views' => $views, 'evolution' => $evolution];
 }
@@ -153,13 +155,15 @@ function storageViewParity(Connection $connection, StorageViewSync $views, strin
         ->where('heads.schema_id', $schemaId)
         ->get(['heads.record_id', 'heads.current_revision', 'heads.created_at', 'heads.updated_at', 'versions.schema_version', 'versions.values_json', 'versions.content_hash']) as $row) {
         $values = json_decode((string) $row->values_json, true, 512, JSON_THROW_ON_ERROR);
+        // A version written under an older schema version is projected through the read converter.
+        $values = $views->converter()->convert($schemaId, (int) $row->schema_version, $layout->schemaVersion, is_array($values) ? $values : []);
         $projection = $views->projector()->project(
             $layout,
             (string) $row->record_id,
             (int) $row->current_revision,
             (int) $row->schema_version,
             (string) $row->content_hash,
-            is_array($values) ? $values : [],
+            $values,
             (string) $row->created_at,
             (string) $row->updated_at,
         );

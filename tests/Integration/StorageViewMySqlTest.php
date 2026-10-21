@@ -64,9 +64,12 @@ try {
     );
 
     // A field change: the column is added before the transaction, the old one dropped after it.
+    // No record version is written: the rows keep their schema version and read through the converter.
+    $versionRows = $connection->table('larena_storage_record_versions')->where('schema_id', $schemaId)->count();
     $structure = $workbench->updateStructure($scope, 'workbench.items', $structure->version, ['structure_id' => 'workbench.items', 'label' => 'Items', 'fields' => array_merge($fields, [storageViewField('day', 70, 'date')])], $actor);
     $registration = $views->registry()->find($schemaId, true);
-    storageViewExpect($registration?->state === 'ready' && $registration->layout->schemaVersion === 2, 'an added field left the MySQL витрина out of sync');
+    storageViewExpect($registration?->state === 'ready' && $registration->layout->schemaVersion === 2 && !$registration->backfillPending(), 'an added field left the MySQL витрина out of sync');
+    storageViewExpect($connection->table('larena_storage_record_versions')->where('schema_id', $schemaId)->count() === $versionRows, 'adding a field on MySQL wrote record versions');
     storageViewParity($connection, $views, $schemaId, 'mysql field added');
     $structure = $workbench->migrateStructure($scope, 'workbench.items', $structure->version, ['structure_id' => 'workbench.items', 'label' => 'Items', 'fields' => [
         storageViewField('title', 10, 'string', ['max_length' => 200], true),
@@ -77,6 +80,11 @@ try {
     $registration = $views->registry()->find($schemaId, true);
     storageViewExpect($registration?->state === 'ready' && $registration->layout->inState('dropping') === [], 'the migration did not settle on MySQL');
     storageViewExpect($verifier->matches($table, $registration->layout), 'the migrated MySQL table does not match: ' . implode(', ', $verifier->problems($table, $registration->layout)));
+    storageViewExpect($connection->table('larena_storage_record_versions')->where('schema_id', $schemaId)->count() === $versionRows, 'a field change on MySQL wrote record versions');
+    // The removed note was searched: the search text is refilled by the backfill, and lists do not
+    // search it meanwhile; the retyped qty's new column was filled before the switch.
+    storageViewExpect($registration->layout->searchState === 'backfilling' && $registration->backfillPending(), 'the removed searched field did not ask for the search refill');
+    (new StorageViewRebuilder($views))->rebuild($schemaId, 2);
     storageViewParity($connection, $views, $schemaId, 'mysql migrate');
 
     // Two writers to one storage: the second neither waits for nor fails on the first.
@@ -215,6 +223,51 @@ try {
     (new StorageViewRebuilder($views))->rebuild($catalogSchema);
     storageViewParity($connection, $views, $catalogSchema, 'mysql legacy upgraded');
     storageViewExpect($find('the best') === [$items[0]], 'the upgraded MySQL витрина does not search');
+
+    // A field change in the background on MySQL: the new column is added online (INSTANT) before
+    // it, filled in chunks while the list answers from the old one, writes made meanwhile are checked
+    // again, and the switch drops the old column. No record version is written.
+    $queued = [];
+    $background = storageViewRuntime($connection, $ddl, $actor, $scope, null, null, static function (string $changeRef) use (&$queued): bool {
+        $queued[] = $changeRef;
+
+        return true;
+    }, 2)['workbench'];
+    $counts = $background->createStructure($scope, ['structure_id' => 'workbench.counts', 'label' => 'Counts', 'fields' => [
+        storageViewField('title', 10, 'string', ['max_length' => 200]), storageViewField('n', 20, 'integer'),
+    ]], $actor);
+    $countsSchema = $counts->schema->schemaId;
+    $countIds = [];
+    for ($index = 1; $index <= 6; $index++) {
+        $countIds[] = $background->createRecord($scope, 'workbench.counts', ['title' => 'C' . $index, 'n' => $index * 10], $actor)->recordId;
+    }
+    $countRows = $connection->table('larena_storage_record_versions')->where('schema_id', $countsSchema)->count();
+    $running = $background->migrateStructure($scope, 'workbench.counts', $counts->version, ['structure_id' => 'workbench.counts', 'label' => 'Counts', 'fields' => [
+        storageViewField('title', 10, 'string', ['max_length' => 200]), storageViewField('n', 20, 'number'),
+    ]], $actor);
+    storageViewExpect($running->changing() && count($queued) === 1, 'the MySQL retype did not go to the background');
+    $stopped = false;
+    try {
+        $background->runFieldChange($queued[0], 2, static function () use (&$stopped): void {
+            $stopped = true;
+            throw new RuntimeException('stopped after a chunk');
+        });
+    } catch (RuntimeException $exception) {
+        storageViewExpect($stopped && $exception->getMessage() === 'stopped after a chunk', 'the MySQL field change stopped for another reason: ' . $exception->getMessage());
+    }
+    sort($countIds, SORT_STRING);
+    $early = $background->readRecord($scope, 'workbench.counts', $countIds[0], $actor);
+    $background->updateRecord($scope, 'workbench.counts', $early->recordId, $early->revision, ['title' => 'C early', 'n' => 7], $actor);
+    $result = $background->runFieldChange($queued[0], 2);
+    storageViewExpect($result['state'] === 'done' && $result['resumed'], 'the MySQL field change did not resume and finish');
+    $counts = $background->readStructure($scope, 'workbench.counts', $actor);
+    storageViewExpect($counts->schema->version === 2 && !$counts->changing(), 'the MySQL field change did not switch');
+    storageViewExpect($connection->table('larena_storage_record_versions')->where('schema_id', $countsSchema)->count() === $countRows + 1, 'the MySQL field change wrote record versions');
+    storageViewExpect($background->readRecord($scope, 'workbench.counts', $countIds[0], $actor)->values['n'] === '7'
+        && $background->readRecord($scope, 'workbench.counts', $countIds[5], $actor)->values['n'] === (string) ((int) substr((string) $background->readRecord($scope, 'workbench.counts', $countIds[5], $actor)->values['title'], 1) * 10),
+        'the MySQL retyped values do not read converted');
+    storageViewExpect($connection->table('larena_storage_field_change_records')->count() === 0, 'the checked revisions were not emptied');
+    storageViewParity($connection, $views, $countsSchema, 'mysql background field change');
     $capsuleB->getDatabaseManager()->disconnect();
 } finally {
     Facade::clearResolvedInstances();

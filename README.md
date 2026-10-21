@@ -59,6 +59,14 @@ locks and rechecks the schema head, every record head and every immutable
 definition/value hash before it publishes a new schema version and matching
 `schema_migration` record revisions.
 
+Workbench structures change fields without that rewrite: a field change registers
+the next schema version and keeps every record version as written; readers pass
+older versions through the read converter (`StorageRecordConverter`). Adding an
+optional field or removing one switches at once; a retype, a field made required
+or changed constraints first checks every record (inline up to 5000 records,
+above that as the `storage.schema.migrate` queue job) and switches only when all
+of them convert. See `docs/developer/schema-evolution.md`.
+
 Schema-owning consumers may register an owner-neutral protection policy before
 Storage provider boot. Protected namespaces require the consumer's one-shot
 capability inside the exact outer transaction and connection; direct generic,

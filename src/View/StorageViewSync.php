@@ -7,6 +7,7 @@ namespace Larena\Storage\View;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Larena\Storage\Contracts\StorageSchemaVersion;
+use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use RuntimeException;
 use Throwable;
 
@@ -32,6 +33,7 @@ final class StorageViewSync
     private array $deferred = [];
     /** @var array<string, StorageViewFieldOptions> The options a structure change in progress brings, by schema. */
     private array $intended = [];
+    private ?StorageRecordConverter $converter = null;
 
     public function __construct(
         private readonly ConnectionInterface $database,
@@ -77,6 +79,20 @@ final class StorageViewSync
     public function connection(): ConnectionInterface
     {
         return $this->database;
+    }
+
+    /**
+     * The read converter the rebuild projects older record versions through. The
+     * application gives it its Property types; without them the built-in ones.
+     */
+    public function converter(): StorageRecordConverter
+    {
+        return $this->converter ??= new StorageRecordConverter($this->database);
+    }
+
+    public function useConverter(StorageRecordConverter $converter): void
+    {
+        $this->converter = $converter;
     }
 
     /** False on a driver without витрина DDL, or before the registry table is migrated. */
@@ -272,6 +288,10 @@ final class StorageViewSync
                 $this->ddl->createIndex($registration->tableName, $column);
             }
         }
+        if ($reserved->inState(StorageViewColumn::STATE_DROPPING) !== $registration->layout->inState(StorageViewColumn::STATE_DROPPING)) {
+            // A reservation nothing uses any more gave way: its column goes now.
+            $this->settleSchema($registration->schemaId);
+        }
 
         return true;
     }
@@ -318,6 +338,116 @@ final class StorageViewSync
         }
 
         return new StorageViewApply($this->projector, $this->writer, $registration->tableName, $promoted, self::hasMulti($promoted));
+    }
+
+    /**
+     * In the transaction of a field change that rewrites no record version, after the
+     * target schema version is in place: the витрина takes the target layout.
+     *
+     * - A field added by the change gets its column (prepared before the transaction)
+     *   ready at once: every row written before has no value for it, and its empty
+     *   column says exactly that. Nothing is backfilled.
+     * - A field the change removed loses its column after the commit; its side rows go.
+     * - A field whose new column a field change job filled ($filled, by column name)
+     *   gets that column ready, and its old column is dropped after the commit.
+     * - A column that changes only because of the fields' options (a string that becomes
+     *   indexed) is backfilling, while the old one keeps answering, as with applyOptions.
+     * - The search text and the titles stay when they read the same values as before
+     *   (only empty added fields joined them); otherwise the walk refills them.
+     *
+     * Returns true when the витрина needs the rebuild job (a backfill or a build).
+     *
+     * @param list<string> $filled
+     */
+    public function switchSchema(StorageSchemaVersion $source, StorageSchemaVersion $target, ?StorageViewFieldOptions $options, array $filled = []): bool
+    {
+        if (!$this->enabled() || $this->ddl === null) {
+            return false;
+        }
+        $schemaId = $target->ref->schemaId;
+        $registration = $this->registry->findForUpdate($schemaId);
+        if ($registration === null || !$registration->written()) {
+            return false;
+        }
+        $planned = $this->planner->plan($target->fields, $target->ref->version, $registration->layout, $options ?? $this->intended[$schemaId] ?? null);
+        $verifier = new StorageViewShapeVerifier($this->ddl);
+        if (!$verifier->matches($registration->tableName, $planned) && $this->canRunDdl()) {
+            $this->ddl->materialize($registration->tableName, $planned->withoutDropped());
+        }
+        if (!$verifier->matches($registration->tableName, $planned)) {
+            // The columns could not be added now: nothing writes the витрина until it is rebuilt.
+            $this->registry->put($registration->withLayout($planned)->withState(StorageViewRegistration::STATE_PENDING));
+            $this->defer($schemaId);
+
+            return true;
+        }
+        $sourceKeys = [];
+        foreach ($source->fields as $field) {
+            if (is_string($field['key'] ?? null)) {
+                $sourceKeys[$field['key']] = true;
+            }
+        }
+        $complete = [];
+        foreach ($planned->columns as $column) {
+            if ($column->state === StorageViewColumn::STATE_ADDING && (!isset($sourceKeys[$column->fieldKey])
+                || ($column->column !== null && in_array($column->column, $filled, true)))) {
+                $complete[$column->fieldKey] = true;
+            }
+        }
+        $columns = [];
+        $backfill = false;
+        foreach ($planned->columns as $column) {
+            if ($column->state === StorageViewColumn::STATE_ADDING) {
+                $ready = isset($complete[$column->fieldKey]);
+                $backfill = $backfill || !$ready;
+                $columns[] = $column->withState($ready ? StorageViewColumn::STATE_READY : StorageViewColumn::STATE_BACKFILLING);
+            } elseif ($column->state === StorageViewColumn::STATE_READY && isset($complete[$column->fieldKey])) {
+                // The field's new column holds every row now; the old one goes.
+                $columns[] = $column->withState(StorageViewColumn::STATE_DROPPING);
+            } else {
+                $backfill = $backfill || $column->state === StorageViewColumn::STATE_BACKFILLING;
+                $columns[] = $column;
+            }
+        }
+        $layout = new StorageViewLayout($planned->schemaVersion, $planned->nextOrdinal, $columns, $planned->searchFields, $planned->searchState);
+        $before = $registration->layout;
+        $after = $layout->searchFields ?? [];
+        $changed = [];
+        foreach ($layout->columns as $column) {
+            if ($column->column !== null && in_array($column->column, $filled, true)) {
+                $changed[] = $column->fieldKey;
+            }
+        }
+        // The search reads the same values as before when only empty added fields joined it.
+        $sameText = $before->searchFields !== null
+            && array_values(array_filter($after, static fn (string $key): bool => isset($sourceKeys[$key]))) === $before->searchFields
+            && array_intersect($changed, $after) === []
+            && $this->projector->titleKey($layout) === $this->projector->titleKey($before);
+        // Otherwise the walk refills the search text and the titles of every row.
+        $layout = $layout->withSearch($after, $sameText ? $before->searchState : StorageViewLayout::SEARCH_BACKFILLING);
+        $backfill = $backfill || $layout->needsBackfill();
+        if ($registration->state === StorageViewRegistration::STATE_BUILDING && $backfill) {
+            // A build under way wrote its rows with the earlier layout: it starts again.
+            $this->registry->put($registration->withLayout($layout)->withState(StorageViewRegistration::STATE_PENDING));
+            $this->defer($schemaId);
+
+            return true;
+        }
+        $next = $registration->state === StorageViewRegistration::STATE_READY
+            // A walk under way did not fill what is new for the rows behind it: it starts again.
+            ? $registration->withLayout($layout)->withState(
+                StorageViewRegistration::STATE_READY,
+                $target->ref->version,
+                $backfill ? null : $registration->buildCursor,
+                $backfill ? null : $registration->buildRunRef,
+            )
+            : $registration->withLayout($layout);
+        $this->registry->put($next);
+        if ($layout->inState(StorageViewColumn::STATE_DROPPING) !== []) {
+            $this->defer($schemaId);
+        }
+
+        return $backfill;
     }
 
     /**

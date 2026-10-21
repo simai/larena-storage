@@ -10,8 +10,9 @@ use Larena\Queue\Data\QueueExecutionContext;
 use Larena\Queue\Data\QueueJobResult;
 
 /**
- * Registers storage.view.rebuild without building its handler: the handler (and the database connection it
- * holds) is made only when a worker runs the job, so registering at boot binds no connection early.
+ * Registers a Storage queue job (storage.view.rebuild, storage.schema.migrate) without building its handler: the
+ * handler (and the database connection it holds) is made only when a worker runs the job, so registering at boot
+ * binds no connection early.
  */
 final readonly class StorageViewRebuildDeferredHandler implements QueueJobHandler
 {

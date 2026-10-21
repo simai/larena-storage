@@ -28,6 +28,7 @@ use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
+use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
@@ -42,6 +43,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
 
     private SchemaDefinitionNormalizer $normalizer;
     private StorageSecurityEventSink $securityEvents;
+    private StorageRecordConverter $converter;
 
     public function __construct(
         private ConnectionInterface $database,
@@ -61,6 +63,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
             ? $securityEvents
             : AuditStorageSecurityEventSink::fromObject($securityEvents);
+        $this->converter = new StorageRecordConverter($database, $propertyTypes);
     }
 
     public function connection(): ConnectionInterface
@@ -762,7 +765,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                         ->on('versions.revision', '=', 'heads.current_revision');
                 })
                 ->where('heads.schema_id', $query->schemaId)
-                ->where('heads.current_schema_version', $schema->ref->version)
+                ->where('heads.current_schema_version', '<=', $schema->ref->version)
                 ->orderBy('heads.record_id')
                 ->limit($query->limit + 1)
                 ->select([
@@ -795,14 +798,20 @@ final readonly class VersionedStorage implements VersionedStorageContract
             $items = [];
             foreach ($rows as $row) {
                 $record = $this->hydrateRecordVersion($row);
-                if ($record->schema->version !== $schema->ref->version
+                if ($record->schema->version > $schema->ref->version
                     || !hash_equals($record->contentHash, (string) $row->head_hash)) {
                     throw new StorageRejected('storage_record_head_corrupt');
                 }
+                // A version written under an older schema version reads through the converter.
                 $items[] = new StorageRecordListItem(
                     $record->ref,
                     $record->schema,
-                    $this->publicValues($schema, $record->values),
+                    $this->publicValues($schema, $this->converter->convert(
+                        $query->schemaId,
+                        $record->schema->version,
+                        $schema->ref->version,
+                        $record->values,
+                    )),
                 );
             }
 
@@ -925,9 +934,11 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 if (!$expectedVersion instanceof stdClass) {
                     throw new StorageRejected('storage_record_version_unknown');
                 }
+                // The current version may be at an older schema version: a field change rewrites
+                // no version, and the caller's values are normalized against the current one.
                 if ((string) $expectedVersion->owner_ref !== $ownerRef
                     || (int) $expectedVersion->schema_version !== (int) $head->current_schema_version
-                    || (int) $expectedVersion->schema_version !== $schema->version
+                    || (int) $expectedVersion->schema_version > $schema->version
                     || !hash_equals((string) $expectedVersion->content_hash, (string) $head->current_hash)) {
                     throw new StorageRejected('storage_record_head_corrupt');
                 }

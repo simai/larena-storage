@@ -126,14 +126,18 @@ try {
         storageViewExpect($connection->table($table)->where('record_id', $third->recordId)->doesntExist(), $mode . ': a purged record kept its row');
         storageViewParity($connection, $views, $schemaId, $mode . ' purge');
 
-        // Adding a field adds a column and rewrites every row at the new schema version.
+        // Adding a field adds a column, empty for every row, and rewrites nothing: the rows and the
+        // versions keep their schema version and read through the converter.
+        $versionRows = $connection->table('larena_storage_record_versions')->count();
         $withColor = array_merge($fields, [storageViewField('color', 80, 'choice', ['options' => [['value' => 'red', 'label' => 'Red']]])]);
         $structure = $workbench->updateStructure($scope, 'workbench.items', $structure->version, ['structure_id' => 'workbench.items', 'label' => 'Items', 'fields' => $withColor], $actor);
-        storageViewExpect($structure->schema->version === 2, $mode . ': the field was not added through a schema apply');
+        storageViewExpect($structure->schema->version === 2, $mode . ': the field did not give a new schema version');
         $registration = $views->registry()->find($schemaId, true);
         storageViewExpect($registration !== null && $registration->layout->schemaVersion === 2 && $registration->builtSchemaVersion === 2, $mode . ': the layout did not follow the schema');
+        storageViewExpect(!$registration->backfillPending() && $registration->layout->inState('backfilling') === [], $mode . ': an added field asked for a backfill');
         storageViewParity($connection, $views, $schemaId, $mode . ' field added');
-        storageViewExpect((int) $connection->table($table)->max('schema_version') === 2 && (int) $connection->table($table)->min('schema_version') === 2, $mode . ': rows are not at the new schema version');
+        storageViewExpect($connection->table('larena_storage_record_versions')->count() === $versionRows, $mode . ': adding a field wrote record versions');
+        storageViewExpect((int) $connection->table($table)->max('schema_version') === 1, $mode . ': the rows were rewritten at the new schema version');
         $colored = $workbench->createRecord($scope, 'workbench.items', ['title' => 'Red cup', 'color' => 'red'], $actor);
         storageViewParity($connection, $views, $schemaId, $mode . ' write after the field was added');
 
