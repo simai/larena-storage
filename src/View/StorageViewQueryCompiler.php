@@ -35,6 +35,10 @@ use WeakMap;
  * collation there. A query the витрина cannot answer exactly (a field without a
  * written column, a column still being backfilled, a type it does not map)
  * compiles to null, and the caller keeps the PHP path.
+ *
+ * A site table (StorageViewTableShape::Site) is compiled with its slot: the rows of
+ * that slot (`slot_id = ?`) take the place of the active rows, and the side and
+ * search tables are joined on the slot as well as the record.
  */
 final class StorageViewQueryCompiler
 {
@@ -60,17 +64,29 @@ final class StorageViewQueryCompiler
      * @param array<string, array<string, mixed>> $fields The structure's fields by key.
      * @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $query
      */
-    public function compile(Connection $connection, StorageViewRegistration $view, array $fields, array $query): ?StorageViewQuery
+    public function compile(Connection $connection, StorageViewRegistration $view, array $fields, array $query, ?int $slotId = null): ?StorageViewQuery
+    {
+        return $this->compileLayout($connection, $view->tableName, $view->layout, $fields, $query, $slotId);
+    }
+
+    /**
+     * The same compilation for any витрина table and layout; with a slot, onto the
+     * rows of that slot of a site table.
+     *
+     * @param array<string, array<string, mixed>> $fields The structure's fields by key.
+     * @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $query
+     */
+    public function compileLayout(Connection $connection, string $table, StorageViewLayout $layout, array $fields, array $query, ?int $slotId = null): ?StorageViewQuery
     {
         $columns = [];
-        foreach ($view->layout->columns as $column) {
+        foreach ($layout->columns as $column) {
             if ($column->state === StorageViewColumn::STATE_READY) {
                 $columns[$column->fieldKey] = $column;
             }
         }
         $mysql = in_array($connection->getDriverName(), ['mysql', 'mariadb'], true);
         $alias = StorageViewQuery::ALIAS;
-        $multiTable = StorageViewNaming::multiTable($view->tableName);
+        $multiTable = StorageViewNaming::multiTable($table);
 
         $conditions = [];
         $needsLower = false;
@@ -90,11 +106,14 @@ final class StorageViewQueryCompiler
                 if ($values === [] || array_filter($values, 'is_string') !== $values) {
                     return null;
                 }
-                $conditions[] = static function (Builder $where) use ($multiTable, $alias, $key, $values): void {
-                    $where->whereExists(static function (Builder $exists) use ($multiTable, $alias, $key, $values): void {
+                $conditions[] = static function (Builder $where) use ($multiTable, $alias, $key, $values, $slotId): void {
+                    $where->whereExists(static function (Builder $exists) use ($multiTable, $alias, $key, $values, $slotId): void {
                         $exists->selectRaw('1')->from($multiTable . ' as m')
-                            ->whereColumn('m.record_id', '=', $alias . '.record_id')
-                            ->where('m.field_key', '=', $key)
+                            ->whereColumn('m.record_id', '=', $alias . '.record_id');
+                        if ($slotId !== null) {
+                            $exists->where('m.slot_id', '=', $slotId);
+                        }
+                        $exists->where('m.field_key', '=', $key)
                             ->whereIn('m.value', $values);
                     });
                 };
@@ -161,7 +180,7 @@ final class StorageViewQueryCompiler
 
         $search = $query['search'];
         if ($search !== null) {
-            if (!$view->layout->searchesExactly(StorageViewFieldOptions::resolve(array_values($fields))->searchable)) {
+            if (!$layout->searchesExactly(StorageViewFieldOptions::resolve(array_values($fields))->searchable)) {
                 return null;
             }
             $terms = StorageViewSearch::terms($search);
@@ -169,13 +188,18 @@ final class StorageViewQueryCompiler
                 // A query of punctuation alone finds nothing.
                 $conditions[] = static fn (Builder $where): Builder => $where->whereRaw('1 = 0');
             } else {
-                $searchTable = StorageViewNaming::searchTable($view->tableName);
+                $searchTable = StorageViewNaming::searchTable($table);
                 $column = $connection->getQueryGrammar()->wrap('s.search_text');
                 $like = $column . ($mysql ? ' COLLATE utf8mb4_bin' : '') . ' LIKE ? ESCAPE \'' . self::ESCAPE . '\'';
                 $patterns = array_map(StorageViewSearch::likePattern(...), $terms);
-                $searchCheck = static function (Builder $where) use ($alias, $searchTable, $like, $patterns): void {
-                    $where->whereExists(static function (Builder $exists) use ($alias, $searchTable, $like, $patterns): void {
+                $searchCheck = static function (Builder $where) use ($alias, $searchTable, $like, $patterns, $slotId): void {
+                    $where->whereExists(static function (Builder $exists) use ($alias, $searchTable, $like, $patterns, $slotId): void {
                         $exists->selectRaw('1')->from($searchTable . ' as s')->whereColumn('s.record_id', '=', $alias . '.record_id');
+                        if ($slotId !== null) {
+                            // The slot itself, not a column of the row: a probe checks rows of a
+                            // window that carries only their ids and sort keys.
+                            $exists->where('s.slot_id', '=', $slotId);
+                        }
                         foreach ($patterns as $pattern) {
                             $exists->whereRaw($like, [$pattern]);
                         }
@@ -185,10 +209,13 @@ final class StorageViewQueryCompiler
                     [$minToken, $maxToken] = $this->tokenSizes($connection);
                     $boolean = StorageViewSearch::booleanQuery($terms, $minToken, $maxToken);
                     if ($boolean !== null) {
-                        $searchIndexed = static function (Builder $where) use ($alias, $searchTable, $column, $boolean, $like, $patterns): void {
-                            $where->whereIn($alias . '.record_id', static function (Builder $matched) use ($searchTable, $column, $boolean, $like, $patterns): void {
+                        $searchIndexed = static function (Builder $where) use ($alias, $searchTable, $column, $boolean, $like, $patterns, $slotId): void {
+                            $where->whereIn($alias . '.record_id', static function (Builder $matched) use ($searchTable, $column, $boolean, $like, $patterns, $slotId): void {
                                 $matched->select('s.record_id')->from($searchTable . ' as s')
                                     ->whereRaw('MATCH(' . $column . ') AGAINST (? IN BOOLEAN MODE)', [$boolean]);
+                                if ($slotId !== null) {
+                                    $matched->where('s.slot_id', '=', $slotId);
+                                }
                                 foreach ($patterns as $pattern) {
                                     $matched->whereRaw($like, [$pattern]);
                                 }
@@ -219,8 +246,11 @@ final class StorageViewQueryCompiler
             $this->registerLower($connection);
         }
         $includeArchived = $query['include_archived'];
-        $where = static function (Builder $where) use ($alias, $includeArchived, $conditions): void {
-            if (!$includeArchived) {
+        $where = static function (Builder $where) use ($alias, $includeArchived, $conditions, $slotId): void {
+            if ($slotId !== null) {
+                // A site table holds the published rows of each slot; the slot is the partition.
+                $where->where($alias . '.slot_id', '=', $slotId);
+            } elseif (!$includeArchived) {
                 $where->where($alias . '.state', '=', self::STATE_ACTIVE);
             }
             foreach ($conditions as $condition) {
@@ -228,7 +258,7 @@ final class StorageViewQueryCompiler
             }
         };
 
-        return new StorageViewQuery($connection, $view->tableName, $where, $sort, $searchCheck, $searchIndexed);
+        return new StorageViewQuery($connection, $table, $where, $sort, $searchCheck, $searchIndexed);
     }
 
     /** A LIKE pattern part that matches the value literally (escape character `!`). */

@@ -273,9 +273,29 @@ final class DatabaseReadContracts implements ReadContracts
      * @return list<array{record_id: string, revision: int}>
      * @phpstan-impure
      */
-    public function publishedHeadPage(string $schemaId, string $scopeRef, string $locale, int $limit, ?string $afterRecordId = null): array
+    public function publishedHeadPage(string $schemaId, string $scopeRef, string $locale, int $limit, ?string $afterRecordId = null, bool $lock = false): array
     {
-        return $this->publishedHeads($schemaId, $scopeRef, $locale, $limit, $afterRecordId);
+        return $this->publishedHeads($schemaId, $scopeRef, $locale, $limit, $afterRecordId, null, $lock);
+    }
+
+    /**
+     * The projection entries of these published heads in a scope and locale, exactly as
+     * `publishedProjection` and `publishedRecord` return them, in the heads' order. For
+     * the site витрина, which keeps a copy of each entry: with `$lock` every row is read
+     * with a shared lock inside the caller's transaction, so the entry is built from the
+     * latest committed rows and none of them changes before the transaction ends.
+     *
+     * @internal
+     * @param list<array{record_id: string, revision: int}> $heads
+     * @return list<array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>, value_sources: array<string, string>}>
+     * @phpstan-impure
+     */
+    public function entriesForHeads(string $schemaId, string $scopeRef, string $locale, array $heads, bool $lock = false): array
+    {
+        $this->assertSchema();
+        LocaleFallbackChain::assertLocale($locale);
+
+        return $this->projectionEntries($schemaId, $scopeRef, $locale, $heads, $this->publicFieldKeys($schemaId, $lock), $lock);
     }
 
     /**
@@ -360,14 +380,14 @@ final class DatabaseReadContracts implements ReadContracts
      * @return list<array{record_id: string, revision: int, locale: string, projection_version: int, values: array<string, mixed>, value_sources: array<string, string>}>
      * @phpstan-impure
      */
-    private function projectionEntries(string $schemaId, string $scopeRef, string $locale, array $heads, array $publicFields): array
+    private function projectionEntries(string $schemaId, string $scopeRef, string $locale, array $heads, array $publicFields, bool $lock = false): array
     {
         if ($heads === []) {
             return [];
         }
 
-        $resolved = $this->valuesOf($schemaId, $heads, $locale, $publicFields);
-        $versions = $this->projectionVersions($schemaId, $scopeRef, $locale, array_column($heads, 'record_id'));
+        $resolved = $this->valuesOf($schemaId, $heads, $locale, $publicFields, $lock);
+        $versions = $this->projectionVersions($schemaId, $scopeRef, $locale, array_column($heads, 'record_id'), $lock);
 
         $entries = [];
         foreach ($heads as $head) {
@@ -393,7 +413,7 @@ final class DatabaseReadContracts implements ReadContracts
      * @return array<string, int>
      * @phpstan-impure
      */
-    private function projectionVersions(string $schemaId, string $scopeRef, string $locale, array $recordIds): array
+    private function projectionVersions(string $schemaId, string $scopeRef, string $locale, array $recordIds, bool $lock = false): array
     {
         $localizedTable = $this->connection->getSchemaBuilder()->hasTable(DatabaseLocalizedValues::TABLE);
         $versions = [];
@@ -405,12 +425,15 @@ final class DatabaseReadContracts implements ReadContracts
             }
 
             $transitions = [];
-            foreach ($this->connection->table(DatabasePublicationLifecycle::LOG_TABLE)
+            $log = $this->connection->table(DatabasePublicationLifecycle::LOG_TABLE)
                 ->select('publication_id')
                 ->selectRaw('MAX(id) AS newest')
                 ->whereIn('publication_id', array_keys($publications))
-                ->groupBy('publication_id')
-                ->get() as $row) {
+                ->groupBy('publication_id');
+            if ($lock) {
+                $log->sharedLock();
+            }
+            foreach ($log->get() as $row) {
                 $row = (array) $row;
                 $recordId = $publications[(string) $row['publication_id']] ?? null;
                 if ($recordId !== null) {
@@ -420,14 +443,17 @@ final class DatabaseReadContracts implements ReadContracts
 
             $localized = [];
             if ($localizedTable) {
-                foreach ($this->connection->table(DatabaseLocalizedValues::TABLE)
+                $newest = $this->connection->table(DatabaseLocalizedValues::TABLE)
                     ->select('record_id')
                     ->selectRaw('MAX(id) AS newest')
                     ->where('schema_id', $schemaId)
                     ->where('locale', $locale)
                     ->whereIn('record_id', $chunk)
-                    ->groupBy('record_id')
-                    ->get() as $row) {
+                    ->groupBy('record_id');
+                if ($lock) {
+                    $newest->sharedLock();
+                }
+                foreach ($newest->get() as $row) {
                     $row = (array) $row;
                     $localized[(string) $row['record_id']] = (int) $row['newest'];
                 }
@@ -451,7 +477,7 @@ final class DatabaseReadContracts implements ReadContracts
      * @return list<array{record_id: string, revision: int}>
      * @phpstan-impure
      */
-    private function publishedHeads(string $schemaId, string $scopeRef, string $locale, int $limit, ?string $afterRecordId = null, ?array $recordIds = null): array
+    private function publishedHeads(string $schemaId, string $scopeRef, string $locale, int $limit, ?string $afterRecordId = null, ?array $recordIds = null, bool $lock = false): array
     {
         $query = $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)
             ->select(['record_id', 'published_revision'])
@@ -466,7 +492,11 @@ final class DatabaseReadContracts implements ReadContracts
         if ($recordIds !== null) {
             $query->whereIn('record_id', $recordIds);
         }
-        $rows = $query->orderBy('record_id')->limit($limit)->get();
+        $query->orderBy('record_id')->limit($limit);
+        if ($lock) {
+            $query->sharedLock();
+        }
+        $rows = $query->get();
 
         $heads = [];
         foreach ($rows as $row) {
@@ -593,7 +623,7 @@ final class DatabaseReadContracts implements ReadContracts
      * @return array<string, array{values: array<string, mixed>, sources: array<string, string>}> by record id
      * @phpstan-impure
      */
-    private function valuesOf(string $schemaId, array $heads, string $locale, array $fieldKeys): array
+    private function valuesOf(string $schemaId, array $heads, string $locale, array $fieldKeys, bool $lock = false): array
     {
         $resolved = [];
         foreach ($heads as $head) {
@@ -614,14 +644,17 @@ final class DatabaseReadContracts implements ReadContracts
             foreach ($chunk as $head) {
                 $wanted[$head['record_id']] = $head['revision'];
             }
-            foreach ($this->connection->table(self::VERSIONS_TABLE)
+            $versions = $this->connection->table(self::VERSIONS_TABLE)
                 ->select(['record_id', 'revision', 'schema_version', 'values_json'])
                 // The schema's current version, in the same query.
                 ->selectSub(fn ($query) => $query->from(self::SCHEMA_VERSIONS_TABLE)->selectRaw('max(version)')->where('schema_id', $schemaId), 'latest_schema_version')
                 ->where('schema_id', $schemaId)
                 ->whereIn('record_id', array_values(array_unique(array_column($chunk, 'record_id'))))
-                ->whereIn('revision', array_values(array_unique(array_column($chunk, 'revision'))))
-                ->get() as $row) {
+                ->whereIn('revision', array_values(array_unique(array_column($chunk, 'revision'))));
+            if ($lock) {
+                $versions->sharedLock();
+            }
+            foreach ($versions->get() as $row) {
                 $row = (array) $row;
                 $recordId = (string) $row['record_id'];
                 if (($wanted[$recordId] ?? null) !== (int) $row['revision']) {
@@ -656,7 +689,9 @@ final class DatabaseReadContracts implements ReadContracts
         // still decided by the field, so a translated protected field stays out.
         if ($this->localizedValues !== null && $found !== []) {
             $chain = $this->localeFallback->chainFor($locale);
-            if ($this->localizedValues instanceof LocalizedValuesBatch) {
+            if ($lock && $this->localizedValues instanceof DatabaseLocalizedValues) {
+                $localized = $this->localizedValues->resolveMany($schemaId, $found, $chain, $fieldKeys, true);
+            } elseif ($this->localizedValues instanceof LocalizedValuesBatch) {
                 $localized = $this->localizedValues->resolveMany($schemaId, $found, $chain, $fieldKeys);
             } else {
                 $localized = [];
@@ -684,12 +719,15 @@ final class DatabaseReadContracts implements ReadContracts
      * @return list<string>
      * @phpstan-impure
      */
-    private function publicFieldKeys(string $schemaId): array
+    private function publicFieldKeys(string $schemaId, bool $lock = false): array
     {
-        $row = $this->connection->table(self::SCHEMA_VERSIONS_TABLE)
+        $query = $this->connection->table(self::SCHEMA_VERSIONS_TABLE)
             ->where('schema_id', $schemaId)
-            ->orderByDesc('version')
-            ->first();
+            ->orderByDesc('version');
+        if ($lock) {
+            $query->sharedLock();
+        }
+        $row = $query->first();
 
         if ($row === null) {
             // No schema means no public fields. Failing closed here keeps an

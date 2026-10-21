@@ -8,6 +8,11 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
+use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewProjector;
+use Larena\Storage\View\Site\PublishedSiteViewRegistration;
+use Larena\Storage\View\Site\PublishedSiteViewRegistry;
+use Closure;
 use RuntimeException;
 use Throwable;
 
@@ -21,6 +26,10 @@ use Throwable;
  *   ones after the commit. DDL never runs inside a MySQL transaction: when there
  *   is no way around it, the витрина is marked pending and the DDL waits for the
  *   commit (the rebuild command then fills it).
+ * - The site витрина (useSiteViews) follows the same structure changes: a change of
+ *   the public fields or their options silences it in the change's transaction and
+ *   queues its rebuild after the commit; a purged structure's site tables go after the
+ *   commit. Publication keeps its rows (PublishedSiteViewIndex).
  */
 final class StorageViewSync
 {
@@ -34,6 +43,15 @@ final class StorageViewSync
     /** @var array<string, StorageViewFieldOptions> The options a structure change in progress brings, by schema. */
     private array $intended = [];
     private ?StorageRecordConverter $converter = null;
+    private ?PublishedSiteViewRegistry $siteRegistry = null;
+    /** @var (Closure(): PublishedSiteViewIndex)|null */
+    private ?Closure $siteIndex = null;
+    /** @var (Closure(string): void)|null */
+    private ?Closure $siteRebuilds = null;
+    /** @var array<string, true> Site tables to drop once the transaction commits. */
+    private array $siteDrops = [];
+    /** @var array<string, true> Site rebuilds to queue once the transaction commits. */
+    private array $siteQueued = [];
 
     public function __construct(
         private readonly ConnectionInterface $database,
@@ -93,6 +111,77 @@ final class StorageViewSync
     public function useConverter(StorageRecordConverter $converter): void
     {
         $this->converter = $converter;
+    }
+
+    /**
+     * The site витрина follows this storage's structure changes: the registry it marks,
+     * the index that refreshes rows a history prune changed (made when first needed),
+     * and the queue of its rebuilds (given a storage schema id, after the commit).
+     *
+     * @param (Closure(): PublishedSiteViewIndex)|null $index
+     * @param (Closure(string): void)|null $rebuilds
+     */
+    public function useSiteViews(PublishedSiteViewRegistry $registry, ?Closure $index = null, ?Closure $rebuilds = null): void
+    {
+        $this->siteRegistry = $registry;
+        $this->siteIndex = $index;
+        $this->siteRebuilds = $rebuilds;
+    }
+
+    /** The site витрина registry on this connection (the one given to useSiteViews, or a plain one). */
+    public function siteRegistry(): PublishedSiteViewRegistry
+    {
+        return $this->siteRegistry ??= new PublishedSiteViewRegistry($this->database);
+    }
+
+    /**
+     * In the transaction of a history prune that removed localized values of these
+     * records: their site rows are rewritten (an entry's projection version counts
+     * those values), or, without the site index, their slots stop answering.
+     *
+     * @param list<string> $recordIds
+     */
+    public function localizedValuesPruned(string $schemaId, array $recordIds): void
+    {
+        if ($recordIds === []) {
+            return;
+        }
+        if ($this->siteIndex !== null) {
+            ($this->siteIndex)()->refreshRecords($schemaId, $recordIds);
+
+            return;
+        }
+        $this->siteRegistry()->silenceRecords($schemaId, $recordIds);
+    }
+
+    /**
+     * In a structure change's transaction: when the target fields or their options
+     * change what the site витрина holds (its public fields), it stops answering (the
+     * registration and every slot pending) and its rebuild is queued after the commit.
+     *
+     * @param list<array<string, mixed>> $fields The target schema version's fields.
+     */
+    private function siteSchemaChanged(string $schemaId, array $fields, ?StorageViewFieldOptions $options): void
+    {
+        $registry = $this->siteRegistry();
+        if (!$registry->available()) {
+            return;
+        }
+        $registration = $registry->findForUpdate($schemaId);
+        if ($registration === null) {
+            return;
+        }
+        $options ??= StorageViewFieldOptions::load($this->database, $schemaId);
+        $hash = PublishedSiteViewProjector::publicFields($fields) === [] ? null : PublishedSiteViewProjector::publicFieldsHash($fields, $options);
+        if ($hash === $registration->publicFieldsHash) {
+            return;
+        }
+        if ($registration->state !== PublishedSiteViewRegistration::STATE_PENDING) {
+            $registry->put($registration->withState(PublishedSiteViewRegistration::STATE_PENDING));
+        }
+        $registry->silenceSchema($schemaId);
+        $this->siteQueued[$schemaId] = true;
+        $this->afterCommit();
     }
 
     /** False on a driver without витрина DDL, or before the registry table is migrated. */
@@ -305,6 +394,7 @@ final class StorageViewSync
      */
     public function beginApply(StorageSchemaVersion $target): ?StorageViewApply
     {
+        $this->siteSchemaChanged($target->ref->schemaId, $target->fields, $this->intended[$target->ref->schemaId] ?? null);
         if (!$this->enabled() || $this->ddl === null) {
             return null;
         }
@@ -361,6 +451,7 @@ final class StorageViewSync
      */
     public function switchSchema(StorageSchemaVersion $source, StorageSchemaVersion $target, ?StorageViewFieldOptions $options, array $filled = []): bool
     {
+        $this->siteSchemaChanged($target->ref->schemaId, $target->fields, $options ?? $this->intended[$target->ref->schemaId] ?? null);
         if (!$this->enabled() || $this->ddl === null) {
             return false;
         }
@@ -461,6 +552,7 @@ final class StorageViewSync
      */
     public function applyOptions(StorageSchemaVersion $schema, StorageViewFieldOptions $options): bool
     {
+        $this->siteSchemaChanged($schema->ref->schemaId, $schema->fields, $options);
         if (!$this->enabled() || $this->ddl === null) {
             return false;
         }
@@ -590,9 +682,19 @@ final class StorageViewSync
         return $this->planner->plan($fields, $schemaVersion, null, $options)->promoted();
     }
 
-    /** In the transaction that purges a structure: its витрина goes with it. */
+    /** In the transaction that purges a structure: its витрина and its site витрина go with it. */
     public function structurePurged(string $schemaId): void
     {
+        $site = $this->siteRegistry();
+        if ($this->ddl !== null && $site->available()) {
+            $site->delete($schemaId);
+            if ($this->ddl->transactional()) {
+                $this->ddl->dropTables(StorageViewNaming::siteTable($schemaId));
+            } else {
+                $this->siteDrops[$schemaId] = true;
+                $this->afterCommit();
+            }
+        }
         if (!$this->enabled() || $this->ddl === null) {
             return;
         }
@@ -608,6 +710,7 @@ final class StorageViewSync
     /** Runs the DDL that waited for the commit. Callers run it after their transaction. */
     public function settle(): void
     {
+        $this->settleSite();
         if ($this->ddl === null || $this->database->transactionLevel() > 0 || $this->deferred === []) {
             return;
         }
@@ -680,6 +783,48 @@ final class StorageViewSync
 
             return true;
         });
+    }
+
+    /**
+     * After the commit: drops the site tables of purged structures that are still
+     * unregistered, and queues the site rebuilds structure changes asked for. Best effort.
+     */
+    private function settleSite(): void
+    {
+        if ($this->database->transactionLevel() > 0 || ($this->siteDrops === [] && $this->siteQueued === [])) {
+            return;
+        }
+        $drops = array_keys($this->siteDrops);
+        $queued = array_keys($this->siteQueued);
+        $this->siteDrops = [];
+        $this->siteQueued = [];
+        foreach ($drops as $schemaId) {
+            try {
+                if ($this->ddl !== null && $this->siteRegistry()->find((string) $schemaId, true) === null) {
+                    $this->ddl->dropTables(StorageViewNaming::siteTable((string) $schemaId));
+                }
+            } catch (Throwable) {
+            }
+        }
+        if ($this->siteRebuilds === null) {
+            return;
+        }
+        foreach ($queued as $schemaId) {
+            try {
+                ($this->siteRebuilds)((string) $schemaId);
+            } catch (Throwable) {
+            }
+        }
+    }
+
+    private function afterCommit(): void
+    {
+        if ($this->database instanceof Connection) {
+            try {
+                $this->database->afterCommit(fn () => $this->settle());
+            } catch (RuntimeException) {
+            }
+        }
     }
 
     private function defer(string $schemaId): void

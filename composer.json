@@ -127,6 +127,8 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageFieldChangeTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageMetricsTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublishedReadBatchingTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublishedSiteViewMaintenanceTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublishedSiteViewRebuildTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageDatabaseTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/VersionedStorageRecordListTest.php",

@@ -34,9 +34,14 @@ final class SqliteStorageViewDdl extends StorageViewDdl
         return $this->transactionalDdl;
     }
 
-    public function ensureTable(string $table, StorageViewLayout $layout): void
+    public function ensureTable(string $table, StorageViewLayout $layout, ?StorageViewTableShape $shape = null): void
     {
-        $this->assertTable($table);
+        if (StorageViewTableShape::of($shape) === StorageViewTableShape::Site) {
+            $this->ensureSiteTable($table, $layout);
+
+            return;
+        }
+        $this->assertTable($table, StorageViewTableShape::Admin);
         if (!$this->tableExists($table)) {
             $columns = [
                 '"record_id" TEXT NOT NULL PRIMARY KEY',
@@ -92,14 +97,15 @@ final class SqliteStorageViewDdl extends StorageViewDdl
         $this->database->statement('ALTER TABLE "' . $table . '" DROP COLUMN "' . $column . '"');
     }
 
-    public function createIndex(string $table, StorageViewColumn $column): void
+    public function createIndex(string $table, StorageViewColumn $column, ?StorageViewTableShape $shape = null): void
     {
-        $this->assertTable($table);
+        $shape = StorageViewTableShape::of($shape);
+        $this->assertTable($table, $shape);
         if ($column->column === null) {
             return;
         }
         $this->assertColumn($column->column);
-        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::fieldIndexName($table, $column->column) . '" ON "' . $table . '" ("state", "' . $column->column . '", "record_id")');
+        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::fieldIndexName($table, $column->column) . '" ON "' . $table . '" ("' . $shape->partitionColumn() . '", "' . $column->column . '", "record_id")');
     }
 
     public function dropIndex(string $table, string $column): void
@@ -117,10 +123,60 @@ final class SqliteStorageViewDdl extends StorageViewDdl
         $this->database->statement('DROP TABLE IF EXISTS "' . $table . '"');
     }
 
-    public function ensureSearchTable(string $table): void
+    public function ensureSearchTable(string $table, ?StorageViewTableShape $shape = null): void
     {
-        $this->assertTable($table);
+        if (StorageViewTableShape::of($shape) === StorageViewTableShape::Site) {
+            $this->assertTable($table, StorageViewTableShape::Site);
+            $search = StorageViewNaming::searchTable($table);
+            $this->database->statement('CREATE TABLE IF NOT EXISTS "' . $search . '" ("slot_id" INTEGER NOT NULL, "record_id" TEXT NOT NULL, "search_text" TEXT NULL, PRIMARY KEY ("slot_id", "record_id"))');
+            $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::siteSearchRecordIndexName($table) . '" ON "' . $search . '" ("record_id")');
+
+            return;
+        }
+        $this->assertTable($table, StorageViewTableShape::Admin);
         $this->database->statement('CREATE TABLE IF NOT EXISTS "' . StorageViewNaming::searchTable($table) . '" ("record_id" TEXT NOT NULL PRIMARY KEY, "search_text" TEXT NULL)');
+    }
+
+    /**
+     * The site table: one row per published record and slot, keyed by (slot_id,
+     * record_id), with the exact contract entry, the typed columns of the public
+     * fields, and the side tables keyed the same way.
+     */
+    private function ensureSiteTable(string $table, StorageViewLayout $layout): void
+    {
+        $this->assertTable($table, StorageViewTableShape::Site);
+        if (!$this->tableExists($table)) {
+            $columns = [
+                '"slot_id" INTEGER NOT NULL',
+                '"record_id" TEXT NOT NULL',
+                '"revision" INTEGER NOT NULL',
+                '"schema_version" INTEGER NOT NULL',
+                '"projection_version" INTEGER NOT NULL',
+                '"entry_hash" TEXT NOT NULL',
+                '"entry_json" TEXT NOT NULL',
+                '"title" TEXT NULL',
+                '"updated_at" TEXT NOT NULL',
+            ];
+            foreach ($layout->physical() as $column) {
+                if ($column->state !== StorageViewColumn::STATE_DROPPING) {
+                    $columns[] = $this->definition($column);
+                }
+            }
+            $columns[] = 'PRIMARY KEY ("slot_id", "record_id")';
+            $this->database->statement('CREATE TABLE "' . $table . '" (' . implode(', ', $columns) . ')');
+        }
+        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::siteRecordIndexName($table) . '" ON "' . $table . '" ("record_id")');
+        foreach ($layout->physical() as $column) {
+            if ($column->indexed && $column->state !== StorageViewColumn::STATE_DROPPING) {
+                $this->createIndex($table, $column, StorageViewTableShape::Site);
+            }
+        }
+        $multi = StorageViewNaming::multiTable($table);
+        $this->database->statement('CREATE TABLE IF NOT EXISTS "' . $multi . '" ("slot_id" INTEGER NOT NULL, "record_id" TEXT NOT NULL, "field_key" TEXT NOT NULL, "value" TEXT NOT NULL, PRIMARY KEY ("slot_id", "field_key", "value", "record_id"))');
+        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::multiRecordIndexName($table) . '" ON "' . $multi . '" ("record_id", "slot_id")');
+        if ($layout->searchTable()) {
+            $this->ensureSearchTable($table, StorageViewTableShape::Site);
+        }
     }
 
     public function clearSearchTable(string $table): void
@@ -156,14 +212,14 @@ final class SqliteStorageViewDdl extends StorageViewDdl
         return $names;
     }
 
-    public function viewTables(): array
+    public function viewTables(?StorageViewTableShape $shape = null): array
     {
         $names = [];
         foreach ($this->database->select(
             "select name from sqlite_master where type = 'table' and name like ? escape '\\' order by name",
-            [StorageViewNaming::tableLikePattern()],
+            [StorageViewNaming::tableLikePattern($shape)],
         ) as $row) {
-            if (StorageViewNaming::isTable((string) $row->name)) {
+            if (StorageViewNaming::isTableOf((string) $row->name, $shape)) {
                 $names[] = (string) $row->name;
             }
         }

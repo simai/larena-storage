@@ -29,6 +29,7 @@ use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
+use Larena\Storage\View\Site\PublishedSiteViewRegistry;
 use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
@@ -388,6 +389,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
             return $this->database->transaction(function () use ($schemaId, $recordIds, $keep, $actor, $correlationId): int {
                 $removed = 0;
                 $records = 0;
+                $localizedPruned = [];
                 foreach (array_chunk($recordIds, self::PURGE_CHUNK) as $chunk) {
                     $heads = [];
                     foreach ($this->database->table('larena_storage_records')
@@ -427,15 +429,25 @@ final readonly class VersionedStorage implements VersionedStorageContract
                             ->where('revision', '<=', $below)
                             ->whereNotIn('revision', $kept[$recordId] ?? [])
                             ->delete();
-                        if ($deleted > 0 && $this->tableExists('larena_storage_localized_values')) {
-                            $this->database->table('larena_storage_localized_values')
+                        if ($deleted > 0 && $this->tableExists('larena_storage_localized_values')
+                            && $this->database->table('larena_storage_localized_values')
                                 ->where('schema_id', $schemaId)->where('record_id', $recordId)
                                 ->where('revision', '<=', $below)
                                 ->whereNotIn('revision', $kept[$recordId] ?? [])
-                                ->delete();
+                                ->delete() > 0) {
+                            $localizedPruned[] = (string) $recordId;
                         }
                         $removed += $deleted;
                         $records += $deleted > 0 ? 1 : 0;
+                    }
+                }
+                if ($localizedPruned !== []) {
+                    // A published entry's projection version counts the record's localized values
+                    // of every revision: the site витрина rewrites the rows, or stops answering for them.
+                    if ($this->views !== null) {
+                        $this->views->localizedValuesPruned($schemaId, $localizedPruned);
+                    } else {
+                        (new PublishedSiteViewRegistry($this->database, 0.0))->silenceRecords($schemaId, $localizedPruned);
                     }
                 }
                 if ($removed > 0) {
@@ -546,6 +558,8 @@ final readonly class VersionedStorage implements VersionedStorageContract
                                 ->delete();
                         }
                     }
+                    // The records leave every slot of the storage's site витрина, whatever wrote it.
+                    (new PublishedSiteViewRegistry($this->database, 0.0))->deleteRecords((string) $schemaId, $chunk);
                     $versions += $this->database->table('larena_storage_record_versions')
                         ->where('schema_id', $schemaId)
                         ->whereIn('record_id', $chunk)

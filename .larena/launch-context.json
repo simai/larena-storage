@@ -150,7 +150,13 @@
     "src/SchemaEvolution/StorageFieldChangeRunner.php",
     "src/SchemaEvolution/StorageFieldChanges.php",
     "src/SchemaEvolution/StorageRecordConverter.php",
-    "tests/Integration/StorageFieldChangeTest.php"
+    "tests/Integration/StorageFieldChangeTest.php",
+    "database/migrations/platform/2026_10_22_000001_create_larena_storage_site_view_tables.php",
+    "src/Runtime/PublicationIndexChain.php",
+    "src/Runtime/LocalizedValueObserverChain.php",
+    "tests/Support/published-site-view-fixture.php",
+    "tests/Integration/PublishedSiteViewMaintenanceTest.php",
+    "tests/Integration/PublishedSiteViewRebuildTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

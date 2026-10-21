@@ -18,6 +18,8 @@ use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Enums\PublicationStateValue as State;
 use Larena\Storage\Enums\PublicationTransitionValue as Transition;
 use Larena\Storage\Exceptions\PublicationRejected;
+use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewRegistry;
 
 /**
  * Publication per record, scope and locale.
@@ -40,6 +42,11 @@ use Larena\Storage\Exceptions\PublicationRejected;
  * caller: an operation, the sweep or a direct call. A transition whose audit event
  * cannot be written does not happen. A caller without a correlation id gets a fresh
  * one, shared by every transition of one sweep.
+ *
+ * The derived indexes (the published-key table, the site витрина) move with the head
+ * in the same transaction, after the log row (an entry's projection version counts
+ * it). An index the lifecycle was built without cannot follow the change, so its
+ * sets or slots of the storage and scope stop answering until they are rebuilt.
  */
 final class DatabasePublicationLifecycle implements PublicationLifecycle
 {
@@ -62,12 +69,16 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         Transition::SweepPublish->value => [State::Scheduled],
     ];
 
+    private ?PublishedKeyTable $keyTable = null;
+    private ?PublishedSiteViewRegistry $siteViews = null;
+
     /**
      * @param callable(string $schemaId, string $recordId, int $revision): bool|null $revisionExists
      *        an optional check that a revision really belongs to the record; absent in
      *        a package test, bound in the composed application
      * @param PublicationIndex|null $index a derived index written in the transition's own
-     *        transaction, such as the published-key table; it may refuse the transition
+     *        transaction, such as the published-key table or a PublicationIndexChain of it and
+     *        the site витрина; it may refuse the transition
      */
     public function __construct(
         private readonly Connection $connection,
@@ -409,6 +420,14 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
         $logId = 0;
         $correlationId ??= self::newCorrelationId();
 
+        // A publication may need the storage's site table, which MySQL cannot create inside
+        // a transaction: it is made first, when no transaction is open (best effort).
+        $site = PublicationIndexChain::member($this->index, PublishedSiteViewIndex::class);
+        if ($site !== null && in_array($transition, [Transition::Publish, Transition::SweepPublish], true)
+            && $this->connection->transactionLevel() === 0) {
+            $site->prepare($schemaId);
+        }
+
         $this->connection->transaction(function () use (
             $transition,
             $schemaId,
@@ -422,6 +441,7 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
             $publicationId,
             $existing,
             $from,
+            $site,
             &$result,
             &$logId
         ): void {
@@ -456,16 +476,6 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                     ->update($payload);
             }
 
-            // The published-key table moves with the head, in this transaction: a
-            // key another publish took in the meantime refuses the transition here.
-            // Without the index the table cannot follow this change, so it stops answering
-            // for this storage and scope: reads scan until the rebuild command runs.
-            if ($this->index !== null) {
-                $this->index->publicationWritten($next);
-            } else {
-                (new PublishedKeyTable($this->connection))->silenceScope($schemaId, $scopeRef);
-            }
-
             // One log row per transition, in the same transaction as the state write:
             // a state change nobody can account for is not acceptable in a system whose
             // whole point is sanitized attribution.
@@ -484,6 +494,19 @@ final class DatabasePublicationLifecycle implements PublicationLifecycle
                 'correlation_id' => $correlationId,
                 'created_at' => $now,
             ]);
+
+            // The derived indexes move with the head, in this transaction, after the log row
+            // (the projection version of an entry counts it): a key another publish took in
+            // the meantime refuses the transition here. An index this lifecycle lacks cannot
+            // follow the change, so it stops answering for this storage and scope until it
+            // is rebuilt: key reads scan, site reads take the exact path.
+            $this->index?->publicationWritten($next);
+            if (PublicationIndexChain::member($this->index, PublishedKeyIndex::class) === null) {
+                ($this->keyTable ??= new PublishedKeyTable($this->connection))->silenceScope($schemaId, $scopeRef);
+            }
+            if ($site === null) {
+                ($this->siteViews ??= new PublishedSiteViewRegistry($this->connection, 0.0))->silenceScope($schemaId, $scopeRef);
+            }
 
             $this->securityEvents?->emit(new StorageSecurityEvent(
                 'publication',

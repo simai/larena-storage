@@ -223,6 +223,22 @@ final class PublishedKeyTable
         (clone $sets)->where('state', self::STATE_BUILDING)->increment('conflicts');
     }
 
+    /**
+     * A translation written without the index may move a key the index does not know,
+     * in any scope and any locale a fallback chain may reach: every set of the storage
+     * stops answering until it is rebuilt.
+     */
+    public function silenceSchema(string $schemaId): void
+    {
+        if (!$this->available()) {
+            return;
+        }
+        $sets = $this->connection->table(self::SETS_TABLE)->where('schema_id', $schemaId);
+        (clone $sets)->where('state', '!=', self::STATE_BUILDING)->where('state', '!=', self::STATE_CONFLICTED)
+            ->update(['state' => self::STATE_CONFLICTED, 'updated_at' => $this->now()]);
+        (clone $sets)->where('state', self::STATE_BUILDING)->increment('conflicts');
+    }
+
     /** Removes a set and its rows. */
     public function dropSet(string $schemaId, string $scopeRef, string $locale, string $keyField): void
     {

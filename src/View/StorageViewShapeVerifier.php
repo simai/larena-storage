@@ -25,8 +25,10 @@ final readonly class StorageViewShapeVerifier
      * @return list<string> What does not match; empty when the tables hold the layout.
      *                      With $includeReserved, columns still being added must exist too.
      */
-    public function problems(string $table, StorageViewLayout $layout, bool $includeReserved = true): array
+    public function problems(string $table, StorageViewLayout $layout, bool $includeReserved = true, ?StorageViewTableShape $shape = null): array
     {
+        $shape = StorageViewTableShape::of($shape);
+        $system = $shape->systemColumns();
         if (!$this->ddl->tableExists($table)) {
             return ['table_missing'];
         }
@@ -37,12 +39,16 @@ final readonly class StorageViewShapeVerifier
         $problems = [];
         $columns = $this->ddl->columns($table);
         $indexes = $this->ddl->indexes($table);
-        foreach (self::SYSTEM_COLUMNS as $column) {
+        foreach ($system as $column) {
             if (!in_array($column, $columns, true)) {
                 $problems[] = 'system_column_missing:' . $column;
             }
         }
-        if (!in_array(StorageViewDdl::stateIndexName($table), $indexes, true)) {
+        if ($shape === StorageViewTableShape::Site) {
+            if (!in_array(StorageViewDdl::siteRecordIndexName($table), $indexes, true)) {
+                $problems[] = 'record_index_missing';
+            }
+        } elseif (!in_array(StorageViewDdl::stateIndexName($table), $indexes, true)) {
             $problems[] = 'state_index_missing';
         }
         if ($layout->searchTable()) {
@@ -68,11 +74,11 @@ final readonly class StorageViewShapeVerifier
             }
         }
         foreach ($columns as $column) {
-            if (!in_array($column, self::SYSTEM_COLUMNS, true) && !isset($expected[$column])) {
+            if (!in_array($column, $system, true) && !isset($expected[$column])) {
                 $problems[] = 'column_unexpected:' . $column;
             }
         }
-        foreach (self::MULTI_COLUMNS as $column) {
+        foreach ($shape->multiColumns() as $column) {
             if (!in_array($column, $this->ddl->columns($multi), true)) {
                 $problems[] = 'multi_column_missing:' . $column;
             }
@@ -81,8 +87,8 @@ final readonly class StorageViewShapeVerifier
         return $problems;
     }
 
-    public function matches(string $table, StorageViewLayout $layout, bool $includeReserved = true): bool
+    public function matches(string $table, StorageViewLayout $layout, bool $includeReserved = true, ?StorageViewTableShape $shape = null): bool
     {
-        return $this->problems($table, $layout, $includeReserved) === [];
+        return $this->problems($table, $layout, $includeReserved, $shape) === [];
     }
 }

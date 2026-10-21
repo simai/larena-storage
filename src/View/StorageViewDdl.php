@@ -11,6 +11,11 @@ use Illuminate\Database\ConnectionInterface;
  * DDL for a storage's витрина: its table, its side tables for multi-values and
  * for the search text, typed columns and their indexes. Every operation is idempotent, so a step that was
  * interrupted is simply run again.
+ *
+ * The operations that create something take an optional table shape
+ * (StorageViewTableShape): without one they build the admin витрина exactly as
+ * before; the site shape keys every row by (slot_id, record_id) and starts every
+ * field index with slot_id where the admin one starts with state.
  */
 abstract class StorageViewDdl
 {
@@ -40,13 +45,13 @@ abstract class StorageViewDdl
     abstract public function transactional(): bool;
 
     /** Creates the table and the side table when they are missing, with the layout's columns and indexes. */
-    abstract public function ensureTable(string $table, StorageViewLayout $layout): void;
+    abstract public function ensureTable(string $table, StorageViewLayout $layout, ?StorageViewTableShape $shape = null): void;
 
     abstract public function addColumn(string $table, StorageViewColumn $column): void;
 
     abstract public function dropColumn(string $table, string $column): void;
 
-    abstract public function createIndex(string $table, StorageViewColumn $column): void;
+    abstract public function createIndex(string $table, StorageViewColumn $column, ?StorageViewTableShape $shape = null): void;
 
     abstract public function dropIndex(string $table, string $column): void;
 
@@ -60,8 +65,8 @@ abstract class StorageViewDdl
     /** @return list<string> */
     abstract public function indexes(string $table): array;
 
-    /** @return list<string> Every витрина table in the database, side tables included. */
-    abstract public function viewTables(): array;
+    /** @return list<string> Every витрина table of the shape (admin by default) in the database, side tables included. */
+    abstract public function viewTables(?StorageViewTableShape $shape = null): array;
 
     /** Whether the search table carries a FULLTEXT index (MySQL and MariaDB). */
     public function fulltext(): bool
@@ -75,7 +80,7 @@ abstract class StorageViewDdl
      * own because InnoDB adds no column in place (neither INSTANT nor INPLACE) to a
      * table that has a FULLTEXT index; the main table keeps its online column changes.
      */
-    abstract public function ensureSearchTable(string $table): void;
+    abstract public function ensureSearchTable(string $table, ?StorageViewTableShape $shape = null): void;
 
     /**
      * Empties the search table before its text is refilled from scratch. On MySQL it
@@ -119,15 +124,27 @@ abstract class StorageViewDdl
         return StorageViewNaming::index($table, 'state_record');
     }
 
+    /** A site table's (record_id) index: a record's rows in every slot, for a purge. */
+    public static function siteRecordIndexName(string $table): string
+    {
+        return StorageViewNaming::index($table, 'record');
+    }
+
+    /** A site search table's (record_id) index. */
+    public static function siteSearchRecordIndexName(string $table): string
+    {
+        return StorageViewNaming::index(StorageViewNaming::searchTable($table), 'record');
+    }
+
     public static function multiRecordIndexName(string $table): string
     {
         return StorageViewNaming::index(StorageViewNaming::multiTable($table), 'record');
     }
 
     /** Makes the table hold exactly the layout: adds what is missing and drops what is dropping. */
-    public function materialize(string $table, StorageViewLayout $layout): void
+    public function materialize(string $table, StorageViewLayout $layout, ?StorageViewTableShape $shape = null): void
     {
-        $this->ensureTable($table, $layout);
+        $this->ensureTable($table, $layout, $shape);
         foreach ($layout->physical() as $column) {
             if ($column->state === StorageViewColumn::STATE_DROPPING) {
                 $this->dropIndex($table, (string) $column->column);
@@ -136,17 +153,24 @@ abstract class StorageViewDdl
             }
             $this->addColumn($table, $column);
             if ($column->indexed) {
-                $this->createIndex($table, $column);
+                $this->createIndex($table, $column, $shape);
             }
         }
         if ($layout->searchTable()) {
-            $this->ensureSearchTable($table);
+            $this->ensureSearchTable($table, $shape);
         }
     }
 
-    protected function assertTable(string $table): void
+    /**
+     * A витрина table of the shape; without a shape, of either shape (an operation
+     * that is the same for both, such as dropping a column or the tables).
+     */
+    protected function assertTable(string $table, ?StorageViewTableShape $shape = null): void
     {
-        if (!StorageViewNaming::isTable($table)) {
+        $valid = $shape === null
+            ? StorageViewNaming::isTable($table) || StorageViewNaming::isSiteTable($table)
+            : StorageViewNaming::isTableOf($table, $shape);
+        if (!$valid) {
             throw new \InvalidArgumentException('storage_view_table_invalid');
         }
     }

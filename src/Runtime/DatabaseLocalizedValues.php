@@ -15,6 +15,8 @@ use Larena\Storage\Contracts\LocalizedValuesBatch;
 use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\LocalizedValueRejected;
+use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewRegistry;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Property\Runtime\PropertyTypeRegistry as BuiltInPropertyTypes;
 use Closure;
@@ -38,6 +40,9 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
     public const BATCH = 500;
 
     private PropertyTypeRegistry $types;
+    private ?bool $publications = null;
+    private ?PublishedKeyTable $keyTable = null;
+    private ?PublishedSiteViewRegistry $siteViews = null;
 
     /**
      * @param string|null $primaryLocale the language of the shared values, from the application
@@ -208,6 +213,15 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
             $now,
             &$written
         ): void {
+            // A translation and a publication of one record are serialized on the record's
+            // publication rows, taken first, so neither waits for the other in the opposite order.
+            if ($this->observer !== null && $this->hasPublications()) {
+                $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)
+                    ->where('schema_id', $schemaId)
+                    ->where('record_id', $recordId)
+                    ->lockForUpdate()
+                    ->get(['publication_id']);
+            }
             foreach ($values as $fieldKey => $value) {
                 $encoded = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
@@ -243,9 +257,17 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
             }
 
             // A translation of a published revision changes what it shows; the
-            // derived index learns of it in the same transaction.
-            if ($written !== [] && $this->observer !== null) {
-                ($this->observer)()->localizedValuesWritten($schemaId, $recordId, $revision, $locale);
+            // derived indexes learn of it in the same transaction. An index they do not
+            // include cannot follow it: its sets or slots of the storage stop answering.
+            if ($written !== []) {
+                $observer = $this->observer !== null ? ($this->observer)() : null;
+                $observer?->localizedValuesWritten($schemaId, $recordId, $revision, $locale);
+                if (!LocalizedValueObserverChain::maintains($observer, PublishedKeyIndex::class)) {
+                    ($this->keyTable ??= new PublishedKeyTable($this->connection))->silenceSchema($schemaId);
+                }
+                if (!LocalizedValueObserverChain::maintains($observer, PublishedSiteViewIndex::class)) {
+                    ($this->siteViews ??= new PublishedSiteViewRegistry($this->connection, 0.0))->silenceSchema($schemaId);
+                }
             }
 
             // One audit event per write, in its transaction: a translation whose
@@ -341,10 +363,12 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
     /**
      * @param list<array{record_id: string, revision: int}> $heads
      * @param list<string> $fieldKeys
+     * @param bool $lock read with a shared lock inside the caller's transaction (the site витрина
+     *        builds its copy of an entry from the latest committed values)
      * @return array<string, array<string, LocalizedValue>>
      * @phpstan-impure
      */
-    public function resolveMany(string $schemaId, array $heads, LocaleFallbackChain $chain, array $fieldKeys = []): array
+    public function resolveMany(string $schemaId, array $heads, LocaleFallbackChain $chain, array $fieldKeys = [], bool $lock = false): array
     {
         $this->assertSchema();
 
@@ -364,6 +388,9 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
                 ->whereIn('locale', $chain->locales);
             if ($fieldKeys !== []) {
                 $query->whereIn('field_key', $fieldKeys);
+            }
+            if ($lock) {
+                $query->sharedLock();
             }
 
             $byRecord = [];
@@ -524,6 +551,16 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         } catch (Throwable) {
             throw new LocalizedValueRejected('corrupt_value', 'A stored localized value is not valid JSON.');
         }
+    }
+
+    /** Whether the publication states are migrated. Only a yes is remembered. @phpstan-impure */
+    private function hasPublications(): bool
+    {
+        if ($this->publications !== true) {
+            $this->publications = $this->connection->getSchemaBuilder()->hasTable(DatabasePublicationLifecycle::STATES_TABLE);
+        }
+
+        return $this->publications;
     }
 
     /** @phpstan-impure */

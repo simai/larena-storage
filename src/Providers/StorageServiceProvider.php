@@ -19,6 +19,10 @@ use Larena\Storage\View\StorageViewRebuildJob;
 use Larena\Storage\View\StorageViewRebuildQueue;
 use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewSync;
+use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewRegistry;
+use Larena\Storage\Runtime\LocalizedValueObserverChain;
+use Larena\Storage\Runtime\PublicationIndexChain;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\PublicationObserver;
 use Illuminate\Contracts\Foundation\Application;
@@ -142,9 +146,13 @@ final class StorageServiceProvider extends ServiceProvider
                 // The shared values are written in the application's locale.
                 is_string($primary) && $primary !== '' ? $primary : null,
                 $app->make(StorageSecurityEventSink::class),
-                // A translation of a published revision moves its published key. The
-                // index reads through this class, so it is built at the first write.
-                static fn (): LocalizedValueObserver => $app->make(PublishedKeyIndex::class),
+                // A translation of a published revision moves its published key and its
+                // site витрина rows. The indexes read through this class, so they are built
+                // at the first write.
+                static fn (): LocalizedValueObserver => new LocalizedValueObserverChain([
+                    $app->make(PublishedKeyIndex::class),
+                    $app->make(PublishedSiteViewIndex::class),
+                ]),
             );
         });
         $this->app->alias(DatabaseLocalizedValues::class, LocalizedValues::class);
@@ -173,10 +181,18 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(StorageSecurityEventSink::class),
                 // A key the application routes by stays unique among published records.
                 new PublishedKeyUniqueness($app->make(DatabaseReadContracts::class), $app->make(PublishedKeyPolicy::class)),
-                // The indexed published keys move with the head, in its transaction.
-                $app->make(PublishedKeyIndex::class),
+                // The indexed published keys and the site витрина move with the head, in its transaction.
+                new PublicationIndexChain([
+                    $app->make(PublishedKeyIndex::class),
+                    $app->make(PublishedSiteViewIndex::class),
+                ]),
             );
         });
+        // The site витрина: the published public fields of each storage, one row per record and slot.
+        $this->app->singleton(PublishedSiteViewIndex::class, static fn (Application $app): PublishedSiteViewIndex => new PublishedSiteViewIndex(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(DatabaseReadContracts::class),
+        ));
         $this->app->singleton(PublishedKeyIndex::class, static fn (Application $app): PublishedKeyIndex => new PublishedKeyIndex(
             $app->make(DatabaseManager::class)->connection(),
             $app->make(DatabaseReadContracts::class),
@@ -330,6 +346,17 @@ final class StorageServiceProvider extends ServiceProvider
             $views = StorageViewSync::for($connection);
             // A rebuild reads older record versions through the converter, with the application's Property types.
             $views->useConverter(new StorageRecordConverter($connection, $app->make(PropertyTypeRegistry::class)));
+            // Structure changes silence the site витрина and queue its rebuild; the index and the
+            // queue are made only when a change needs them.
+            $views->useSiteViews(
+                new PublishedSiteViewRegistry($connection),
+                static fn (): PublishedSiteViewIndex => $app->make(PublishedSiteViewIndex::class),
+                static function (string $schemaId) use ($app): void {
+                    if ($app->bound(JobTypeRegistry::class) && $app->bound(DurableQueueDispatcher::class) && $app->bound(QueueClock::class)) {
+                        $app->make(StorageViewRebuildQueue::class)->enqueueSite($schemaId);
+                    }
+                },
+            );
 
             return $views;
         });
@@ -337,6 +364,8 @@ final class StorageServiceProvider extends ServiceProvider
         $this->app->bind(StorageViewRebuildJob::class, static fn (Application $app): StorageViewRebuildJob => new StorageViewRebuildJob(
             $app->make(StorageViewSync::class),
             $app->make(StorageMetrics::class),
+            // A `view: site` job builds the site витрина; its index is made only then.
+            static fn (): PublishedSiteViewIndex => $app->make(PublishedSiteViewIndex::class),
         ));
         $this->app->bind(StorageViewRebuildQueue::class, static fn (Application $app): StorageViewRebuildQueue => new StorageViewRebuildQueue(
             $app->make(StorageViewSync::class),

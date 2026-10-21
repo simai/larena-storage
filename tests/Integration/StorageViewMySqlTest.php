@@ -14,6 +14,7 @@ use Larena\Storage\View\StorageViewShapeVerifier;
 require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../Support/mysql-disposable-database.php';
 require_once __DIR__ . '/../Support/storage-view-fixture.php';
+require_once __DIR__ . '/../Support/published-site-view-fixture.php';
 require_once __DIR__ . '/StorageViewDdlTest.php';
 
 // The витрина on a throwaway MySQL database (opt-in): the DDL (INSTANT/INPLACE
@@ -269,6 +270,68 @@ try {
     storageViewExpect($connection->table('larena_storage_field_change_records')->count() === 0, 'the checked revisions were not emptied');
     storageViewParity($connection, $views, $countsSchema, 'mysql background field change');
     $capsuleB->getDatabaseManager()->disconnect();
+
+    // The site витрина on MySQL: its DDL, the table made before the first publication's
+    // transaction, the rows kept by publication and translation, nothing inside an outer
+    // transaction (no DDL there), the rebuild, purge, and the tables dropped after a structure purge.
+    foreach ([
+        '/platform/2026_09_28_000001_create_larena_storage_localized_values_table.php',
+        '/platform/2026_09_29_000001_create_larena_storage_publication_tables.php',
+        '/platform/2026_10_20_000002_create_larena_storage_published_key_tables.php',
+        '/platform/2026_10_22_000001_create_larena_storage_site_view_tables.php',
+    ] as $file) {
+        (require __DIR__ . '/../../database/migrations' . $file)->up();
+    }
+    storageViewExpect(Illuminate\Support\Facades\Schema::hasIndex('larena_storage_publication_states', 'storage_pub_schema_scope_locale_state_record_idx'), 'the publication states index was not built on MySQL');
+    storageViewSiteDdlChecks($connection, $ddl);
+    $siteRuntime = publishedSiteViewRuntime($connection, $ddl, $actor, $scope);
+    $siteWorkbench = $siteRuntime['workbench'];
+    $site = $siteRuntime['site'];
+    $publication = $siteRuntime['publication'];
+    $pages = $siteWorkbench->createStructure($scope, ['structure_id' => 'workbench.site_pages', 'label' => 'Pages', 'fields' => [
+        publishedSiteViewField('title', 10, 'string', 'public', ['max_length' => 200], true),
+        publishedSiteViewField('slug', 20, 'string', 'public', ['max_length' => 120]) + ['indexed' => true],
+        publishedSiteViewField('body', 30, 'text', 'public'),
+        publishedSiteViewField('tags', 40, 'choices', 'public', ['options' => [['value' => 'a', 'label' => 'A'], ['value' => 'b', 'label' => 'B']]]),
+        publishedSiteViewField('secret', 50, 'string', 'admin', ['max_length' => 200], true),
+    ]], $actor);
+    $pagesSchema = $pages->schema->schemaId;
+    $siteTable = StorageViewNaming::siteTable($pagesSchema);
+    $pageRecords = [];
+    for ($index = 0; $index < 5; $index++) {
+        $pageRecords[] = $siteWorkbench->createRecord($scope, 'workbench.site_pages', ['title' => 'Page ' . $index, 'slug' => 'page-' . $index, 'body' => 'Long body ' . $index, 'tags' => $index % 2 === 0 ? ['a'] : ['b'], 'secret' => 'SENTINEL-' . $index], $actor);
+    }
+    // Inside an outer transaction MySQL runs no DDL: the publication writes no site row and does not fail.
+    $connection->transaction(static fn () => $publication->publish($pagesSchema, $pageRecords[0]->recordId, 'site:main', 'en', 1, $actor));
+    storageViewExpect($site->registry()->find($pagesSchema, true) === null && !$ddl->tableExists($siteTable), 'a publication inside a transaction made a site table on MySQL');
+    foreach ($pageRecords as $index => $page) {
+        $publication->publish($pagesSchema, $page->recordId, 'site:main', 'en', 1, $actor);
+        $publication->publish($pagesSchema, $page->recordId, 'site:main', 'kk', 1, $actor);
+    }
+    storageViewExpect($site->registry()->find($pagesSchema, true)?->state === 'ready' && $ddl->tableExists($siteTable), 'the first publication made no site table on MySQL');
+    storageViewExpect(in_array(StorageViewDdl::searchIndexName($siteTable), $ddl->indexes($siteTable . '_s'), true), 'the site search table has no FULLTEXT index');
+    $siteRuntime['localized']->write($pagesSchema, $pageRecords[1]->recordId, 1, 'ru', ['title' => 'Страница 1'], ['title', 'body', 'secret'], $actor);
+    $siteRuntime['localized']->write($pagesSchema, $pageRecords[1]->recordId, 1, 'kk', ['secret' => 'SENTINEL-TRANSLATED'], ['title', 'body', 'secret'], $actor);
+    $publication->unpublish($pagesSchema, $pageRecords[2]->recordId, 'site:main', 'en', $actor);
+    // The record left its slot; the first one, published again above, is in both.
+    publishedSiteViewParity($site, $pagesSchema, 'mysql site writes');
+    storageViewExpect(publishedSiteViewEntries($site, $pagesSchema, 'site:main', 'kk')[$pageRecords[1]->recordId]['values']['title'] === 'Страница 1', 'the ru fallback did not reach the kk row on MySQL');
+    publishedSiteViewListChecks($connection, $site, $pagesSchema, 'site:main', 'en');
+    publishedSiteViewListChecks($connection, $site, $pagesSchema, 'site:main', 'kk');
+    $reference = publishedSiteViewSnapshot($site, $pagesSchema);
+    $siteRebuilder = new Larena\Storage\View\Site\PublishedSiteViewRebuilder($site);
+    $siteRebuilder->rebuild($pagesSchema, 2, true);
+    publishedSiteViewParity($site, $pagesSchema, 'mysql site rebuild');
+    storageViewExpect(publishedSiteViewSnapshot($site, $pagesSchema) === $reference, 'the MySQL site rebuild differs from the rows kept by publication');
+    $archivedPage = $siteWorkbench->archiveRecord($scope, 'workbench.site_pages', $pageRecords[3]->recordId, $pageRecords[3]->revision, $actor);
+    $siteWorkbench->purgeRecords($scope, 'workbench.site_pages', [$pageRecords[3]->recordId => $archivedPage->revision], $actor);
+    storageViewExpect($connection->table($siteTable)->where('record_id', $pageRecords[3]->recordId)->count() === 0, 'a purged record kept its MySQL site rows');
+    publishedSiteViewParity($site, $pagesSchema, 'mysql site purge');
+    storageViewExpect(!str_contains(publishedSiteViewDump($connection, $pagesSchema), 'SENTINEL'), 'a MySQL site table holds an admin value');
+    $pages = $siteWorkbench->readStructure($scope, 'workbench.site_pages', $actor);
+    $pages = $siteWorkbench->archiveStructure($scope, 'workbench.site_pages', $pages->version, $actor);
+    $siteWorkbench->purgeStructure($scope, 'workbench.site_pages', $pages->version, $actor);
+    storageViewExpect($site->registry()->find($pagesSchema, true) === null && !$ddl->tableExists($siteTable) && !$ddl->tableExists($siteTable . '_s'), 'the MySQL site tables were not dropped after the purge');
 } finally {
     Facade::clearResolvedInstances();
     ($database['drop'])();

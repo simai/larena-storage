@@ -6,6 +6,9 @@ namespace Larena\Storage\Console\Commands;
 
 use Illuminate\Console\Command;
 use Larena\Storage\Runtime\StorageMetrics;
+use Larena\Storage\View\Site\PublishedSiteViewChecker;
+use Larena\Storage\View\Site\PublishedSiteViewIndex;
+use Larena\Storage\View\Site\PublishedSiteViewRebuilder;
 use Larena\Storage\View\StorageViewChecker;
 use Larena\Storage\View\StorageViewRebuilder;
 use Larena\Storage\View\StorageViewRebuildQueue;
@@ -22,6 +25,8 @@ use Throwable;
  *   larena:storage:view:check                        every storage
  *   larena:storage:view:check workbench.scope.x.y    one storage
  *   larena:storage:view:check --repair [--queue]     and repair what differs
+ *   larena:storage:view:check --site [schema]        the site витрины: each ready slot holds
+ *                                                    exactly the entries the read contracts return
  */
 final class StorageViewCheckCommand extends Command
 {
@@ -29,7 +34,8 @@ final class StorageViewCheckCommand extends Command
         {schema? : The storage schema id to check}
         {--repair : Rebuild every витрина that does not agree with the versions}
         {--queue : With --repair, enqueue a storage.view.rebuild job instead of rebuilding inline}
-        {--chunk=500 : Records per transaction for a repair}';
+        {--chunk=500 : Records per transaction for a repair}
+        {--site : Check the site витрины (the published public lists) against the read contracts}';
 
     protected $description = 'Check Larena Storage витрины against the record versions; --repair rebuilds what differs.';
 
@@ -47,6 +53,9 @@ final class StorageViewCheckCommand extends Command
             $this->error('--queue goes with --repair.');
 
             return self::INVALID;
+        }
+        if ((bool) $this->option('site')) {
+            return $this->site($repair, $queued, $chunk);
         }
         if (!$views->enabled()) {
             $this->error('The витрина is not available on this connection (unsupported driver or the registry is not migrated).');
@@ -116,6 +125,92 @@ final class StorageViewCheckCommand extends Command
             } catch (Throwable $exception) {
                 $unhealthy++;
                 $this->error($target . ': ' . $exception->getMessage());
+            }
+        }
+        if ($targets === []) {
+            $this->line('Nothing to check.');
+        }
+
+        return $unhealthy === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    private function site(bool $repair, bool $queued, int $chunk): int
+    {
+        $site = null;
+        if ($this->laravel->bound(PublishedSiteViewIndex::class)) {
+            try {
+                $site = $this->laravel->make(PublishedSiteViewIndex::class);
+            } catch (Throwable) {
+                $site = null;
+            }
+        }
+        if (!$site instanceof PublishedSiteViewIndex || !$site->enabled()) {
+            $this->error('The site витрина is not available on this connection (unsupported driver or the registry is not migrated).');
+
+            return self::FAILURE;
+        }
+        $queue = null;
+        if ($queued) {
+            try {
+                $queue = $this->laravel->make(StorageViewRebuildQueue::class);
+            } catch (Throwable $exception) {
+                $this->error('The queue is not available: ' . $exception->getMessage());
+
+                return self::FAILURE;
+            }
+        }
+        $checker = new PublishedSiteViewChecker($site);
+        $rebuilder = new PublishedSiteViewRebuilder(
+            $site,
+            $this->laravel->bound(StorageMetrics::class) ? $this->laravel->make(StorageMetrics::class) : new StorageMetrics(),
+        );
+        $schema = $this->argument('schema');
+        $targets = is_string($schema) && $schema !== '' ? [$schema] : $checker->targets();
+        $unhealthy = 0;
+        foreach ($targets as $target) {
+            try {
+                $report = $checker->check($target);
+                if ($report['problems'] === []) {
+                    $this->line(sprintf('site %s: ok, %d slots, %d records', $target, $report['slots'], $report['records']));
+
+                    continue;
+                }
+                $summary = sprintf(
+                    'site %s: %s (records %d, rows %d, missing %d, extra %d, stale %d)',
+                    $target,
+                    implode(', ', $report['problems']),
+                    $report['records'],
+                    $report['rows'],
+                    $report['missing'],
+                    $report['extra'],
+                    $report['stale'],
+                );
+                if (!$repair || in_array('schema_unknown', $report['problems'], true)) {
+                    $this->warn($summary);
+                    $unhealthy++;
+
+                    continue;
+                }
+                if ($queue !== null) {
+                    $result = $queue->enqueueSite($target, $chunk);
+                    $this->line($summary . ' -> queued, job ' . $result->jobId . ($result->duplicate ? ' (already queued)' : ''));
+
+                    continue;
+                }
+                // Rows that disagree are rebuilt from scratch; a silenced slot only needs filling.
+                $stale = array_intersect($report['problems'], ['rows_missing', 'rows_extra', 'rows_stale', 'shape_mismatch']) !== [];
+                $rebuilder->rebuild($target, min($chunk, PublishedSiteViewRebuilder::MAX_CHUNK), $stale);
+                $after = $checker->check($target);
+                if ($after['problems'] !== []) {
+                    $this->warn($summary . ' -> still ' . implode(', ', $after['problems']));
+                    $unhealthy++;
+
+                    continue;
+                }
+                $this->line($summary . ' -> repaired, ' . $after['records'] . ' records');
+            } catch (Throwable $exception) {
+                $unhealthy++;
+                $this->error('site ' . $target . ': ' . $exception->getMessage());
             }
         }
         if ($targets === []) {

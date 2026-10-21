@@ -42,9 +42,14 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         return false;
     }
 
-    public function ensureTable(string $table, StorageViewLayout $layout): void
+    public function ensureTable(string $table, StorageViewLayout $layout, ?StorageViewTableShape $shape = null): void
     {
-        $this->assertTable($table);
+        if (StorageViewTableShape::of($shape) === StorageViewTableShape::Site) {
+            $this->ensureSiteTable($table, $layout);
+
+            return;
+        }
+        $this->assertTable($table, StorageViewTableShape::Admin);
         if (!$this->tableExists($table)) {
             $columns = [
                 '`record_id` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL',
@@ -113,9 +118,10 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         $this->alter('ALTER TABLE `' . $table . '` DROP COLUMN `' . $column . '`');
     }
 
-    public function createIndex(string $table, StorageViewColumn $column): void
+    public function createIndex(string $table, StorageViewColumn $column, ?StorageViewTableShape $shape = null): void
     {
-        $this->assertTable($table);
+        $shape = StorageViewTableShape::of($shape);
+        $this->assertTable($table, $shape);
         if ($column->column === null) {
             return;
         }
@@ -124,7 +130,7 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         if (in_array($name, $this->indexes($table), true)) {
             return;
         }
-        $this->database->statement('CREATE INDEX `' . $name . '` ON `' . $table . '` (`state`, `' . $column->column . '`, `record_id`) ALGORITHM=INPLACE LOCK=NONE');
+        $this->database->statement('CREATE INDEX `' . $name . '` ON `' . $table . '` (`' . $shape->partitionColumn() . '`, `' . $column->column . '`, `record_id`) ALGORITHM=INPLACE LOCK=NONE');
     }
 
     public function dropIndex(string $table, string $column): void
@@ -143,11 +149,24 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         return true;
     }
 
-    public function ensureSearchTable(string $table): void
+    public function ensureSearchTable(string $table, ?StorageViewTableShape $shape = null): void
     {
-        $this->assertTable($table);
+        $shape = StorageViewTableShape::of($shape);
+        $this->assertTable($table, $shape);
         $search = StorageViewNaming::searchTable($table);
         if ($this->tableExists($search)) {
+            return;
+        }
+        if ($shape === StorageViewTableShape::Site) {
+            $this->withoutStopwords(fn () => $this->database->statement('CREATE TABLE IF NOT EXISTS `' . $search . '` ('
+                . '`slot_id` BIGINT UNSIGNED NOT NULL, '
+                . '`record_id` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, '
+                . '`search_text` MEDIUMTEXT NULL, '
+                . 'PRIMARY KEY (`slot_id`, `record_id`), '
+                . 'KEY `' . self::siteSearchRecordIndexName($table) . '` (`record_id`), '
+                . 'FULLTEXT KEY `' . self::searchIndexName($table) . '` (`search_text`)'
+                . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC'));
+
             return;
         }
         $this->withoutStopwords(fn () => $this->database->statement('CREATE TABLE IF NOT EXISTS `' . $search . '` ('
@@ -156,6 +175,60 @@ final class MySqlStorageViewDdl extends StorageViewDdl
             . 'PRIMARY KEY (`record_id`), '
             . 'FULLTEXT KEY `' . self::searchIndexName($table) . '` (`search_text`)'
             . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC'));
+    }
+
+    /**
+     * The site table: one row per published record and slot, keyed by (slot_id,
+     * record_id), with the exact contract entry, the typed columns of the public
+     * fields, and the side tables keyed the same way. Field indexes start with
+     * slot_id, as the admin ones start with state.
+     */
+    private function ensureSiteTable(string $table, StorageViewLayout $layout): void
+    {
+        $this->assertTable($table, StorageViewTableShape::Site);
+        if (!$this->tableExists($table)) {
+            $columns = [
+                '`slot_id` BIGINT UNSIGNED NOT NULL',
+                '`record_id` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL',
+                '`revision` BIGINT UNSIGNED NOT NULL',
+                '`schema_version` INT UNSIGNED NOT NULL',
+                '`projection_version` BIGINT UNSIGNED NOT NULL',
+                '`entry_hash` CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL',
+                // The contract entry exactly as a read returns it.
+                '`entry_json` LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL',
+                '`title` VARCHAR(255) NULL',
+                '`updated_at` DATETIME NOT NULL',
+            ];
+            $indexes = [
+                'PRIMARY KEY (`slot_id`, `record_id`)',
+                'KEY `' . self::siteRecordIndexName($table) . '` (`record_id`)',
+            ];
+            foreach ($layout->physical() as $column) {
+                if ($column->state === StorageViewColumn::STATE_DROPPING) {
+                    continue;
+                }
+                $columns[] = $this->definition($column);
+                if ($column->indexed) {
+                    $indexes[] = 'KEY `' . self::fieldIndexName($table, (string) $column->column) . '` (`slot_id`, `' . $column->column . '`, `record_id`)';
+                }
+            }
+            $this->database->statement('CREATE TABLE IF NOT EXISTS `' . $table . '` (' . implode(', ', array_merge($columns, $indexes))
+                . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC');
+        }
+        $multi = StorageViewNaming::multiTable($table);
+        if (!$this->tableExists($multi)) {
+            $this->database->statement('CREATE TABLE IF NOT EXISTS `' . $multi . '` ('
+                . '`slot_id` BIGINT UNSIGNED NOT NULL, '
+                . '`record_id` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, '
+                . '`field_key` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, '
+                . '`value` VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, '
+                . 'PRIMARY KEY (`slot_id`, `field_key`, `value`, `record_id`), '
+                . 'KEY `' . self::multiRecordIndexName($table) . '` (`record_id`, `slot_id`)'
+                . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC');
+        }
+        if ($layout->searchTable()) {
+            $this->ensureSearchTable($table, StorageViewTableShape::Site);
+        }
     }
 
     public function clearSearchTable(string $table): void
@@ -231,14 +304,14 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         ));
     }
 
-    public function viewTables(): array
+    public function viewTables(?StorageViewTableShape $shape = null): array
     {
         $names = [];
         foreach ($this->database->select(
             'select TABLE_NAME as name from information_schema.TABLES where TABLE_SCHEMA = database() and TABLE_NAME like ? order by TABLE_NAME',
-            [StorageViewNaming::tableLikePattern()],
+            [StorageViewNaming::tableLikePattern($shape)],
         ) as $row) {
-            if (StorageViewNaming::isTable((string) $row->name)) {
+            if (StorageViewNaming::isTableOf((string) $row->name, $shape)) {
                 $names[] = (string) $row->name;
             }
         }
