@@ -38,4 +38,7 @@ return [
     'workbench_structure_migrate' => 'Change storage structure fields and rewrite records',
     'sitepack_export' => 'Export a storage as a SitePack',
     'sitepack_import' => 'Import a storage from a SitePack',
+    'workbench_record_decrypt' => 'Show encrypted storage values in plaintext',
+    'encryption_manage' => 'Make and switch encrypted storage fields',
+    'encryption_explain' => 'View the encryption of a storage',
 ];

@@ -7,6 +7,8 @@ namespace Larena\Storage\SchemaEvolution;
 use Illuminate\Database\ConnectionInterface;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Property\Runtime\PropertyTypeRegistry as BuiltInPropertyTypes;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageFieldEnvelope;
 use Larena\Storage\Exceptions\StorageRejected;
 use stdClass;
 use Throwable;
@@ -29,7 +31,10 @@ use Throwable;
  *   is dropped (a current record always passes: a retype is applied only once
  *   every current record converts; only an older history version can lose one);
  * - a field the record has no value for stays absent, which is how an optional
- *   field added later reads: empty.
+ *   field added later reads: empty;
+ * - an encrypted value (an envelope) passes through unopened while its field stays
+ *   encrypted with the same type; it is never converted, and dropped (refused when
+ *   strict) when its field is no longer encrypted or changed type.
  *
  * Schema versions never change once written, so their fields are kept for the
  * life of the converter. Each is checked against its stored hash on first use.
@@ -93,6 +98,14 @@ final class StorageRecordConverter
                 continue;
             }
             $source = $from[$key] ?? null;
+            if (StorageFieldEnvelope::isEnvelope($value)) {
+                if ($source !== null && self::sameType($source, $target) && StorageEncryptionPolicy::isEncrypted($target)) {
+                    $result[$key] = $value;
+                } elseif ($strict) {
+                    throw new StorageRejected('storage_schema_migration_record_unconvertible');
+                }
+                continue;
+            }
             if ($source !== null && self::sameType($source, $target)) {
                 $result[$key] = $value;
                 continue;

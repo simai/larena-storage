@@ -15,11 +15,12 @@ use Larena\Storage\Registry\StorageOperationProvider;
 $provider = new StorageOperationProvider();
 $operations = $provider->operations();
 
-larena_storage_role_assert(count($operations) === 33, 'waves A to E, batch 7 D2, the relation delete, the public list and the storage export and import declare thirty-three operations, got ' . count($operations));
+larena_storage_role_assert(count($operations) === 34, 'waves A to E, batch 7 D2, the relation delete, the public list, the storage export and import and the encryption explain declare thirty-four operations, got ' . count($operations));
 
 $names = array_map(static fn (array $o): string => $o['declaration']->name, $operations);
 sort($names);
 larena_storage_role_assert($names === [
+    'storage.encryption.explain',
     'storage.locale.coverage',
     'storage.locale.explain',
     'storage.locale.fallback_resolve',
@@ -66,6 +67,7 @@ foreach ($operations as $operation) {
             'storage.handler.read_contract',
             'storage.handler.record',
             'storage.handler.sitepack',
+            'storage.handler.encryption',
         ], true),
         $operation['declaration']->name . ' binds to a storage handler',
     );
@@ -81,10 +83,10 @@ $registry = DeclaredOperationRegistry::fromProviders([new CoreOperationProvider(
 // which is core's business and not Storage's. The claim that matters is that the
 // two catalogues compose into one without either losing an entry.
 $coreCount = count($registry->list('larena/core'));
-larena_storage_role_assert(count($registry->list('larena/storage')) === 33, 'storage declares 33 operations');
+larena_storage_role_assert(count($registry->list('larena/storage')) === 34, 'storage declares 34 operations');
 larena_storage_role_assert($coreCount >= 22, 'core contributes at least the operations Batch 3 declared, got ' . $coreCount);
 larena_storage_role_assert(
-    count($registry->list()) === $coreCount + 33,
+    count($registry->list()) === $coreCount + 34,
     'one catalogue holds both packages with nothing lost',
 );
 
@@ -124,6 +126,7 @@ larena_storage_role_assert(
 ksort($scopes);
 larena_storage_role_assert(
     array_keys($scopes) === [
+        'storage.encryption.explain',
         'storage.locale.read',
         'storage.locale.write',
         'storage.publication.archive',

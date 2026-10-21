@@ -9,6 +9,7 @@ use Larena\Core\Contracts\OperationDescriptor;
 use Larena\Core\Contracts\OperationProvider;
 use Larena\Core\Exceptions\OperationDeclarationInvalid;
 use Larena\Core\Registry\OperationDeclarationLoader;
+use Larena\Storage\Encryption\StorageEncryptionOperationHandlers;
 use Larena\Storage\Runtime\LocaleOperationHandlers;
 use Larena\Storage\Runtime\PublicationOperationHandlers;
 use Larena\Storage\Runtime\ReadContractOperationHandlers;
@@ -77,6 +78,7 @@ final class StorageOperationProvider implements OperationProvider
             ...ReadContractOperationHandlers::descriptors(),
             ...RecordOperationHandlers::descriptors(),
             ...StorageSitePackOperationHandlers::descriptors(),
+            ...StorageEncryptionOperationHandlers::descriptors(),
         ];
     }
 
@@ -112,6 +114,10 @@ final class StorageOperationProvider implements OperationProvider
 
         foreach (array_keys(StorageSitePackOperationHandlers::descriptors()) as $name) {
             $refs[$name] = 'storage.handler.sitepack';
+        }
+
+        foreach (array_keys(StorageEncryptionOperationHandlers::descriptors()) as $name) {
+            $refs[$name] = 'storage.handler.encryption';
         }
 
         return $refs;

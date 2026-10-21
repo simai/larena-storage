@@ -70,6 +70,15 @@ operations:
   - code: storage.sitepack.import
     risk: critical
     audit: always
+  - code: storage.workbench.record.decrypt
+    risk: critical
+    audit: always
+  - code: storage.encryption.manage
+    risk: critical
+    audit: always
+  - code: storage.encryption.explain
+    risk: high
+    audit: denial
   - code: content.item.list
     risk: high
     audit: denial

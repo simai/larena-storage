@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\View;
 
 use Illuminate\Database\ConnectionInterface;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Exceptions\StorageRejected;
 use stdClass;
 use Throwable;
@@ -22,6 +23,8 @@ use Throwable;
  *   indexed automatically; long text never is.
  * - A table carries at most 40 field indexes: the automatic ones first, then the
  *   strings indexed on request.
+ * - An encrypted field takes neither: it has no витрина column and no search text
+ *   (storage_field_encrypted_searchable_refused, storage_field_encrypted_indexed_refused).
  *
  * The options are presentation of the витрина, not of the data: they live in the
  * workbench structure, not in the versioned storage schema, so changing them
@@ -82,6 +85,10 @@ final readonly class StorageViewFieldOptions
                     throw new StorageRejected(self::REASON_OPTION_INVALID);
                 }
             }
+            StorageEncryptionPolicy::assertOptions($field);
+            if (StorageEncryptionPolicy::isEncrypted($field)) {
+                continue;
+            }
             if (array_key_exists(self::SEARCHABLE, $field) && !in_array($kind, self::SEARCHABLE_KINDS, true)) {
                 throw new StorageRejected(self::REASON_SEARCHABLE_TYPE);
             }
@@ -120,7 +127,8 @@ final readonly class StorageViewFieldOptions
         foreach ($fields as $field) {
             $key = is_string($field['key'] ?? null) ? $field['key'] : '';
             $kind = is_string($field['type'] ?? null) ? $field['type'] : '';
-            if ($key === '' || str_starts_with($key, self::SYSTEM_PREFIX)) {
+            // An encrypted field is never searched nor indexed.
+            if ($key === '' || str_starts_with($key, self::SYSTEM_PREFIX) || StorageEncryptionPolicy::isEncrypted($field)) {
                 continue;
             }
             if (in_array($kind, self::SEARCHABLE_KINDS, true)) {

@@ -34,6 +34,9 @@ use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
+use Larena\Storage\Encryption\StorageDataKeys;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageFieldSealer;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageFieldChangeRow;
 use Larena\Storage\SchemaEvolution\StorageFieldChangeRunner;
@@ -122,6 +125,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         private int $inlineFieldChangeLimit = self::INLINE_FIELD_CHANGE_LIMIT,
         // Up to this many records a list builds a витрина that is not ready in the request; above it, refuses.
         private int $inlineViewBuildLimit = self::INLINE_VIEW_BUILD_LIMIT,
+        // Encrypted fields: their data keys and availability (the storage seals the values). Without it a structure
+        // with an encrypted field is refused (storage_field_encryption_unavailable).
+        private ?StorageFieldSealer $encryption = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
@@ -245,6 +251,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     ->delete();
                 $this->database->table('larena_storage_schema_versions')->where('schema_id', $schemaId)->delete();
                 $this->database->table('larena_storage_schemas')->where('schema_id', $schemaId)->delete();
+                if ($this->tableExists(StorageDataKeys::TABLE)) {
+                    StorageDataKeys::purge($this->database, $schemaId);
+                }
                 $this->views?->structurePurged($schemaId);
 
                 return true;
@@ -273,18 +282,27 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $correlationId = $this->correlationId($correlationId);
         $storageSchemaId = ScopedStorageWorkbenchSchemaIdentity::derive($scopeRef, $normalized['structure_id']);
         $definition = $this->schemaDefinition($storageSchemaId, $normalized['fields']);
+        // Encrypted fields need the manage right and a working key, before anything is written.
+        $encrypted = StorageEncryptionPolicy::encryptedKeys($normalized['fields']) !== [];
+        if ($encrypted) {
+            $this->assertEncryptionManaged($actor);
+        }
         // The витрина table is created before the transaction: MySQL cannot run DDL inside one.
         $options = StorageViewFieldOptions::resolve($normalized['fields']);
         $this->views?->prepareCreate($storageSchemaId, $definition['fields'], $options);
 
         try {
-            $created = $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $definition, $actor, $correlationId, $options, $importRunRef, $historyKeep): StorageWorkbenchStructure {
+            $created = $this->database->transaction(function () use ($scopeRef, $normalized, $storageSchemaId, $definition, $actor, $correlationId, $options, $importRunRef, $historyKeep, $encrypted): StorageWorkbenchStructure {
                 $schema = $this->storage->registerSchemaVersion(
                     $definition,
                     null,
                     $actor,
                     $correlationId,
                 );
+                if ($encrypted) {
+                    // The storage's data key is made with it, in its transaction.
+                    $this->encryption?->keys()->ensureActive($storageSchemaId);
+                }
                 $this->views?->structureCreated($schema, $options);
                 if ($importRunRef !== null && $this->views !== null && $this->views->enabled()) {
                     // The import writes no витрина rows: the витрина waits for the rebuild the import queues.
@@ -477,6 +495,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         string $correlationId,
         bool $migrate,
     ): StorageWorkbenchStructure {
+        // A change of which fields are encrypted needs the manage right and a working key, asked before anything.
+        $before = StorageEncryptionPolicy::encryptedKeys($this->readStructureInternal($scopeRef, $structureId)->fields);
+        $after = StorageEncryptionPolicy::encryptedKeys($normalized['fields']);
+        sort($before, SORT_STRING);
+        sort($after, SORT_STRING);
+        if ($before !== $after) {
+            $this->assertEncryptionManaged($actor);
+        }
         $this->prepareViewChange($scopeRef, $structureId, $expectedVersion, $normalized['fields'], $migrate);
 
         try {
@@ -506,6 +532,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $candidateDefinition = $migrate
                     ? $this->schemaDefinition($current->schema->schemaId, $normalized['fields'])
                     : $this->schemaDefinitionForUpdate($currentSchema, $normalized['fields']);
+                $this->assertEncryptionChange($currentSchema, $candidateDefinition);
                 $checked = $migrate ? $this->checkedFields($currentSchema, $candidateDefinition) : [];
                 if ($checked !== []) {
                     // Every record must pass: the change checks them first, and switches after.
@@ -1017,7 +1044,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     public function createRecord(
         string $scopeRef,
         string $structureId,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $actor,
         ?string $correlationId = null,
     ): StorageWorkbenchRecord {
@@ -1039,7 +1066,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         string $structureId,
         string $recordId,
         int $expectedRevision,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $actor,
         ?string $correlationId = null,
     ): StorageWorkbenchRecord {
@@ -1380,13 +1407,15 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 }
                 // The витрина goes with the structure; its tables are dropped after the commit.
                 $this->views?->structurePurged($schemaId);
+                // So do its data keys: its encrypted values can never be read again.
+                $dataKeys = $this->tableExists(StorageDataKeys::TABLE) ? StorageDataKeys::purge($this->database, $schemaId) : 0;
                 $recordIds = array_map(static fn (StorageRecordVersionRef $ref): string => $ref->recordId, $refs);
                 $this->emitStructure('storage.workbench.structure.purged', $scopeRef, $structureId, $actor, $correlationId, [
                     'schema_id' => $schemaId,
                     'structure_version' => $expectedVersion,
                     'record_count' => count($recordIds),
                     'version_count' => $versions,
-                ]);
+                ] + ($dataKeys > 0 ? ['data_key_count' => $dataKeys] : []));
 
                 return new StorageWorkbenchPurgeReceipt(
                     $structureId,
@@ -1485,7 +1514,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private function assertRecordReferences(
         StorageWorkbenchStructure $structure,
         string $scopeRef,
-        array $values,
+        #[\SensitiveParameter] array $values,
         ?StorageWorkbenchRecord $current,
         string $actor,
     ): void {
@@ -2284,7 +2313,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             // Hiding is presentation only; the field and its values stay.
             // `searchable` and `indexed` are the field's витрина options (StorageViewFieldOptions),
             // optional in the same way: a field that says nothing has the defaults.
-            $optional = array_values(array_intersect($fieldKeys, ['hidden', 'indexed', 'localized', 'searchable']));
+            // `encrypted` («Шифровать») is optional in the same way; it goes into the storage schema, kept only when true.
+            $optional = array_values(array_intersect($fieldKeys, ['encrypted', 'hidden', 'indexed', 'localized', 'searchable']));
             $expected = array_merge(['constraints', 'key', 'label', 'position', 'required', 'type', 'type_version', 'visibility'], $optional);
             sort($expected, SORT_STRING);
             if ($fieldKeys !== $expected) {
@@ -2322,6 +2352,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 'constraints' => $field['constraints'] ?? null,
                 'localized' => $field['localized'] ?? false,
             ] + (($field['hidden'] ?? false) === true ? ['hidden' => true] : [])
+                + (($field['encrypted'] ?? false) === true ? ['encrypted' => true] : [])
                 // The витрина options are kept as given (true or false) and only when given.
                 + array_intersect_key($field, array_flip(StorageViewFieldOptions::KEYS));
         }
@@ -2336,7 +2367,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'required' => $field['required'],
             'visibility' => $field['visibility'],
             'constraints' => $field['constraints'],
-        ] + ($field['localized'] === true ? ['localized' => true] : []), $normalized);
+        ] + ($field['localized'] === true ? ['localized' => true] : [])
+            + (($field['encrypted'] ?? false) === true ? ['encrypted' => true] : []), $normalized);
         $validated = $this->normalizer->normalize([
             'schema_id' => $structureId,
             'owner_package' => 'larena/storage',
@@ -2377,7 +2409,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     'required' => $field['required'],
                     'visibility' => $field['visibility'],
                     'constraints' => $field['constraints'],
-                ] + (($field['localized'] ?? false) === true ? ['localized' => true] : []),
+                ] + (($field['localized'] ?? false) === true ? ['localized' => true] : [])
+                    + (($field['encrypted'] ?? false) === true ? ['encrypted' => true] : []),
                 $fields,
             )),
         ]);
@@ -2408,13 +2441,15 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             // under the new schema version, and a translation of an older revision
             // keeps the rule of its own version. Everything else must stay.
             $stored = $field;
-            unset($stored['localized']);
+            // Encryption may switch too, on a field without values (assertEncryptionChange checks it).
+            unset($stored['localized'], $stored['encrypted']);
             $semantic = $this->semanticField($candidate);
             if ($this->canonicalJson($semantic) !== $this->canonicalJson($stored)) {
                 throw new StorageRejected('storage_workbench_structure_field_changed');
             }
             $currentUserKeys[$key] = true;
-            $target[] = $stored + (($candidate['localized'] ?? false) === true ? ['localized' => true] : []);
+            $target[] = $stored + (($candidate['localized'] ?? false) === true ? ['localized' => true] : [])
+                + (($candidate['encrypted'] ?? false) === true ? ['encrypted' => true] : []);
         }
         foreach ($candidateFields as $field) {
             $key = (string) $field['key'];
@@ -2440,7 +2475,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 || ($constraints !== [] && !in_array($constraintKeys, $allowedKeys, true))) {
                 throw new StorageRejected('storage_workbench_structure_addition_incompatible');
             }
-            $target[] = $this->semanticField($field) + (($field['localized'] ?? false) === true ? ['localized' => true] : []);
+            $target[] = $this->semanticField($field) + (($field['localized'] ?? false) === true ? ['localized' => true] : [])
+                + (($field['encrypted'] ?? false) === true ? ['encrypted' => true] : []);
         }
 
         return $this->normalizer->normalize([
@@ -2448,6 +2484,46 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'owner_package' => $current->ownerPackage,
             'fields' => $target,
         ]);
+    }
+
+    /**
+     * In a structure change's transaction: encryption switches only on fields without values, an encrypted field is
+     * not retyped and keeps its constraints while it has values (StorageEncryptionPolicy::assertChange). The storage's
+     * data key is made when it gets its first encrypted field (changeStructure asked for the manage right before).
+     *
+     * @param array<string, mixed> $candidateDefinition
+     */
+    private function assertEncryptionChange(StorageSchemaVersion $current, array $candidateDefinition): void
+    {
+        $from = StorageRecordConverter::byKey($current->fields);
+        $to = StorageRecordConverter::byKey(is_array($candidateDefinition['fields'] ?? null) ? $candidateDefinition['fields'] : []);
+        $schemaId = $current->ref->schemaId;
+        StorageEncryptionPolicy::assertChange(
+            $from,
+            $to,
+            fn (string $key): bool => StorageEncryptionPolicy::fieldHasValues($this->database, $schemaId, $key),
+        );
+        $before = StorageEncryptionPolicy::encryptedKeys($from);
+        $after = StorageEncryptionPolicy::encryptedKeys($to);
+        sort($before, SORT_STRING);
+        sort($after, SORT_STRING);
+        if ($before === $after || $after === []) {
+            return;
+        }
+        if ($this->encryption === null) {
+            throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+        }
+        $this->encryption->keys()->ensureActive($schemaId);
+    }
+
+    /** Making or changing encrypted fields: the manage right and a working key (sodium, the key-encryption key). */
+    private function assertEncryptionManaged(string $actor): void
+    {
+        $this->authorizer->assertAllowed($actor, 'storage.encryption.manage');
+        if ($this->encryption === null) {
+            throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+        }
+        $this->encryption->keys()->assertAvailable();
     }
 
     /** @return array<string, mixed> */
@@ -2792,7 +2868,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     }
 
     /** @param array<array-key, mixed> $values */
-    private function assertUserValues(array $values): void
+    private function assertUserValues(#[\SensitiveParameter] array $values): void
     {
         if ($values !== [] && array_is_list($values)) {
             throw new StorageRejected('storage_workbench_record_values_invalid');

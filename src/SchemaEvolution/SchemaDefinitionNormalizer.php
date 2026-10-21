@@ -7,6 +7,8 @@ namespace Larena\Storage\SchemaEvolution;
 use Larena\Property\Contracts\PropertyConstraintValidator;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaVersion;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageFieldEnvelope;
 use Larena\Storage\Exceptions\StorageRejected;
 use Throwable;
 
@@ -59,7 +61,7 @@ final readonly class SchemaDefinitionNormalizer
                 throw new StorageRejected('storage_schema_field_invalid');
             }
             $fieldKeys = array_keys($field);
-            $unknownFieldKeys = array_diff($fieldKeys, ['key', 'type', 'type_version', 'required', 'visibility', 'constraints', 'localized']);
+            $unknownFieldKeys = array_diff($fieldKeys, ['key', 'type', 'type_version', 'required', 'visibility', 'constraints', 'localized', 'encrypted']);
             if ($unknownFieldKeys !== []
                 || !array_key_exists('key', $field)
                 || !array_key_exists('type', $field)
@@ -82,8 +84,14 @@ final readonly class SchemaDefinitionNormalizer
                 || !is_array($constraints)
                 || ($constraints !== [] && array_is_list($constraints))
                 || (array_key_exists('localized', $field) && !is_bool($field['localized']))
+                || (array_key_exists('encrypted', $field) && !is_bool($field['encrypted']))
                 || $this->propertyTypes->resolve($type, $typeVersion) === null) {
                 throw new StorageRejected('storage_schema_field_invalid');
+            }
+            $encrypted = ($field['encrypted'] ?? false) === true;
+            if ($encrypted) {
+                // The encryption rules come before the constraints: an encrypted field never takes uniqueness.
+                StorageEncryptionPolicy::assertField(['type' => $type, 'visibility' => $visibility, 'constraints' => $constraints], $ownerPackage);
             }
             foreach ($constraints as $constraintKey => $constraintValue) {
                 if (!is_string($constraintKey)) {
@@ -115,7 +123,9 @@ final readonly class SchemaDefinitionNormalizer
                 'constraints' => $this->canonicalize($constraints),
             // A field is localized only when it says so; the key is kept only when
             // true, so a field that says nothing hashes as it always did.
-            ] + (($field['localized'] ?? false) === true ? ['localized' => true] : []);
+            ] + (($field['localized'] ?? false) === true ? ['localized' => true] : [])
+                // Encrypted («Шифровать»): kept only when true, like localized.
+                + ($encrypted ? ['encrypted' => true] : []);
         }
 
         return ['schema_id' => $schemaId, 'owner_package' => $ownerPackage, 'fields' => $normalizedFields]
@@ -161,10 +171,17 @@ final readonly class SchemaDefinitionNormalizer
     }
 
     /**
+     * The values of a record normalized and validated by the fields' Property types.
+     *
+     * $sealedAsStored is for checks of stored versions (a field change, a planned migration): the envelope of an
+     * encrypted field is kept as it is stored (its shape checked) instead of being validated as a value. A write
+     * always passes plaintext (StorageFieldSealer opens the envelopes first), so its values are validated before
+     * they are encrypted.
+     *
      * @param array<array-key, mixed> $values
      * @return array<string, mixed>
      */
-    public function normalizeValues(StorageSchemaVersion $schema, array $values): array
+    public function normalizeValues(StorageSchemaVersion $schema, #[\SensitiveParameter] array $values, bool $sealedAsStored = false): array
     {
         if ($values !== [] && array_is_list($values)) {
             throw new StorageRejected('storage_record_values_invalid');
@@ -191,6 +208,11 @@ final readonly class SchemaDefinitionNormalizer
                 if (($field['required'] ?? false) === true) {
                     throw new StorageRejected('storage_record_required_field_missing');
                 }
+                continue;
+            }
+            if ($sealedAsStored && ($field['encrypted'] ?? false) === true && StorageFieldEnvelope::isEnvelope($values[$key])) {
+                StorageFieldEnvelope::fromValue($values[$key]);
+                $normalized[$key] = $values[$key];
                 continue;
             }
             $result = $this->propertyTypes->normalizeAndValidate(

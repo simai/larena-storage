@@ -48,6 +48,9 @@ final class StorageSitePackExporter
     /** @var array<string, array<string, mixed>> current fields by key */
     private array $fields = [];
 
+    /** @var array<string, true> the encrypted fields, whose values the pack leaves out */
+    private array $encrypted = [];
+
     /** @var array<string, bool> */
     private array $tables = [];
 
@@ -68,6 +71,9 @@ final class StorageSitePackExporter
     ) {
         foreach ($structure->fields as $field) {
             $this->fields[(string) $field['key']] = $field;
+            if (($field['encrypted'] ?? false) === true) {
+                $this->encrypted[(string) $field['key']] = true;
+            }
         }
     }
 
@@ -198,10 +204,21 @@ final class StorageSitePackExporter
                 foreach (StorageSitePackFormat::RESERVED_FIELDS as $reserved) {
                     unset($values[$reserved]);
                 }
+                // Encrypted values never leave the site in a pack (the field stays, marked encrypted).
+                $omitted = array_intersect_key($values, $this->encrypted);
+                if ($omitted !== []) {
+                    $values = array_diff_key($values, $this->encrypted);
+                    $counts['encrypted_values_omitted'] = ($counts['encrypted_values_omitted'] ?? 0) + count($omitted);
+                }
                 ksort($values, SORT_STRING);
                 $translations = [];
                 foreach ($localized[$recordId][$revision] ?? [] as $locale => $fieldValues) {
                     $kept = array_intersect_key($fieldValues, $this->fields);
+                    $omitted = array_intersect_key($kept, $this->encrypted);
+                    if ($omitted !== []) {
+                        $kept = array_diff_key($kept, $this->encrypted);
+                        $counts['encrypted_values_omitted'] = ($counts['encrypted_values_omitted'] ?? 0) + count($omitted);
+                    }
                     if ($kept === []) {
                         continue;
                     }

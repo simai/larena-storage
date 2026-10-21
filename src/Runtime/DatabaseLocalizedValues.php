@@ -15,6 +15,9 @@ use Larena\Storage\Contracts\LocalizedValuesBatch;
 use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\LocalizedValueRejected;
+use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageFieldSealer;
 use Larena\Storage\View\Site\PublishedSiteViewIndex;
 use Larena\Storage\View\Site\PublishedSiteViewRegistry;
 use Larena\Property\Contracts\PropertyTypeRegistry;
@@ -31,6 +34,12 @@ use Throwable;
  * one: a caller has to be able to tell "this page has no German title" from "this
  * page's German title is an empty string", and folding the two together would make
  * coverage meaningless.
+ *
+ * A translation of an encrypted field is validated, then sealed for its locale (the
+ * locale is part of the associated data) and stored as an envelope; every read here
+ * returns the envelope. An envelope sent back is kept when it opens for this record,
+ * locale and field. Without a sealer such a write is refused
+ * (storage_field_encryption_unavailable) before anything is written.
  */
 final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesBatch
 {
@@ -55,6 +64,8 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         private readonly ?string $primaryLocale = null,
         private readonly ?StorageSecurityEventSink $securityEvents = null,
         private readonly ?Closure $observer = null,
+        // Seals the translations of encrypted fields; without it they are refused.
+        private readonly ?StorageFieldSealer $sealer = null,
     ) {
         $this->types = $types ?? BuiltInPropertyTypes::builtIns();
     }
@@ -96,7 +107,7 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
      * @param array<string, mixed> $values
      * @return array<string, mixed> the normalized values
      */
-    private function validatedValues(array $fields, array $values): array
+    private function validatedValues(array $fields, #[\SensitiveParameter] array $values): array
     {
 
         $normalized = [];
@@ -138,7 +149,7 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         string $recordId,
         int $revision,
         string $locale,
-        array $values,
+        #[\SensitiveParameter] array $values,
         array $localizedFieldKeys,
         string $actorId,
         array $requiredFieldKeys = [],
@@ -197,7 +208,24 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         // A translation passes the same Property validation as the shared value: the
         // field's type, version and constraints come from the schema version of the
         // revision it translates. A field the schema does not know is refused.
-        $values = $this->validatedValues($schema['fields'], $values);
+        $encrypted = array_values(array_intersect(
+            StorageEncryptionPolicy::encryptedKeys($schema['fields']),
+            array_map('strval', array_keys($values)),
+        ));
+        if ($encrypted === []) {
+            $values = $this->validatedValues($schema['fields'], $values);
+        } else {
+            if ($this->sealer === null) {
+                throw new LocalizedValueRejected(StorageEncryptionPolicy::UNAVAILABLE, 'Encrypted values cannot be written here.');
+            }
+            try {
+                $this->sealer->keys()->assertAvailable();
+                [$plain, $given] = $this->sealer->open($schemaId, $encrypted, $recordId, $locale, $values);
+                $values = $this->sealer->seal($schemaId, $encrypted, $recordId, $locale, $this->validatedValues($schema['fields'], $plain), $given);
+            } catch (StorageRejected $exception) {
+                throw new LocalizedValueRejected($exception->reasonCode, 'An encrypted value cannot be written.');
+            }
+        }
 
         $now = $this->now();
         $written = [];

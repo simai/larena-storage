@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "03740bc4b7de2668a9f9f74fa80e566b",
+    "content-hash": "7397e250f6333623a90acbd8f4fac9cf",
     "packages": [
         {
             "name": "brick/math",
@@ -2162,7 +2162,7 @@
             "dist": {
                 "type": "path",
                 "url": "../core",
-                "reference": "163f8936a107cda5238ea6fb9b6b5ca2aad4cb23"
+                "reference": "41d18fb6bc069a3d71801226e3b62e4bb9466e60"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2256,7 +2256,10 @@
                     "@php tests/Unit/SolutionManifestValidationTest.php",
                     "@php tests/Unit/SolutionPlannerConflictTest.php",
                     "@php tests/Unit/SolutionTopologyTest.php",
-                    "@php tests/Unit/SolutionFailsClosedTest.php"
+                    "@php tests/Unit/SolutionFailsClosedTest.php",
+                    "@php tests/Unit/SitePackArchiveTest.php",
+                    "@php tests/Unit/SitePackArchiveSafetyTest.php",
+                    "@php tests/Unit/SitePackStreamingTest.php"
                 ],
                 "test:unit": [
                     "@php tests/Unit/OperationRuntimeContractTest.php",
@@ -2515,6 +2518,78 @@
                 }
             ],
             "description": "Larena Queue: Mandatory system package for governed background execution, load smoothing, retry, timeout, worker supervision and hosting-safe operation scheduling across Larena packages.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/secret",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../secret",
+                "reference": "7c8cbc413d07612beacc9ec933ef23e7db3e2a72"
+            },
+            "require": {
+                "ext-sodium": "*",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Secret\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Secret\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "php scripts/test-placeholder.php"
+                ],
+                "test:unit": [
+                    "php scripts/test-placeholder.php"
+                ],
+                "lint": [
+                    "php scripts/lint.php"
+                ],
+                "analyse": [
+                    "php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@evidence:check",
+                    "@scope:check"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov"
+                }
+            ],
+            "description": "Larena Secret: Secret broker for SecretReference, vault adapters, scoped leases, redaction, rotation and audited runtime access.",
             "transport-options": {
                 "symlink": true,
                 "relative": true
@@ -5768,6 +5843,7 @@
         "larena/core": 20,
         "larena/property": 20,
         "larena/queue": 20,
+        "larena/secret": 20,
         "larena/audit": 20
     },
     "prefer-stable": true,

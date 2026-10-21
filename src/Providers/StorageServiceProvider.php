@@ -108,6 +108,13 @@ use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\StorageFieldChangeJob;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
+use Larena\Secret\Contracts\DataKeyWrapper;
+use Larena\Secret\Local\AppKeyDerivedDataKeyWrapper;
+use Larena\Storage\Encryption\StorageDataKeys;
+use Larena\Storage\Encryption\StorageEncryptionExplain;
+use Larena\Storage\Encryption\StorageEncryptionOperationHandlers;
+use Larena\Storage\Encryption\StorageFieldReveal;
+use Larena\Storage\Encryption\StorageFieldSealer;
 
 final class StorageServiceProvider extends ServiceProvider
 {
@@ -116,6 +123,39 @@ final class StorageServiceProvider extends ServiceProvider
         if (!$this->app->bound(StorageSecurityEventSink::class)) {
             $this->app->singleton(StorageSecurityEventSink::class, NullStorageSecurityEventSink::class);
         }
+        // Field encryption (larena-specs docs/architecture/2026-10-22-storage-field-encryption.md). The KEK is
+        // larena/secret's, derived from APP_KEY (previous keys keep unwrapping); a host may bind its own wrapper. Made
+        // at the first encrypted write or reveal, never at boot: without APP_KEY or sodium the application boots and
+        // every encrypted write is refused.
+        $this->app->singletonIf(DataKeyWrapper::class, static function (Application $app): DataKeyWrapper {
+            $config = $app->make('config');
+            $key = $config->get('app.key');
+            $previous = $config->get('app.previous_keys', []);
+
+            return new AppKeyDerivedDataKeyWrapper(is_string($key) ? $key : '', is_array($previous) ? $previous : []);
+        });
+        $this->app->singleton(StorageDataKeys::class, static fn (Application $app): StorageDataKeys => new StorageDataKeys(
+            $app->make(DatabaseManager::class)->connection(),
+            static fn (): DataKeyWrapper => $app->make(DataKeyWrapper::class),
+        ));
+        $this->app->singleton(StorageFieldSealer::class, static fn (Application $app): StorageFieldSealer => new StorageFieldSealer(
+            $app->make(StorageDataKeys::class),
+        ));
+        // The one way to plaintext: storage.workbench.record.decrypt, audited (storage.field.revealed).
+        $this->app->singleton(StorageFieldReveal::class, static fn (Application $app): StorageFieldReveal => new StorageFieldReveal(
+            $app->make(StorageDataKeys::class),
+            $app->make(ActorOperationAuthorizer::class),
+            $app->make(StorageSecurityEventSink::class),
+            $app->make(StorageWorkbenchContract::class),
+        ));
+        $this->app->singleton(StorageEncryptionExplain::class, static fn (Application $app): StorageEncryptionExplain => new StorageEncryptionExplain(
+            $app->make(StorageWorkbenchContract::class),
+            $app->make(StorageDataKeys::class),
+            $app->make(ActorOperationAuthorizer::class),
+        ));
+        $this->app->singleton(StorageEncryptionOperationHandlers::class, static fn (Application $app): StorageEncryptionOperationHandlers => new StorageEncryptionOperationHandlers(
+            $app->make(StorageEncryptionExplain::class),
+        ));
         $this->app->singleton(DatabaseStructureRoleRegistry::class, static function (Application $app): DatabaseStructureRoleRegistry {
             return new DatabaseStructureRoleRegistry(
                 $app->make(DatabaseManager::class)->connection(),
@@ -169,6 +209,8 @@ final class StorageServiceProvider extends ServiceProvider
                     $app->make(PublishedKeyIndex::class),
                     $app->make(PublishedSiteViewIndex::class),
                 ]),
+                // A translation of an encrypted field is sealed for its locale.
+                $app->make(StorageFieldSealer::class),
             );
         });
         $this->app->alias(DatabaseLocalizedValues::class, LocalizedValues::class);
@@ -316,6 +358,7 @@ final class StorageServiceProvider extends ServiceProvider
                     'storage.handler.read_contract' => ReadContractOperationHandlers::class,
                     'storage.handler.record' => RecordOperationHandlers::class,
                     'storage.handler.sitepack' => StorageSitePackOperationHandlers::class,
+                    'storage.handler.encryption' => StorageEncryptionOperationHandlers::class,
                 ] as $ref => $class) {
                     if (!$catalog->has($ref)) {
                         $catalog->register($ref, static fn (): OperationHandler => $app->make($class));
@@ -432,6 +475,8 @@ final class StorageServiceProvider extends ServiceProvider
                 $app->make(DatabaseRecordRelations::class),
                 $app->make(StorageViewSync::class),
                 $app->make(StorageMetrics::class),
+                // Encrypted fields are sealed on every write.
+                $app->make(StorageFieldSealer::class),
             );
         });
         $this->app->alias(VersionedStorage::class, VersionedStorageContract::class);
@@ -486,6 +531,7 @@ final class StorageServiceProvider extends ServiceProvider
 
                     return true;
                 },
+                encryption: $app->make(StorageFieldSealer::class),
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
@@ -744,6 +790,11 @@ final class StorageServiceProvider extends ServiceProvider
             ['storage.sitepack.export', 'sitepack_export', 'export', 'high'],
             // A whole storage enters the site from an archive: critical, always audited.
             ['storage.sitepack.import', 'sitepack_import', 'import', 'critical'],
+            // Field encryption: plaintext of an encrypted value (critical, every reveal audited), making or switching
+            // encrypted fields (critical), reading what a structure's encryption is (high).
+            ['storage.workbench.record.decrypt', 'workbench_record_decrypt', 'decrypt', 'critical'],
+            ['storage.encryption.manage', 'encryption_manage', 'manage', 'critical'],
+            ['storage.encryption.explain', 'encryption_explain', 'read', 'high'],
         ] as [$code, $label, $grant, $risk]) {
             $registered = $registry->register(new AccessOperationDescriptor(
                 code: $code,
@@ -757,7 +808,7 @@ final class StorageServiceProvider extends ServiceProvider
                         ? 'storage.workbench.structure:all'
                         : (str_starts_with($code, 'storage.workbench.record.')
                             ? 'storage.workbench.record:all'
-                            : (preg_match('/^storage\.(role|relation|locale|publication|read|sitepack)\./', $code, $area) === 1
+                            : (preg_match('/^storage\.(role|relation|locale|publication|read|sitepack|encryption)\./', $code, $area) === 1
                                 ? 'storage.' . $area[1] . ':all'
                                 : 'storage.record:all')))),
                 requiredGrant: $grant,

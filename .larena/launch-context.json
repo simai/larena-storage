@@ -12,7 +12,8 @@
   "selected_features": [
     "storage.workbench_structure_catalog",
     "storage.workbench_scoped_record_lifecycle",
-    "storage.workbench_structure_evolution"
+    "storage.workbench_structure_evolution",
+    "storage.encryption_key_policy"
   ],
   "allowed_files": [
     ".larena/launch-context.json",
@@ -196,7 +197,13 @@
     "tests/Support/storage-sitepack-import-fixture.php",
     "tests/Integration/StorageSitePackImportTest.php",
     "tests/Integration/StorageSitePackImportMySqlTest.php",
-    "tests/fixtures/storage-sitepack-demo.zip"
+    "tests/fixtures/storage-sitepack-demo.zip",
+    "database/migrations/platform/2026_10_24_000001_create_larena_storage_data_keys_table.php",
+    "src/Audit/StorageEncryptionAuditEventDescriptor.php",
+    "src/Encryption/*",
+    "tests/Integration/StorageFieldEncryptionTest.php",
+    "tests/Integration/StorageFieldEncryptionMySqlTest.php",
+    "tests/Support/storage-encryption-fixture.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

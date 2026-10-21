@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\View;
 
 use Larena\Property\Contracts\PropertyTypeRegistry;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Exceptions\StorageRejected;
 
 /**
@@ -21,6 +22,10 @@ use Larena\Storage\Exceptions\StorageRejected;
  * - search: trimmed, 1..MAX_SEARCH_BYTES bytes, no control character;
  * - sort: at most MAX_SORTS distinct `{field, direction}` over the given fields or
  *   the caller's system keys.
+ *
+ * An encrypted field is refused as a filter (storage_field_encrypted_filter_unsupported)
+ * or a sort (storage_field_encrypted_sort_unsupported); a search over a storage whose
+ * only text fields are encrypted is refused (storage_field_encrypted_search_unsupported).
  *
  * The caller decides which fields exist: the workbench passes every field of the
  * structure, the site list only its public ones, so a field it leaves out is refused
@@ -82,6 +87,9 @@ final readonly class StorageRecordQueryNormalizer
             if (!is_string($field) || !isset($fields[$field]) || !is_array($filter)) {
                 throw new StorageRejected('storage_workbench_record_filter_invalid');
             }
+            if (StorageEncryptionPolicy::isEncrypted($fields[$field])) {
+                throw new StorageRejected(StorageEncryptionPolicy::FILTER_UNSUPPORTED);
+            }
             $normalizedFilters[$field] = $this->normalizeFilter($fields[$field], $filter);
         }
         ksort($normalizedFilters, SORT_STRING);
@@ -89,6 +97,21 @@ final readonly class StorageRecordQueryNormalizer
             $search = trim($search);
             if ($search === '' || strlen($search) > self::MAX_SEARCH_BYTES || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $search) === 1) {
                 throw new StorageRejected('storage_workbench_record_search_invalid');
+            }
+            $plainText = false;
+            $sealedText = false;
+            foreach ($fields as $definition) {
+                if (!in_array($definition['type'] ?? null, ['string', 'text'], true)) {
+                    continue;
+                }
+                if (StorageEncryptionPolicy::isEncrypted($definition)) {
+                    $sealedText = true;
+                } else {
+                    $plainText = true;
+                }
+            }
+            if ($sealedText && !$plainText) {
+                throw new StorageRejected(StorageEncryptionPolicy::SEARCH_UNSUPPORTED);
             }
         }
         $normalizedSort = [];
@@ -107,6 +130,9 @@ final readonly class StorageRecordQueryNormalizer
                 || isset($seen[$field])
                 || !in_array($direction, ['asc', 'desc'], true)) {
                 throw new StorageRejected('storage_workbench_record_sort_invalid');
+            }
+            if (isset($fields[$field]) && StorageEncryptionPolicy::isEncrypted($fields[$field])) {
+                throw new StorageRejected(StorageEncryptionPolicy::SORT_UNSUPPORTED);
             }
             $seen[$field] = true;
             $normalizedSort[] = ['field' => $field, 'direction' => $direction];

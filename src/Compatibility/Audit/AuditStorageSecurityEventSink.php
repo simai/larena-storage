@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use Larena\Audit\Contracts\AuditEvent;
 use Larena\Audit\Runtime\AuditEventPipeline;
 use Larena\Storage\Audit\LocalizedValueAuditEventDescriptor;
+use Larena\Storage\Audit\StorageEncryptionAuditEventDescriptor;
 use Larena\Storage\Audit\PublicationAuditEventDescriptor;
 use Larena\Storage\Audit\RelationAuditEventDescriptor;
 use Larena\Storage\Audit\StorageSchemaMigrationAuditEventDescriptor;
@@ -41,6 +42,7 @@ final readonly class AuditStorageSecurityEventSink implements StorageSecurityEve
             'relation' => new RelationAuditEventDescriptor($event->type),
             'role' => new StructureRoleAuditEventDescriptor($event->type),
             'sitepack' => new StorageSitePackAuditEventDescriptor($event->type),
+            'encryption' => new StorageEncryptionAuditEventDescriptor($event->type),
             default => new StorageVersionAuditEventDescriptor($event->type),
         };
 

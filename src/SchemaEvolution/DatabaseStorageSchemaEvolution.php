@@ -26,6 +26,7 @@ use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
@@ -273,6 +274,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                 )) {
                     throw new StorageRejected('storage_schema_migration_plan_tampered');
                 }
+                $this->assertEncryptionChange($plan->source->schemaId, $sourceDefinition['fields'], $targetDefinition['fields']);
                 $declared = $plan->compatibilityClass === 'declared_transform';
                 $compatibility = $declared
                     ? $this->compatibility->analyzeDeclared($sourceDefinition, $targetDefinition)
@@ -333,9 +335,10 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                         $normalized = $this->normalizer->normalizeValues(
                             $targetSchema,
                             $this->transform->apply($sourceDefinition['fields'], $targetDefinition['fields'], $values),
+                            true,
                         );
                     } else {
-                        $normalized = $this->normalizer->normalizeValues($targetSchema, $values);
+                        $normalized = $this->normalizer->normalizeValues($targetSchema, $values, true);
                         if ($this->normalizer->canonicalJson($normalized) !== $this->normalizer->canonicalJson($values)) {
                             throw new StorageRejected('storage_schema_migration_record_incompatible');
                         }
@@ -513,6 +516,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
             throw new StorageRejected('storage_schema_migration_plan_tampered');
         }
         $targetDefinition = $this->normalizer->normalize($candidateDefinition);
+        $this->assertEncryptionChange($source->schemaId, $sourceDefinition['fields'], $targetDefinition['fields']);
         $targetHash = hash('sha256', $this->normalizer->canonicalJson($targetDefinition));
         $compatibility = $declared
             ? $this->compatibility->analyzeDeclared($sourceDefinition, $targetDefinition)
@@ -561,6 +565,7 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
                         $declared
                             ? $this->transform->apply($sourceDefinition['fields'], $targetDefinition['fields'], $values)
                             : $values,
+                        true,
                     );
                 } catch (StorageRejected) {
                     $compatibility['compatible'] = false;
@@ -601,6 +606,22 @@ final readonly class DatabaseStorageSchemaEvolution implements StorageSchemaEvol
         );
 
         return ['report' => $report, 'target_definition' => $targetDefinition, 'records' => $records];
+    }
+
+    /**
+     * A planned migration rewrites no encrypted value: encryption switches only on a field without values, and an
+     * encrypted field is not retyped (StorageEncryptionPolicy::assertChange).
+     *
+     * @param list<array<string, mixed>> $from
+     * @param list<array<string, mixed>> $to
+     */
+    private function assertEncryptionChange(string $schemaId, array $from, array $to): void
+    {
+        StorageEncryptionPolicy::assertChange(
+            StorageRecordConverter::byKey($from),
+            StorageRecordConverter::byKey($to),
+            fn (string $key): bool => StorageEncryptionPolicy::fieldHasValues($this->database, $schemaId, $key),
+        );
     }
 
     /** @return array{schema_id:string,owner_package:string,fields:list<array<string,mixed>>} */

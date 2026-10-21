@@ -364,7 +364,7 @@ final readonly class StorageFieldChangeRunner
             $values = $this->converter->convert($context['schema_id'], $version, $context['source_version'], $stored);
             try {
                 $converted = $this->converter->step($values, $context['source'], $context['target'], true);
-                $normalized = $this->normalizer->normalizeValues($context['schema'], $converted);
+                $normalized = $this->normalizer->normalizeValues($context['schema'], $converted, true);
             } catch (StorageRejected) {
                 return 'storage_schema_migration_record_unconvertible';
             }

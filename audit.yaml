@@ -91,6 +91,9 @@ events:
   - type: storage.sitepack.imported
     category: storage_sitepack
     severity: security
+  - type: storage.field.revealed
+    category: storage_encryption
+    severity: security
 forbidden_payload_fields:
   - definition
   - target_definition

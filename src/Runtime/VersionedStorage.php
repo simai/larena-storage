@@ -24,6 +24,8 @@ use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWriteResult;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
+use Larena\Storage\Encryption\StorageFieldSealer;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
@@ -35,6 +37,12 @@ use stdClass;
 use Throwable;
 use Larena\Storage\Exceptions\RelationRejected;
 
+/**
+ * Encrypted fields («Шифровать»): a write seals them after its values are validated (StorageFieldSealer) and stores
+ * envelopes only; content hashes are over the stored form. Every read here returns the envelopes as stored;
+ * plaintext leaves Storage only through StorageFieldReveal. The витрина is written without the encrypted fields, and
+ * a list refuses to filter by one (storage_field_encrypted_filter_unsupported).
+ */
 final readonly class VersionedStorage implements VersionedStorageContract
 {
     private const RECORD_LIST_RESOURCE_TYPE = 'storage.record';
@@ -59,6 +67,9 @@ final readonly class VersionedStorage implements VersionedStorageContract
         private ?StorageViewSync $views = null,
         // Times reads and writes for larena/monitoring when it is installed; a no-op otherwise.
         private StorageMetrics $metrics = new StorageMetrics(),
+        // Seals the encrypted fields of a write (larena-specs docs/architecture/2026-10-22-storage-field-encryption.md);
+        // without it a write to a schema with an encrypted field is refused (storage_field_encryption_unavailable).
+        private ?StorageFieldSealer $sealer = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->securityEvents = $securityEvents instanceof StorageSecurityEventSink
@@ -178,7 +189,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
     public function create(
         string $ownerRef,
         StorageSchemaVersionRef $schema,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $actor,
         ?string $correlationId = null,
     ): StorageWriteResult {
@@ -192,7 +203,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $ownerRef,
         StorageRecordVersionRef $expected,
         StorageSchemaVersionRef $schema,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $actor,
         ?string $correlationId = null,
     ): StorageWriteResult {
@@ -206,7 +217,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $ownerRef,
         StorageRecordVersionRef $expected,
         StorageSchemaVersionRef $schema,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $operation,
         string $actor,
         ?string $correlationId = null,
@@ -221,7 +232,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $ownerRef,
         StorageSchemaVersionRef $schema,
         string $recordId,
-        array $versions,
+        #[\SensitiveParameter] array $versions,
         bool $archived,
         string $actor,
         ?string $correlationId = null,
@@ -259,7 +270,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
     private function createVersion(
         string $ownerRef,
         StorageSchemaVersionRef $schema,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $actor,
         ?string $correlationId = null,
     ): StorageWriteResult {
@@ -282,10 +293,11 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
                     throw new StorageRejected('storage_record_schema_not_current');
                 }
-                $normalizedValues = $this->normalizer->normalizeValues($schemaVersion, $values);
+                // The id comes first: an encrypted value is bound to its record.
+                $recordId = 'record-' . bin2hex(random_bytes(16));
+                $normalizedValues = $this->storedValues($schemaVersion, $recordId, $values, []);
                 $valuesJson = $this->canonicalJson($normalizedValues);
                 $contentHash = hash('sha256', $valuesJson);
-                $recordId = 'record-' . bin2hex(random_bytes(16));
                 $now = $this->timestamp();
 
                 $this->database->table('larena_storage_records')->insert([
@@ -310,7 +322,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     $correlationId,
                     $now,
                 );
-                $this->views?->recordWritten($schemaVersion, $recordId, 1, $normalizedValues, $contentHash, $now, $now);
+                $this->views?->recordWritten($schemaVersion, $recordId, 1, $this->viewValues($schemaVersion, $normalizedValues), $contentHash, $now, $now);
 
                 $record = new StorageRecordVersion(
                     new StorageRecordVersionRef($schema->schemaId, $recordId, 1),
@@ -344,7 +356,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $ownerRef,
         StorageSchemaVersionRef $schema,
         string $recordId,
-        array $versions,
+        #[\SensitiveParameter] array $versions,
         bool $archived,
         string $actor,
         ?string $correlationId,
@@ -385,7 +397,8 @@ final readonly class VersionedStorage implements VersionedStorageContract
                 $operation = 'create';
                 foreach ($versions as $index => $values) {
                     /** @var array<string, mixed> $values */
-                    $normalizedValues = $this->normalizer->normalizeValues($schemaVersion, $values);
+                    // An unchanged encrypted value keeps the envelope of the version before.
+                    $normalizedValues = $this->storedValues($schemaVersion, $recordId, $values, $normalizedValues);
                     $valuesJson = $this->canonicalJson($normalizedValues);
                     $contentHash = hash('sha256', $valuesJson);
                     $revision = $index + 1;
@@ -440,7 +453,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $ownerRef,
         StorageRecordVersionRef $expected,
         StorageSchemaVersionRef $schema,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $actor,
         ?string $correlationId = null,
     ): StorageWriteResult {
@@ -463,7 +476,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $ownerRef,
         StorageRecordVersionRef $expected,
         StorageSchemaVersionRef $schema,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $operation,
         string $actor,
         ?string $correlationId = null,
@@ -1006,7 +1019,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
         string $ownerRef,
         StorageRecordVersionRef $expected,
         StorageSchemaVersionRef $schema,
-        array $values,
+        #[\SensitiveParameter] array $values,
         string $actor,
         string $correlationId,
         string $operation,
@@ -1032,6 +1045,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     || !hash_equals((string) $schemaHead->current_hash, $schemaVersion->definitionHash)) {
                     throw new StorageRejected('storage_record_schema_not_current');
                 }
+                $encrypted = StorageEncryptionPolicy::encryptedKeys($schemaVersion->fields);
                 $head = $this->database->table('larena_storage_records')
                     ->where('record_id', $expected->recordId)
                     ->where('schema_id', $expected->schemaId)
@@ -1056,7 +1070,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     ->where('record_id', $expected->recordId)
                     ->where('revision', $expected->revision)
                     ->sharedLock()
-                    ->first(['owner_ref', 'schema_version', 'content_hash']);
+                    ->first($encrypted === [] ? ['owner_ref', 'schema_version', 'content_hash'] : ['owner_ref', 'schema_version', 'content_hash', 'values_json']);
                 if (!$expectedVersion instanceof stdClass) {
                     throw new StorageRejected('storage_record_version_unknown');
                 }
@@ -1068,7 +1082,9 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     || !hash_equals((string) $expectedVersion->content_hash, (string) $head->current_hash)) {
                     throw new StorageRejected('storage_record_head_corrupt');
                 }
-                $normalizedValues = $this->normalizer->normalizeValues($schemaVersion, $values);
+                // The previous version's envelopes: an unchanged encrypted value keeps its ciphertext.
+                $previous = $encrypted === [] ? [] : $this->decodeObject((string) $expectedVersion->values_json, 'storage_record_values_corrupt');
+                $normalizedValues = $this->storedValues($schemaVersion, $expected->recordId, $values, $previous);
                 $valuesJson = $this->canonicalJson($normalizedValues);
                 $contentHash = hash('sha256', $valuesJson);
                 $nextRevision = $expected->revision + 1;
@@ -1105,7 +1121,7 @@ final readonly class VersionedStorage implements VersionedStorageContract
                     $schemaVersion,
                     $expected->recordId,
                     $nextRevision,
-                    $normalizedValues,
+                    $this->viewValues($schemaVersion, $normalizedValues),
                     $contentHash,
                     (string) $head->created_at,
                     $now,
@@ -1166,6 +1182,37 @@ final readonly class VersionedStorage implements VersionedStorageContract
             'correlation_id' => $correlationId,
             'created_at' => $createdAt,
         ]);
+    }
+
+    /**
+     * The values a version stores: normalized and validated, its encrypted fields sealed (envelopes only). Refused
+     * before anything is written when the schema has an encrypted field and no sealer.
+     *
+     * @param array<array-key, mixed> $values
+     * @param array<string, mixed> $previous the stored values of the version before (envelopes to reuse)
+     * @return array<string, mixed>
+     */
+    private function storedValues(StorageSchemaVersion $schema, string $recordId, #[\SensitiveParameter] array $values, array $previous): array
+    {
+        if (StorageEncryptionPolicy::encryptedKeys($schema->fields) === []) {
+            return $this->normalizer->normalizeValues($schema, $values);
+        }
+        if ($this->sealer === null) {
+            throw new StorageRejected(StorageEncryptionPolicy::UNAVAILABLE);
+        }
+
+        return $this->sealer->sealRecord($this->normalizer, $schema, $recordId, $values, $previous);
+    }
+
+    /**
+     * What the витрина may see of stored values: everything but the encrypted fields.
+     *
+     * @param array<string, mixed> $values
+     * @return array<string, mixed>
+     */
+    private function viewValues(StorageSchemaVersion $schema, array $values): array
+    {
+        return StorageFieldSealer::withoutEncrypted(StorageEncryptionPolicy::encryptedKeys($schema->fields), $values);
     }
 
     private function hydrateSchemaVersion(stdClass $row): StorageSchemaVersion
@@ -1256,6 +1303,9 @@ final readonly class VersionedStorage implements VersionedStorageContract
             if ($schema !== null) {
                 if (!isset($fields[$field])) {
                     throw new StorageRejected($reasonPrefix . 'field_unknown');
+                }
+                if (StorageEncryptionPolicy::isEncrypted($fields[$field])) {
+                    throw new StorageRejected(StorageEncryptionPolicy::FILTER_UNSUPPORTED);
                 }
                 $visibility = $fields[$field]['visibility'] ?? null;
                 if ($surface === 'caller' && $visibility !== 'public') {

@@ -38,4 +38,7 @@ return [
     'workbench_structure_migrate' => 'Изменение полей структуры хранения с перезаписью записей',
     'sitepack_export' => 'Выгрузка хранилища в SitePack',
     'sitepack_import' => 'Загрузка хранилища из SitePack',
+    'workbench_record_decrypt' => 'Просмотр зашифрованных значений хранилища',
+    'encryption_manage' => 'Включение шифрования полей хранилища',
+    'encryption_explain' => 'Просмотр шифрования хранилища',
 ];

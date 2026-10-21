@@ -17,6 +17,7 @@ use Larena\Storage\Contracts\PublishedListReads;
 use Larena\Storage\Contracts\PublishedProjectionPage;
 use Larena\Storage\Contracts\ReadContracts;
 use Larena\Storage\Contracts\ResolvedKey;
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Enums\FieldVisibility;
 use Larena\Storage\Enums\PublicationStateValue;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
@@ -788,6 +789,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
     {
         $this->assertSchema();
         LocaleFallbackChain::assertLocale($locale);
+        $this->assertKeyFieldPlain($schemaId, $keyField);
 
         $resolved = $this->valuesOf($schemaId, $heads, $locale, [$keyField]);
         $keys = [];
@@ -1116,6 +1118,8 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
     {
         $publicFields = $this->publicFieldKeys($schemaId);
         if (!in_array($keyField, $publicFields, true)) {
+            // An encrypted field (never public) is refused outright: it never is a key.
+            $this->assertKeyFieldPlain($schemaId, $keyField);
             // Only a public field is a key a reader may route by: no record answers
             // to any other, because no reader sees its value.
             return [];
@@ -1471,6 +1475,24 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
         }
 
         return $resolved;
+    }
+
+    /**
+     * An encrypted field is never a key: no published key, slug or route resolves by it.
+     *
+     * @phpstan-impure
+     */
+    private function assertKeyFieldPlain(string $schemaId, string $keyField): void
+    {
+        $definition = $this->connection->table(self::SCHEMA_VERSIONS_TABLE)
+            ->where('schema_id', $schemaId)
+            ->orderByDesc('version')
+            ->value('definition');
+        $decoded = is_string($definition) ? json_decode($definition, true) : null;
+        $fields = is_array($decoded) && is_array($decoded['fields'] ?? null) ? $decoded['fields'] : [];
+        if (in_array($keyField, StorageEncryptionPolicy::encryptedKeys($fields), true)) {
+            throw new ReadContractRejected(StorageEncryptionPolicy::KEY_FIELD_REFUSED, 'An encrypted field cannot be a key.');
+        }
     }
 
     /**

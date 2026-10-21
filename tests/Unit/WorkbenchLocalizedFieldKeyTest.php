@@ -23,11 +23,11 @@ $reflection = new ReflectionClass(DatabaseStorageWorkbench::class);
 $source = (string) file_get_contents((string) $reflection->getFileName());
 
 // `hidden` (a presentation flag) was later made optional the same way, and then
-// the витрина options `indexed` and `searchable`, so the check names the optional
-// keys once instead of listing every combination.
+// the витрина options `indexed` and `searchable`, then `encrypted`, so the check names
+// the optional keys once instead of listing every combination.
 larena_storage_role_assert(
-    str_contains($source, '$optional = array_values(array_intersect($fieldKeys, [\'hidden\', \'indexed\', \'localized\', \'searchable\']));'),
-    'only hidden, indexed, localized and searchable are optional',
+    str_contains($source, '$optional = array_values(array_intersect($fieldKeys, [\'encrypted\', \'hidden\', \'indexed\', \'localized\', \'searchable\']));'),
+    'only encrypted, hidden, indexed, localized and searchable are optional',
 );
 larena_storage_role_assert(
     str_contains($source, '$expected = array_merge([\'constraints\', \'key\', \'label\', \'position\', \'required\', \'type\', \'type_version\', \'visibility\'], $optional);'),
@@ -49,8 +49,8 @@ larena_storage_role_assert(
 // writer reads it from the schema of the revision instead of trusting its caller,
 // and a structure without localized fields keeps the schema it always had.
 larena_storage_role_assert(
-    str_contains($source, "] + (\$field['localized'] === true ? ['localized' => true] : []), \$normalized);"),
-    'the flag goes into the storage schema only when true',
+    str_contains($source, "] + (\$field['localized'] === true ? ['localized' => true] : [])\n            + ((\$field['encrypted'] ?? false) === true ? ['encrypted' => true] : []), \$normalized);"),
+    'the flag (and the encrypted one) goes into the storage schema only when true',
 );
 larena_storage_role_assert(
     str_contains($source, 'Whether a field is localized may change'),

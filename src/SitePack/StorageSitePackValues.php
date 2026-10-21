@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\SitePack;
 
 use Closure;
+use Larena\Storage\Encryption\StorageFieldEnvelope;
 
 /**
  * Rewrites one set of a pack's values (a version's shared values, or one locale of its translations) for the target
@@ -19,10 +20,16 @@ use Closure;
  * - file@1: through the files the plan decided (reuse, create, remap). A file the pack does not carry: an optional
  *   field is cleared (`file_missing_cleared`), a required one is an error (`file_required_missing`).
  *
+ * - an encrypted field («Шифровать»): a pack carries no encrypted value; an envelope found anyway (it would not open
+ *   on this site) is left out (`encrypted_values_omitted`).
+ *
  * Every other value passes as it is; the write normalizes it as any write does.
  */
 final readonly class StorageSitePackValues
 {
+    /** A warning: encrypted values are not in the pack, and a required encrypted field is imported as optional. */
+    public const string ENCRYPTED_OMITTED = 'encrypted_values_omitted';
+
     public const string USER_PATTERN = '/\Auser:[a-z][a-z0-9_]{0,63}:[1-9][0-9]{0,19}\z/D';
 
     /** @var array<string, array<string, mixed>> */
@@ -77,6 +84,11 @@ final readonly class StorageSitePackValues
         $issues = [];
         foreach ($values as $key => $value) {
             $field = $this->fields[(string) $key] ?? null;
+            if ($field !== null && StorageFieldEnvelope::isEnvelope($value)) {
+                unset($values[$key]);
+                $issues[] = self::ENCRYPTED_OMITTED;
+                continue;
+            }
             if ($field === null || !is_string($value) || $value === '') {
                 continue;
             }

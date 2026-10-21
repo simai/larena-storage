@@ -2651,3 +2651,51 @@ operations:
       required:
         - 'operation'
         - 'change'
+  - name: 'storage.encryption.explain'
+    execution_mode: 'sync'
+    risk: 'read'
+    reversible: true
+    access_scope: 'storage.encryption.explain'
+    transports:
+      - 'local'
+    input:
+      type: 'object'
+      additionalProperties: false
+      properties:
+        scope_ref:
+          type: 'string'
+          minLength: 1
+          maxLength: 191
+        structure_id:
+          type: 'string'
+          minLength: 1
+          maxLength: 120
+      required:
+        - 'scope_ref'
+        - 'structure_id'
+    output:
+      type: 'object'
+      additionalProperties: true
+      properties:
+        structure_id:
+          type: 'string'
+          maxLength: 120
+        schema_id:
+          type: 'string'
+          maxLength: 120
+        encrypted_fields:
+          type: 'array'
+          items:
+            type: 'string'
+            maxLength: 64
+        algorithm:
+          type: 'string'
+          maxLength: 16
+        available:
+          type: 'boolean'
+        keys:
+          type: 'array'
+          items:
+            type: 'object'
+            additionalProperties: true
+      required: []

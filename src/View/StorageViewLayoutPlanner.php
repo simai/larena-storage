@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\View;
 
+use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Exceptions\StorageRejected;
 
 /**
@@ -18,6 +19,8 @@ use Larena\Storage\Exceptions\StorageRejected;
  * most 255), otherwise long text (a string that was indexed keeps its VARCHAR
  * column, without the index); text long text, never indexed; choices go to the
  * side table. Fields of other types are kept as long text.
+ *
+ * An encrypted field has no column: no value, no search text, never the title.
  *
  * Indexes: at most 40 field indexes a table, the automatic ones (choice, record,
  * user, date, datetime, number, integer, boolean, in field order) first, then the
@@ -72,7 +75,7 @@ final readonly class StorageViewLayoutPlanner
         foreach ($fields as $field) {
             $key = is_string($field['key'] ?? null) ? $field['key'] : '';
             $kind = is_string($field['type'] ?? null) ? $field['type'] : '';
-            if (in_array($key, self::SYSTEM_FIELDS, true)) {
+            if (in_array($key, self::SYSTEM_FIELDS, true) || StorageEncryptionPolicy::isEncrypted($field)) {
                 continue;
             }
             if (isset($seen[$key])) {
