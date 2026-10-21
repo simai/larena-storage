@@ -10,7 +10,9 @@ use Larena\Queue\Runtime\DurableQueueWorker;
 use Larena\Queue\Runtime\JobTypeRegistry;
 use Larena\Queue\Runtime\QueueControlService;
 use Larena\Queue\Storage\DatabaseQueueStore;
+use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
+use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Runtime\DatabasePublicationLifecycle;
 use Larena\Storage\Runtime\DatabaseReadContracts;
 use Larena\Storage\SchemaEvolution\StorageFieldChangeJob;
@@ -264,12 +266,14 @@ try {
         storageViewField('color', 40, 'string'),
     ]), $actor);
     $cancelledRef = $cancelled->fieldChange->changeRef ?? '';
-    $afterCancel = $workbench->cancelFieldChange($scope, 'workbench.items', $actor);
+    // The cancel is on the StorageWorkbench contract, so callers need no concrete workbench.
+    $cancel = static fn (StorageWorkbench $contract): StorageWorkbenchStructure => $contract->cancelFieldChange($scope, 'workbench.items', $actor);
+    $afterCancel = $cancel($workbench);
     storageViewExpect($afterCancel->fieldChange?->state === 'cancelled' && !$afterCancel->changing() && $afterCancel->version === $after->version, 'the cancel was not recorded');
     $run = $worker->runNext('field-change-worker');
     storageViewExpect($run !== null && $run->status === JobStatus::Completed && ($run->result['state'] ?? null) === 'cancelled', 'the job of a cancelled change did work');
     storageViewExpect($workbench->readStructure($scope, 'workbench.items', $actor)->schema->version === 4, 'a cancelled change switched the structure');
-    storageViewRejects(static fn () => $workbench->cancelFieldChange($scope, 'workbench.items', $actor), 'storage_workbench_field_change_not_running');
+    storageViewRejects(static fn () => $cancel($workbench), 'storage_workbench_field_change_not_running');
     $queueCancelled = $workbench->migrateStructure($scope, 'workbench.items', $after->version, $descriptor([
         storageViewField('title', 10, 'string', ['max_length' => 200], true),
         storageViewField('qty', 20, 'string'),

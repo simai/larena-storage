@@ -43,6 +43,19 @@ interface StorageWorkbench
         ?string $correlationId = null,
     ): StorageWorkbenchStructure;
 
+    /**
+     * Stops a field change that runs in the background (StorageWorkbenchStructure::$fieldChange).
+     * Nothing it did is kept: the structure keeps its fields and its records stay as they were.
+     * Needs the right to migrate the structure; refused with
+     * `storage_workbench_field_change_not_running` once the change has ended.
+     */
+    public function cancelFieldChange(
+        string $scopeRef,
+        string $structureId,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure;
+
     public function readStructure(string $scopeRef, string $structureId, string $actor): StorageWorkbenchStructure;
 
     /** @return list<StorageWorkbenchStructure> Active structures; archived ones only when asked for. */
