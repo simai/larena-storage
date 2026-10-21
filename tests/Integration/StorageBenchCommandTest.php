@@ -14,7 +14,7 @@ use Symfony\Component\Console\Output\BufferedOutput;
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 // `larena:storage:bench` on a tiny throwaway SQLite database: every operation is
-// measured, lists above the PHP list's 5000-record scan work from the витрина,
+// measured (with the time the витрина takes to build), lists above 5000 records work,
 // the default connection is refused, and nothing is left behind.
 function benchExpect(bool $condition, string $message): void
 {
@@ -125,10 +125,11 @@ try {
         && $connection->table('larena_storage_site_view_slots')->count() === 0, 'site rows were left behind');
     benchExpect(preg_grep('/\\Alarena_storage_site_[0-9a-f]{24}/', array_column($connection->getSchemaBuilder()->getTables(), 'name')) === [], 'site tables were left behind');
 
-    // Above the PHP list's 5000-record scan the list reads the витрина and still works.
+    // Above 5000 records the list still reads the витрина, and the build was timed.
     [$status, $output] = $run(['--connection' => 'benchmark', '--records' => '5001', '--repeat' => '1', '--json' => $json]);
     benchExpect($status === 0, 'the over-limit run failed: ' . $output);
     $large = json_decode((string) file_get_contents($json), true, 64, JSON_THROW_ON_ERROR)['runs'][0];
+    benchExpect(is_float($large['view_build_ms']) || is_int($large['view_build_ms']), 'the витрина build was not timed');
     benchExpect($large['operations']['list_page_1']['status'] === 'ok'
         && $large['operations']['matched_count']['matched_count'] === 5001, 'a list above 5000 records did not work: ' . json_encode($large['operations']['list_page_1']));
     benchExpect($large['operations']['read_record']['status'] === 'ok' && $large['operations']['create_record']['status'] === 'ok', 'single-record operations stopped');

@@ -56,6 +56,35 @@ final readonly class StorageViewFixtureAccess implements ActorOperationAuthorize
     }
 }
 
+/** The storages whose витрина rebuild a workbench queued, in order. */
+final class StorageViewQueuedBuilds
+{
+    /** @var list<string> */
+    private array $ids = [];
+
+    public function add(string $schemaId): void
+    {
+        $this->ids[] = $schemaId;
+    }
+
+    /** @return list<string> */
+    public function ids(): array
+    {
+        return $this->ids;
+    }
+
+    public function reset(): void
+    {
+        $this->ids = [];
+    }
+
+    /** The workbench's `viewBuilds` closure. */
+    public function closure(): Closure
+    {
+        return fn (string $schemaId) => $this->add($schemaId);
+    }
+}
+
 function storageViewExpect(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -97,9 +126,10 @@ function storageViewInstall(Connection $connection): void
 /**
  * @param Closure(string): void|null $viewBuilds Receives the storages whose витрина a structure change left to fill.
  * @param Closure(string): bool|null $fieldChangeJobs Queues a field change; without it every change runs inline.
+ * @param int $inlineViewBuildLimit Up to this many records a list builds a витрина that is not ready; above it, refuses.
  * @return array{workbench: DatabaseStorageWorkbench, storage: VersionedStorage, views: StorageViewSync, evolution: DatabaseStorageSchemaEvolution}
  */
-function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null, ?Closure $viewBuilds = null, ?Closure $fieldChangeJobs = null, int $inlineFieldChangeLimit = DatabaseStorageWorkbench::INLINE_FIELD_CHANGE_LIMIT): array
+function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null, ?Closure $viewBuilds = null, ?Closure $fieldChangeJobs = null, int $inlineFieldChangeLimit = DatabaseStorageWorkbench::INLINE_FIELD_CHANGE_LIMIT, int $inlineViewBuildLimit = DatabaseStorageWorkbench::INLINE_VIEW_BUILD_LIMIT): array
 {
     $metrics ??= new StorageMetrics();
     $properties = PropertyTypeRegistry::builtIns();
@@ -120,7 +150,7 @@ function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string 
     );
     $policies->seal();
     $evolution = new DatabaseStorageSchemaEvolution($connection, $properties, $access, $events, $policies, $views);
-    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $policies, $cursorKey, $events, $views, null, $metrics, $viewBuilds, $fieldChangeJobs, $inlineFieldChangeLimit);
+    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $policies, $cursorKey, $events, $views, null, $metrics, $viewBuilds, $fieldChangeJobs, $inlineFieldChangeLimit, $inlineViewBuildLimit);
 
     return ['workbench' => $workbench, 'storage' => $storage, 'views' => $views, 'evolution' => $evolution];
 }

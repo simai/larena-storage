@@ -39,7 +39,7 @@ features:
   - storage.choice_option_constraints
   - storage.choices_record_values
   - storage.workbench_filter_operators
-  - storage.workbench_scan_limit_5000
+  - storage.workbench_list_from_view
   - storage.workbench_bulk_archive_1000
   - storage.structure_roles
   - storage.record_relations

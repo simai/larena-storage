@@ -22,7 +22,7 @@ use Larena\Storage\Exceptions\StorageRejected;
  * (`ready`) or the rebuild is still refilling it (`backfilling`). A layout stored
  * before the search was configurable has no search fields (null): its search
  * text is every string and text column, in the main table's `search_text`, and
- * lists no longer search it (the PHP list does until it is backfilled).
+ * lists no longer search it (a search waits until it is backfilled).
  */
 final readonly class StorageViewLayout
 {

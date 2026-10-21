@@ -27,7 +27,7 @@ use stdClass;
  * brought (a new column of a string that became indexed, the search text of a
  * changed set of search fields, the search table of a table built before it)
  * is not rebuilt but backfilled: it stays ready and keeps answering lists (from
- * the old column, and the PHP list for a search meanwhile), the walk rewrites its
+ * the old column; a search waits for the walk), the walk rewrites its
  * rows in chunks the same way, resumable, and at the end the new columns become
  * ready and the ones they replace are dropped.
  */
@@ -64,7 +64,8 @@ final readonly class StorageViewRebuilder
         if ($chunk < 1 || $chunk > self::MAX_CHUNK) {
             throw new StorageRejected('storage_view_rebuild_chunk_invalid');
         }
-        if ($database->transactionLevel() > 0) {
+        // Inside a transaction only where the DDL rolls back with it (SQLite); MySQL's DDL would commit it.
+        if ($database->transactionLevel() > 0 && !$ddl->transactional()) {
             throw new StorageRejected('storage_view_rebuild_in_transaction');
         }
         [$version, $fields] = $this->currentSchema($database, $schemaId);

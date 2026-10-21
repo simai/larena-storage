@@ -26,15 +26,17 @@ use Larena\Storage\View\StorageViewSync;
 require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../Support/storage-view-fixture.php';
 require_once __DIR__ . '/../Support/mysql-disposable-database.php';
+require_once __DIR__ . '/../Support/storage-reference-list.php';
 
 // Lists read from the витрина in SQL, on SQLite:
-// - parity with the PHP list on the same data: every filter operator of every
-//   field type, search, sorts (NULLs, three keys, record id, revision), archived;
+// - parity with the reference list (every current record read and matched in PHP)
+//   on the same data: every filter operator of every field type, search, sorts
+//   (NULLs, three keys, record id, revision), archived;
 // - keyset continuation across pages, page numbers, the earlier offset
 //   continuation, refused tampered or foreign continuations;
 // - counts: exact, an estimate above the threshold, Exact on request, Skip;
 // - incoming references answered from the витрина;
-// - a storage of 6000 records lists (the PHP list stops at 5000).
+// - a storage of 6000 records lists, filters, sorts and pages.
 
 /** @return array{connection: Connection, path: string} */
 function storageViewListOpen(): array
@@ -56,7 +58,7 @@ function storageViewListOpen(): array
     return ['connection' => $connection, 'path' => $path];
 }
 
-/** A workbench on the same tables, without the витрина or with a given counter. */
+/** A workbench on the same tables and витрина, with a given counter. */
 function storageViewListWorkbench(Connection $connection, array $runtime, string $actor, string $scope, ?StorageViewSync $views, ?StorageViewCounter $counter = null): DatabaseStorageWorkbench
 {
     $access = new StorageViewFixtureAccess($actor, $scope);
@@ -100,7 +102,8 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     $runtime = storageViewRuntime($connection, $ddl, $actor, $scope);
     $sql = $runtime['workbench'];
     $views = $runtime['views'];
-    $php = storageViewListWorkbench($connection, $runtime, $actor, $scope, null);
+    // The expected answers, read record by record and never from the витрина.
+    $php = new StorageReferenceList($connection, $sql, new StorageViewFixtureAccess($actor, $scope), 'storage-view-fixture-cursor-key-minimum-32-bytes');
 
     $sections = $sql->createStructure($scope, ['structure_id' => 'workbench.sections', 'label' => 'Sections',
         'fields' => [storageViewField('title', 10, 'string', [], true)]], $actor);
@@ -356,7 +359,7 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     storageViewExpect($lastPage->countExact && $lastPage->matchedCount === $active, 'the last page did not know the total');
 
     // A sort without an index of its own: the page names the field, and says whether the list is large
-    // (here from 20 records, by the counter's count). An indexed sort, no sort or the PHP list says nothing.
+    // (here from 20 records, by the counter's count). An indexed sort or no sort says nothing.
     $sizing = storageViewListWorkbench($connection, $runtime, $actor, $scope, $views, new StorageViewCounter(StorageViewCounter::THRESHOLD, 250, true, 20));
     $byTitle = [['field' => 'title', 'direction' => 'asc']];
     $unindexedPage = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10), $actor);
@@ -380,8 +383,6 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     $exactLarge = $sizing->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10,
         countMode: StorageWorkbenchCountMode::Exact), $actor);
     storageViewExpect($exactLarge->large, 'an exactly counted large list was not large');
-    $phpSorted = $php->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10), $actor);
-    storageViewExpect($phpSorted->sortUnindexed === [] && !$phpSorted->large, 'the PHP list reported a витрина sort');
     storageViewExpect(!$sql->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $byTitle, limit: 10), $actor)->large,
         'a list under 50 000 records was called large');
     // A string indexed on request sorts by its own index.
@@ -421,7 +422,7 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
         'fields' => [...$fields, storageViewField('extra', 130, 'integer')]], $actor);
     $both(['qty' => ['operator' => 'lte', 'value' => 3]], null, [['field' => 'title', 'direction' => 'desc']]);
 
-    // 6000 records: more than the PHP list can read. Lists, filters, deep pages and keyset all work.
+    // 6000 records, built by the rebuild. Lists, filters, deep pages and keyset all work.
     $bulk = $sql->createStructure($scope, ['structure_id' => 'workbench.bulk', 'label' => 'Bulk',
         'fields' => [storageViewField('name', 10, 'string', [], true)]], $actor);
     $normalizer = new SchemaDefinitionNormalizer(PropertyTypeRegistry::builtIns());
@@ -470,8 +471,6 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
         $continuation = $page->continuation;
     } while ($continuation !== null && ++$pages < 100);
     storageViewExpect(count($seen) === 6000 && $continuation === null, 'keyset pages did not walk 6000 records');
-    // The PHP list refuses the same storage.
-    storageViewRejects(static fn () => $php->listRecords($bulkQuery(), $actor), 'storage_workbench_record_scan_limit_exceeded');
 }
 
 $opened = storageViewListOpen();

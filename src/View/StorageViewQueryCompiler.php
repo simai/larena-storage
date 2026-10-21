@@ -11,7 +11,7 @@ use WeakMap;
 
 /**
  * Compiles a normalized record list query (filters, search, sort, archived) onto
- * a storage's витрина, with the semantics of the PHP list it replaces:
+ * a storage's витрина, with the semantics of StorageRecordQueryMatcher:
  *
  * - eq/in, gt/gte/lt/lte/between compare the typed column; a NULL never matches;
  * - contains/starts_with compare the lowercased column (Unicode, as mb_strtolower)
@@ -23,7 +23,7 @@ use WeakMap;
  *   FULLTEXT index first (MATCH ... AGAINST in boolean mode, `+word*`);
  *   StorageViewQuery picks the form. The витрина answers a
  *   search only while its search text holds exactly the structure's searchable
- *   fields; while it is being refilled the PHP list answers;
+ *   fields; while it is being refilled the query compiles to null;
  * - archived records are left out unless asked for. There is no scope condition:
  *   a витрина holds the records of one scope (its table is named from the scoped
  *   schema id), and the records read for a page are checked against the scope;
@@ -36,7 +36,8 @@ use WeakMap;
  * the column still narrows the rows; string sorting follows the column's
  * collation there. A query the витрина cannot answer exactly (a field without a
  * written column, a column still being backfilled, a type it does not map)
- * compiles to null, and the caller keeps the PHP path.
+ * compiles to null: the workbench then builds the витрина, or refuses the list
+ * while it is built (DatabaseStorageWorkbench::VIEW_NOT_READY).
  *
  * A site table (StorageViewTableShape::Site) is compiled with its slot: the rows of
  * that slot (`slot_id = ?`) take the place of the active rows, and the side and

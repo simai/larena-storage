@@ -228,6 +228,21 @@ rewrites its subtree. Define, move and delete are audited; a move is one
 `storage.tree.moved` event naming every moved record. The tree operations apply
 the caller's `RecordReadVisibility` and count what they hide.
 
+## Workbench Lists Answer From The Витрина
+
+`DatabaseStorageWorkbench::listRecords` reads every list (filters, search, sort,
+counts, keyset pages) from the storage's витрина and hydrates only the page's
+records by id; it never scans the current versions. A витрина that is not ready
+for the structure's current schema version, or still filling what the query
+reads, is built in the request when the storage holds at most
+`INLINE_VIEW_BUILD_LIMIT` (5000) records; above it the list is refused with
+`storage_view_not_ready` while the queued `storage.view.rebuild` builds it.
+Consumers show «Список готовится» for that reason and try again later. A sort by
+a `choices` field is refused with `storage_workbench_record_query_unsupported`;
+a host without the витрина machinery gets `storage_view_unavailable`. Incoming
+`record@1` references checked by a purge come from the referencing storage's
+витрина the same way.
+
 ## Structure Role Versions And Dependencies
 
 A role row is never edited: a breaking change is a new version. Bindings stay on

@@ -27,11 +27,12 @@ final class StorageMetrics
 
     public const string PACKAGE = 'larena/storage';
 
-    public const array MODES = ['sql', 'legacy'];
+    /** How a list was answered: a ready витрина, a витрина built in the call, or refused while it is built. */
+    public const array MODES = ['sql', 'inline', 'not_ready'];
 
     public const array COUNTS = ['exact', 'approx', 'skip'];
 
-    /** How a list was sorted: every sorted field indexed, one without an index (or sorted in PHP), or no sort. */
+    /** How a list was sorted: every sorted field indexed, one without an index, or no sort. */
     public const array SORTS = ['indexed', 'unindexed', 'none'];
 
     public const array OPERATIONS = ['create', 'update', 'archive', 'restore', 'purge', 'revert'];
@@ -91,7 +92,7 @@ final class StorageMetrics
     public function list(string $mode, ?string $count, string $outcome, float $ms, ?string $sort = null): void
     {
         $tags = [
-            'mode' => in_array($mode, self::MODES, true) ? $mode : 'legacy',
+            'mode' => in_array($mode, self::MODES, true) ? $mode : 'sql',
             'outcome' => self::knownOutcome($outcome),
         ];
         if ($count !== null) {

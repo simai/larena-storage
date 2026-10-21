@@ -33,7 +33,7 @@ require_once __DIR__ . '/../Support/storage-monitoring-stubs.php';
 require_once __DIR__ . '/../Support/storage-view-fixture.php';
 require_once __DIR__ . '/../Support/storage-view-queue-fixture.php';
 
-// Storage's hot-path metrics: storage.list (mode sql|legacy, count exact|approx|skip, sort indexed|unindexed|none),
+// Storage's hot-path metrics: storage.list (mode sql|inline|not_ready, count exact|approx|skip, sort indexed|unindexed|none),
 // storage.read, storage.write (operation create|update|archive|restore|purge) and
 // the rebuild's storage.view.rebuild and storage.view.rebuild_rows, each with an
 // outcome. Every record is declared in monitoring.yaml, its tags are codes from
@@ -140,7 +140,8 @@ try {
     storageViewExpect($recorder->lines('storage.read') === ['storage.read outcome=ok'], 'a read was not recorded: ' . implode(' | ', $recorder->lines()));
 
     // Lists: the path, the count kind and the sort.
-    // The sort: an integer has its own index, a string without «indexed» has none, and the versions scan sorts in PHP.
+    // The sort: an integer has its own index, a string without «indexed» has none; a витрина that is not ready
+    // is built in the list (inline).
     $recorder->reset();
     $workbench->listRecords(new StorageWorkbenchRecordQuery($scope, 'workbench.secret_items', sort: [['field' => 'qty', 'direction' => 'asc']]), $actor);
     $workbench->listRecords(new StorageWorkbenchRecordQuery($scope, 'workbench.secret_items', sort: [['field' => 'qty', 'direction' => 'asc'], ['field' => 'title', 'direction' => 'desc']]), $actor);
@@ -155,8 +156,8 @@ try {
     storageViewExpect($sorted === [
         'storage.list count=exact&mode=sql&outcome=ok&sort=indexed',
         'storage.list count=exact&mode=sql&outcome=ok&sort=unindexed',
-        'storage.list count=exact&mode=legacy&outcome=ok&sort=unindexed',
-        'storage.list mode=legacy&outcome=rejected',
+        'storage.list count=exact&mode=inline&outcome=ok&sort=indexed',
+        'storage.list mode=sql&outcome=rejected',
     ], 'the lists were not recorded with their sort: ' . implode(' | ', $sorted));
     (new StorageViewRebuilder($views, new StorageMetrics()))->rebuild($schemaId, 1, true);
     $recorder->reset();
@@ -176,9 +177,9 @@ try {
         'storage.list count=exact&mode=sql&outcome=ok&sort=none',
         'storage.list count=exact&mode=sql&outcome=ok&sort=none',
         'storage.list count=skip&mode=sql&outcome=ok&sort=none',
-        'storage.list count=exact&mode=legacy&outcome=ok&sort=none',
-        'storage.list count=skip&mode=legacy&outcome=ok&sort=none',
-        'storage.list mode=legacy&outcome=rejected&sort=none',
+        'storage.list count=exact&mode=inline&outcome=ok&sort=none',
+        'storage.list count=skip&mode=sql&outcome=ok&sort=none',
+        'storage.list mode=sql&outcome=rejected&sort=none',
     ], 'the lists were not recorded with their path and count: ' . implode(' | ', $lists));
     // An estimated count is approx.
     $metrics = new StorageMetrics(static fn (): object => $recorder);

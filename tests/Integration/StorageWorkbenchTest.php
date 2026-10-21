@@ -26,6 +26,9 @@ use Larena\Storage\Compatibility\Audit\AuditStorageSecurityEventSink;
 use Larena\Storage\SchemaEvolution\DatabaseStorageSchemaEvolution;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
+use Larena\Storage\View\SqliteStorageViewDdl;
+use Larena\Storage\View\StorageViewRegistry;
+use Larena\Storage\View\StorageViewSync;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -125,11 +128,20 @@ function workbenchInstall(): void
     (require __DIR__ . '/../../database/migrations/2026_08_09_000001_create_larena_storage_workbench_tables.php')->up();
     (require __DIR__ . '/../../database/migrations/2026_08_09_000002_scope_larena_storage_workbench_identity.php')->up();
     (require __DIR__ . '/../../database/migrations/2026_09_30_000001_add_larena_storage_workbench_structure_archive_state.php')->up();
+    // Every list answers from the витрина.
+    (require __DIR__ . '/../../database/migrations/platform/2026_10_20_000001_create_larena_storage_views_table.php')->up();
 }
 
-/** @return array{workbench: DatabaseStorageWorkbench, authorizer: WorkbenchAuthorizer, sink: WorkbenchAuditSink} */
-function workbenchRuntime(Connection $connection, ?WorkbenchScopeProvider $scope = null): array
-{
+/**
+ * @param Closure(string): void|null $viewBuilds Receives the storages whose витрина rebuild the workbench queues.
+ * @return array{workbench: DatabaseStorageWorkbench, authorizer: WorkbenchAuthorizer, sink: WorkbenchAuditSink, views: StorageViewSync}
+ */
+function workbenchRuntime(
+    Connection $connection,
+    ?WorkbenchScopeProvider $scope = null,
+    int $inlineViewBuildLimit = DatabaseStorageWorkbench::INLINE_VIEW_BUILD_LIMIT,
+    ?Closure $viewBuilds = null,
+): array {
     $authorizer = new WorkbenchAuthorizer();
     $sink = new WorkbenchAuditSink();
     $properties = PropertyTypeRegistry::builtIns();
@@ -138,6 +150,7 @@ function workbenchRuntime(Connection $connection, ?WorkbenchScopeProvider $scope
         'actor:admin:alpha' => 'scope:tenant-alpha',
         'actor:admin:beta' => 'scope:tenant-beta',
     ]);
+    $views = new StorageViewSync($connection, new StorageViewRegistry($connection, 0.0), new SqliteStorageViewDdl($connection));
     $versioned = new VersionedStorage(
         $connection,
         $properties,
@@ -145,6 +158,8 @@ function workbenchRuntime(Connection $connection, ?WorkbenchScopeProvider $scope
         $audit,
         $scope,
         'goal2-storage-workbench-test-cursor-key-minimum-32',
+        null,
+        $views,
     );
     $policies = new StorageSchemaEvolutionOwnerPolicyRegistry();
     $policies->protect(
@@ -158,7 +173,7 @@ function workbenchRuntime(Connection $connection, ?WorkbenchScopeProvider $scope
         'workbench.',
     );
     $policies->seal();
-    $evolution = new DatabaseStorageSchemaEvolution($connection, $properties, $authorizer, $audit, $policies);
+    $evolution = new DatabaseStorageSchemaEvolution($connection, $properties, $authorizer, $audit, $policies, $views);
     $workbench = new DatabaseStorageWorkbench(
         $connection,
         $properties,
@@ -168,9 +183,12 @@ function workbenchRuntime(Connection $connection, ?WorkbenchScopeProvider $scope
         $policies,
         'goal2-storage-workbench-test-cursor-key-minimum-32',
         AuditStorageSecurityEventSink::fromObject($audit),
+        $views,
+        viewBuilds: $viewBuilds,
+        inlineViewBuildLimit: $inlineViewBuildLimit,
     );
 
-    return ['workbench' => $workbench, 'authorizer' => $authorizer, 'sink' => $sink];
+    return ['workbench' => $workbench, 'authorizer' => $authorizer, 'sink' => $sink, 'views' => $views];
 }
 
 /** @return array<string, mixed> */

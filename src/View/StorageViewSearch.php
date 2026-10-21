@@ -6,7 +6,7 @@ namespace Larena\Storage\View;
 
 /**
  * The text search of record lists, one rule for every path (the витрина on MySQL
- * and SQLite, and the PHP list):
+ * and SQLite, and StorageRecordQueryMatcher in PHP):
  *
  * - a word is a run of letters, combining marks, digits and underscores; text is
  *   lowercased as mb_strtolower does;
@@ -122,7 +122,7 @@ final class StorageViewSearch
     }
 
     /**
-     * The PHP list's match: every term at the start of a word of the search text.
+     * The match in PHP: every term at the start of a word of the search text.
      *
      * @param list<string> $terms
      */

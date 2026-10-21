@@ -40,14 +40,15 @@ use Larena\Storage\SchemaEvolution\StorageFieldChangeRunner;
 use Larena\Storage\SchemaEvolution\StorageFieldChanges;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
-use Larena\Storage\View\StorageRecordQueryMatcher;
 use Larena\Storage\View\StorageRecordQueryNormalizer;
 use Larena\Storage\View\StorageViewColumn;
 use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewFieldOptions;
 use Larena\Storage\View\StorageViewKeyset;
+use Larena\Storage\View\StorageViewNaming;
 use Larena\Storage\View\StorageViewQuery;
 use Larena\Storage\View\StorageViewQueryCompiler;
+use Larena\Storage\View\StorageViewRebuilder;
 use Larena\Storage\View\StorageViewRegistration;
 use Larena\Storage\View\StorageViewSync;
 use stdClass;
@@ -63,18 +64,30 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const STATE_ARCHIVED = 'archived';
     private const MAX_STRUCTURES = 100;
     private const MAX_FIELDS = 100;
-    // Memory budget: one list call decodes and may retain up to ~5000 current records (rows are streamed by cursor).
-    private const MAX_SCAN = 5000;
+    // A structure purge removes its records in one transaction, at most this many (VersionedStorage's purge limit).
+    private const MAX_STRUCTURE_PURGE = 5000;
     // Lists read from the витрина keep page numbers while the offset stays at or under this.
     private const MAX_OFFSET = 10000;
     // One bulk archive runs in a single transaction; 1000 records keeps "archive all matching" bounded.
     private const MAX_BULK = 1000;
     private const LOCK_UPDATE = 'update';
     private const LOCK_SHARED = 'shared';
-    // A field change that checks every record runs in the request up to this many records
-    // (the same memory budget as the PHP list); above it, in the background.
+    // A field change that checks every record runs in the request up to this many records; above it, in the background.
     public const INLINE_FIELD_CHANGE_LIMIT = 5000;
     private const INLINE_FIELD_CHANGE_CHUNK = 1000;
+    /**
+     * A list of a storage whose витрина is not ready builds it in the request up to this
+     * many records (one walk of the current versions in chunks of 1000), and then answers
+     * from it; a larger storage is refused with VIEW_NOT_READY while the queued rebuild
+     * builds it. Measured with `larena:storage:bench` (view_build_ms): see the CHANGELOG.
+     */
+    public const INLINE_VIEW_BUILD_LIMIT = 5000;
+    /** A list (or an incoming-reference check) of a storage whose витрина is being built. */
+    public const VIEW_NOT_READY = 'storage_view_not_ready';
+    /** No витрина can be built here: no StorageViewSync, a driver without витрина DDL, or the registry not migrated. */
+    public const VIEW_UNAVAILABLE = 'storage_view_unavailable';
+    /** A query no витрина answers (a sort by a multi-valued field). */
+    public const QUERY_UNSUPPORTED = 'storage_workbench_record_query_unsupported';
 
     private SchemaDefinitionNormalizer $normalizer;
     private StorageSecurityEventSink $events;
@@ -107,6 +120,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         private ?Closure $fieldChangeJobs = null,
         // Up to this many records a field change runs in the request; above it, in the background.
         private int $inlineFieldChangeLimit = self::INLINE_FIELD_CHANGE_LIMIT,
+        // Up to this many records a list builds a витрина that is not ready in the request; above it, refuses.
+        private int $inlineViewBuildLimit = self::INLINE_VIEW_BUILD_LIMIT,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
@@ -1179,6 +1194,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
         $this->assertScope($actor, 'storage.workbench.structure.purge', $scopeRef, self::STRUCTURE_RESOURCE);
         $correlationId = $this->correlationId($correlationId);
+        $this->prepareReferenceViews($scopeRef, $structureId);
 
         try {
             $receipt = $this->database->transaction(function () use ($scopeRef, $structureId, $expectedVersion, $actor, $correlationId): StorageWorkbenchPurgeReceipt {
@@ -1200,10 +1216,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $rows = $this->database->table('larena_storage_records')
                     ->where('schema_id', $schemaId)
                     ->orderBy('record_id')
-                    ->limit(self::MAX_SCAN + 1)
+                    ->limit(self::MAX_STRUCTURE_PURGE + 1)
                     ->get(['record_id', 'current_revision'])
                     ->all();
-                if (count($rows) > self::MAX_SCAN) {
+                if (count($rows) > self::MAX_STRUCTURE_PURGE) {
                     throw new StorageRejected('storage_workbench_structure_purge_too_large');
                 }
                 $refs = array_map(
@@ -1283,6 +1299,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         ksort($expectedRevisions, SORT_STRING);
         $this->assertScope($actor, 'storage.workbench.record.purge', $scopeRef, self::RECORD_RESOURCE);
         $correlationId = $this->correlationId($correlationId);
+        $this->prepareReferenceViews($scopeRef, $structureId);
 
         return $this->database->transaction(function () use (
             $scopeRef,
@@ -1378,12 +1395,42 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     {
         $wanted = $recordIds === null ? null : array_fill_keys($recordIds, true);
         $referenced = [];
+        foreach ($this->referencingStructures($scopeRef, $structureId) as ['source' => $source, 'keys' => $keys]) {
+            if ($wanted === null && $source->structureId === $structureId) {
+                continue;
+            }
+            // Indexed: the record columns of the source's витрина (prepared before the transaction).
+            $fromView = $this->viewReferencedIds($source, $keys, $wanted,
+                $source->structureId === $structureId && $wanted !== null ? $wanted : []);
+            if ($fromView === null) {
+                // Never a scan of the versions: the purge waits until that витрина is built
+                // (prepareReferenceViews queued its rebuild before the transaction).
+                $this->assertViewsAvailable();
+                throw new StorageRejected(self::VIEW_NOT_READY);
+            }
+            foreach ($fromView as $value) {
+                $referenced[$value] = true;
+            }
+        }
+
+        return array_keys($referenced);
+    }
+
+    /**
+     * The structures of the scope with a record@1 field that targets the structure (itself
+     * included), with those fields' keys.
+     *
+     * @return list<array{source: StorageWorkbenchStructure, keys: list<string>}>
+     */
+    private function referencingStructures(string $scopeRef, string $structureId): array
+    {
         $heads = $this->database->table('larena_storage_workbench_structures')
             ->where('scope_ref', $scopeRef)
             ->orderBy('structure_id')
             ->limit(self::MAX_STRUCTURES + 1)
             ->get()
             ->all();
+        $referencing = [];
         foreach ($heads as $head) {
             $source = $this->hydrateStructureVersion($head);
             $keys = [];
@@ -1393,50 +1440,36 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $keys[] = (string) $field['key'];
                 }
             }
-            if ($keys === [] || ($wanted === null && $source->structureId === $structureId)) {
-                continue;
-            }
-            // Indexed: the record columns of the source's витрина, when it is ready.
-            $fromView = $this->viewReferencedIds($source, $keys, $wanted,
-                $source->structureId === $structureId && $wanted !== null ? $wanted : []);
-            if ($fromView !== null) {
-                foreach ($fromView as $value) {
-                    $referenced[$value] = true;
-                }
-                continue;
-            }
-            $rows = $this->database->table('larena_storage_records as heads')
-                ->join('larena_storage_record_versions as versions', static function ($join): void {
-                    $join->on('versions.schema_id', '=', 'heads.schema_id')
-                        ->on('versions.record_id', '=', 'heads.record_id')
-                        ->on('versions.revision', '=', 'heads.current_revision');
-                })
-                ->where('heads.schema_id', $source->schema->schemaId)
-                ->limit(self::MAX_SCAN + 1)
-                ->select(['versions.record_id', 'versions.values_json'])
-                ->cursor();
-            $scanned = 0;
-            foreach ($rows as $row) {
-                if (++$scanned > self::MAX_SCAN) {
-                    throw new StorageRejected('storage_workbench_record_scan_limit_exceeded');
-                }
-                if ($source->structureId === $structureId && isset($wanted[(string) $row->record_id])) {
-                    continue;
-                }
-                $values = json_decode((string) $row->values_json, true);
-                if (!is_array($values) || ($values[self::SCOPE_FIELD] ?? null) !== $scopeRef) {
-                    continue;
-                }
-                foreach ($keys as $key) {
-                    $value = $values[$key] ?? null;
-                    if (is_string($value) && ($wanted === null || isset($wanted[$value]))) {
-                        $referenced[$value] = true;
-                    }
-                }
+            if ($keys !== []) {
+                $referencing[] = ['source' => $source, 'keys' => $keys];
             }
         }
 
-        return array_keys($referenced);
+        return $referencing;
+    }
+
+    /**
+     * Before a purge's transaction: the витрины that answer its incoming references are
+     * made ready (built inline when small, queued when large), as a list would. Best effort:
+     * the check in the transaction refuses with VIEW_NOT_READY what is still not ready.
+     */
+    private function prepareReferenceViews(string $scopeRef, string $structureId): void
+    {
+        try {
+            $referencing = $this->referencingStructures($scopeRef, $structureId);
+        } catch (Throwable) {
+            return;
+        }
+        foreach ($referencing as ['source' => $source, 'keys' => $keys]) {
+            $view = $this->listView($source);
+            if ($view !== null && $this->referenceColumns($view, $keys) !== null) {
+                continue;
+            }
+            try {
+                $this->prepareView($source);
+            } catch (StorageRejected|StoragePersistenceFailed) {
+            }
+        }
     }
 
     private function changeStructureState(
@@ -1574,7 +1607,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     public function listRecords(StorageWorkbenchRecordQuery $query, string $actor): StorageWorkbenchRecordPage
     {
         $started = hrtime(true);
-        $mode = 'legacy';
+        $mode = 'sql';
         $sort = null;
         try {
             $page = $this->listRecordsFrom($query, $actor, $mode, $sort);
@@ -1589,10 +1622,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     }
 
     /**
-     * $mode is set to the path the list took: sql (the витрина) or legacy (the versions scan);
+     * $mode is set to the path the list took: sql (a ready витрина), inline (the витрина was
+     * built in this call, then answered) or not_ready (refused while it is built);
      * $sort to how it was sorted once the query is known: none (no sort asked), indexed (every
-     * sorted field has an index on the витрина) or unindexed (one has none, or the versions
-     * scan sorted in PHP).
+     * sorted field has an index on the витрина) or unindexed (one has none).
      *
      * @param-out 'indexed'|'unindexed'|'none'|null $sort null while the query is not yet known
      */
@@ -1610,102 +1643,160 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'target' => $decision->target,
             'reason_code' => $decision->reasonCode,
         ]));
-        // A storage whose витрина is ready for its current schema answers in SQL; any other keeps the PHP list.
-        $view = $this->listView($structure);
-        $compiled = null;
-        if ($view !== null) {
-            $fields = [];
-            foreach ($structure->fields as $field) {
-                $fields[(string) $field['key']] = $field;
-            }
-            try {
-                $compiled = $this->compiler->compile($this->viewConnection(), $view, $fields, $normalizedQuery);
-            } catch (Throwable $exception) {
-                throw StoragePersistenceFailed::from($exception);
-            }
+        $fields = [];
+        foreach ($structure->fields as $field) {
+            $fields[(string) $field['key']] = $field;
         }
         $sort = $normalizedQuery['sort'] === [] ? 'none' : 'unindexed';
-        if ($compiled !== null) {
-            $mode = 'sql';
-            if ($normalizedQuery['sort'] !== [] && $compiled->unindexedSort === []) {
-                $sort = 'indexed';
+        // Every list answers from the витрина, ready for the structure's current schema version;
+        // the current versions are never scanned for a list.
+        $view = $this->listView($structure);
+        $compiled = $view === null ? null : $this->compileList($view, $fields, $normalizedQuery);
+        if ($compiled === null) {
+            // Not ready, or still filling what this query reads (search text, a backfilled column).
+            if (!$this->answerable($structure, $fields, $normalizedQuery)) {
+                throw new StorageRejected(self::QUERY_UNSUPPORTED);
             }
-
-            return $this->listFromView($compiled, $query, $structure, $queryHash, $scopeHash);
+            $mode = 'not_ready';
+            // A small storage gets its витрина now; a large one is refused while its rebuild is queued.
+            $this->prepareView($structure);
+            $view = $this->listView($structure, true);
+            $compiled = $view === null ? null : $this->compileList($view, $fields, $normalizedQuery);
+            if ($compiled === null) {
+                $this->queueViewBuild($structure->schema->schemaId);
+                throw new StorageRejected(self::VIEW_NOT_READY);
+            }
+            $mode = 'inline';
         }
-        if ($query->page !== null && ($query->continuation !== null || $query->page < 1
-            || $query->page > (int) ceil(self::MAX_SCAN / $query->limit))) {
-            throw new StorageRejected('storage_workbench_record_page_invalid');
+        if ($normalizedQuery['sort'] !== [] && $compiled->unindexedSort === []) {
+            $sort = 'indexed';
         }
-        $offset = $query->page === null
-            ? $this->decodeContinuation($query->continuation, $queryHash, $scopeHash, self::MAX_SCAN)
-            : ($query->page - 1) * $query->limit;
 
+        return $this->listFromView($compiled, $query, $structure, $queryHash, $scopeHash);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $fields
+     * @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $query
+     */
+    private function compileList(StorageViewRegistration $view, array $fields, array $query): ?StorageViewQuery
+    {
         try {
-            $rows = $this->database->table('larena_storage_records as heads')
-                ->join('larena_storage_record_versions as versions', static function ($join): void {
-                    $join->on('versions.schema_id', '=', 'heads.schema_id')
-                        ->on('versions.record_id', '=', 'heads.record_id')
-                        ->on('versions.revision', '=', 'heads.current_revision');
-                })
-                ->where('heads.schema_id', $structure->schema->schemaId)
-                ->orderBy('heads.record_id')
-                ->limit(self::MAX_SCAN + 1)
-                ->select([
-                    'versions.schema_id', 'versions.record_id', 'versions.revision', 'versions.owner_ref',
-                    'versions.schema_version', 'versions.values_json', 'versions.content_hash',
-                    'versions.operation', 'versions.created_by', 'versions.correlation_id', 'versions.created_at',
-                    'heads.current_hash as head_hash',
-                ])
-                ->cursor();
-
-            $records = [];
-            $scanned = 0;
-            foreach ($rows as $row) {
-                if (++$scanned > self::MAX_SCAN) {
-                    throw new StorageRejected('storage_workbench_record_scan_limit_exceeded');
-                }
-                $version = $this->hydrateRawRecordVersion($row);
-                if (!hash_equals($version->contentHash, (string) $row->head_hash)) {
-                    throw new StorageRejected('storage_workbench_record_head_corrupt');
-                }
-                if (($version->values[self::SCOPE_FIELD] ?? null) !== $query->scopeRef) {
-                    continue;
-                }
-                $record = $this->workbenchRecord($structure, $version);
-                if (!$normalizedQuery['include_archived'] && $record->state === self::STATE_ARCHIVED) {
-                    continue;
-                }
-                if (!$this->recordMatches($record, $normalizedQuery, $structure)) {
-                    continue;
-                }
-                $records[] = $record;
-            }
-            usort(
-                $records,
-                fn (StorageWorkbenchRecord $left, StorageWorkbenchRecord $right): int => $this->compareRecords(
-                    $left,
-                    $right,
-                    $normalizedQuery['sort'],
-                    $structure,
-                ),
-            );
-            $matchedCount = count($records);
-            if ($offset > $matchedCount) {
-                throw new StorageRejected('storage_workbench_record_continuation_invalid');
-            }
-            $items = array_slice($records, $offset, $query->limit);
-            $nextOffset = $offset + count($items);
-            $continuation = $nextOffset < $matchedCount
-                ? $this->encodeContinuation($nextOffset, $queryHash, $scopeHash)
-                : null;
-
-            return new StorageWorkbenchRecordPage($items, $continuation, $matchedCount);
-        } catch (StorageRejected $exception) {
-            throw $exception;
+            return $this->compiler->compile($this->viewConnection(), $view, $fields, $query);
         } catch (Throwable $exception) {
             throw StoragePersistenceFailed::from($exception);
         }
+    }
+
+    /**
+     * Whether a витрина built in full for the structure's current fields answers the query:
+     * false for a query no витрина answers (a sort by a choices field), whatever its state.
+     *
+     * @param array<string, array<string, mixed>> $fields
+     * @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $query
+     */
+    private function answerable(StorageWorkbenchStructure $structure, array $fields, array $query): bool
+    {
+        $this->assertViewsAvailable();
+        if ($this->views === null) {
+            return false;
+        }
+        try {
+            $layout = $this->views->planner()->plan(
+                $structure->fields,
+                $structure->schema->version,
+                null,
+                StorageViewFieldOptions::resolve($structure->fields),
+            )->promoted();
+        } catch (Throwable) {
+            // A layout that cannot be planned is the build's to report.
+            return true;
+        }
+        try {
+            return $this->compiler->compileLayout($this->viewConnection(), StorageViewNaming::table($structure->schema->schemaId), $layout, $fields, $query) !== null;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /** Throws VIEW_UNAVAILABLE where no витрина can exist (see the constant). */
+    private function assertViewsAvailable(): void
+    {
+        try {
+            $available = $this->views !== null && $this->database instanceof Connection && $this->views->enabled();
+        } catch (Throwable) {
+            $available = false;
+        }
+        if (!$available) {
+            throw new StorageRejected(self::VIEW_UNAVAILABLE);
+        }
+    }
+
+    /**
+     * Makes the structure's витрина ready for its current schema version, in this call,
+     * when the storage holds at most the inline limit of records (counted cheaply: one
+     * probe of the record heads past the limit): the rebuild walks its current versions
+     * in chunks, or only fills what a backfill left. A larger storage, or a call inside a
+     * transaction the build cannot run in (MySQL's DDL commits it), queues the rebuild and
+     * is refused with VIEW_NOT_READY; so is a build another process took over meanwhile.
+     */
+    private function prepareView(StorageWorkbenchStructure $structure): void
+    {
+        $this->assertViewsAvailable();
+        $views = $this->views;
+        if ($views === null) {
+            throw new StorageRejected(self::VIEW_UNAVAILABLE);
+        }
+        $schemaId = $structure->schema->schemaId;
+        try {
+            $large = $this->database->table('larena_storage_records')
+                ->where('schema_id', $schemaId)
+                ->orderBy('record_id')
+                ->offset(max(0, $this->inlineViewBuildLimit))
+                ->limit(1)
+                ->exists();
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+        $ddl = $views->ddl();
+        if ($large || $ddl === null || ($this->database->transactionLevel() > 0 && !$ddl->transactional())) {
+            $this->queueViewBuild($schemaId);
+            throw new StorageRejected(self::VIEW_NOT_READY);
+        }
+        try {
+            (new StorageViewRebuilder($views, $this->metrics))->rebuild($schemaId, StorageViewRebuilder::DEFAULT_CHUNK);
+        } catch (StorageRejected|StorageConflict) {
+            // Another build took the walk over, or the schema moved under it: that build finishes it.
+            $this->queueViewBuild($schemaId);
+            throw new StorageRejected(self::VIEW_NOT_READY);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        } finally {
+            $views->registry()->forget($schemaId);
+        }
+    }
+
+    /**
+     * Queues the rebuild of a витрина that is not ready, once: a build or backfill already
+     * walking (its cursor moved) is left to finish, since a new job would take its walk over.
+     * A walk that stopped is picked up by its job's retries or the scheduled
+     * `larena:storage:view:rebuild --missing`.
+     */
+    private function queueViewBuild(string $schemaId): void
+    {
+        if ($this->views === null || $this->database->transactionLevel() > 0) {
+            return;
+        }
+        try {
+            $registration = $this->views->registry()->find($schemaId, true);
+        } catch (Throwable) {
+            $registration = null;
+        }
+        if ($registration !== null && $registration->buildCursor !== null
+            && in_array($registration->state, [StorageViewRegistration::STATE_BUILDING, StorageViewRegistration::STATE_READY], true)) {
+            return;
+        }
+        $this->requestViewBuild($schemaId);
     }
 
     /**
@@ -1832,8 +1923,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         return $ordered;
     }
 
-    /** The structure's витрина when it is ready and built for the structure's current schema version. */
-    private function listView(StorageWorkbenchStructure $structure): ?StorageViewRegistration
+    /**
+     * The structure's витрина when it is ready and built for the structure's current schema
+     * version; $fresh reads the registry row past its memo.
+     */
+    private function listView(StorageWorkbenchStructure $structure, bool $fresh = false): ?StorageViewRegistration
     {
         if ($this->views === null || !$this->database instanceof Connection) {
             return null;
@@ -1842,7 +1936,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if (!$this->views->enabled()) {
                 return null;
             }
-            $view = $this->views->registry()->find($structure->schema->schemaId);
+            $view = $this->views->registry()->find($structure->schema->schemaId, $fresh);
         } catch (Throwable) {
             return null;
         }
@@ -1867,7 +1961,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     /**
      * The records a record@1 field of one structure names, from that structure's
      * витрина; null when the витрина cannot answer (not ready, or a field without
-     * a written column), and the caller scans the versions instead.
+     * a written column), and the caller refuses until it can.
      *
      * @param list<string> $keys
      * @param array<string, true>|null $wanted
@@ -1877,22 +1971,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private function viewReferencedIds(StorageWorkbenchStructure $source, array $keys, ?array $wanted, array $excluded): ?array
     {
         $view = $this->listView($source);
-        if ($view === null) {
+        $columns = $view === null ? null : $this->referenceColumns($view, $keys);
+        if ($view === null || $columns === null) {
             return null;
-        }
-        $columns = [];
-        foreach ($keys as $key) {
-            $found = null;
-            foreach ($view->layout->columns as $column) {
-                if ($column->fieldKey === $key && $column->kind === 'record' && $column->column !== null
-                    && $column->state === StorageViewColumn::STATE_READY) {
-                    $found = $column->column;
-                }
-            }
-            if ($found === null) {
-                return null;
-            }
-            $columns[] = $found;
         }
         $referenced = [];
         $wantedChunks = $wanted === null ? [null] : array_chunk(array_map('strval', array_keys($wanted)), 500);
@@ -1920,6 +2001,32 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         return array_map('strval', array_keys($referenced));
     }
 
+    /**
+     * The written, ready record columns of the fields in the витрина; null when one of
+     * the fields has none.
+     *
+     * @param list<string> $keys
+     * @return list<string>|null
+     */
+    private function referenceColumns(StorageViewRegistration $view, array $keys): ?array
+    {
+        $columns = [];
+        foreach ($keys as $key) {
+            $found = null;
+            foreach ($view->layout->columns as $column) {
+                if ($column->fieldKey === $key && $column->kind === 'record' && $column->column !== null
+                    && $column->state === StorageViewColumn::STATE_READY) {
+                    $found = $column->column;
+                }
+            }
+            if ($found === null) {
+                return null;
+            }
+            $columns[] = $found;
+        }
+
+        return $columns;
+    }
 
     public function recordHistory(
         string $scopeRef,
@@ -1996,8 +2103,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     /**
      * After a structure change that left rows of its витрина to fill: queues the
      * rebuild that fills them. Best effort; without a queue the витрина stays as it
-     * is (lists keep reading it, a search goes to the PHP list) until
-     * `larena:storage:view:rebuild` runs.
+     * is (lists keep reading it; a search waits for it, built in the next list of a
+     * small storage, refused on a large one) until `larena:storage:view:rebuild` runs.
      */
     private function requestViewBuild(string $schemaId): void
     {
@@ -2490,54 +2597,6 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
 
         return $this->queryNormalizer->normalize($fields, $query->filters, $query->search, $query->sort, $query->includeArchived);
-    }
-
-    /** @param array{filters: array<string, array{operator: string, value?: mixed, values?: list<mixed>}>, search: ?string, sort: list<array{field: string, direction: string}>, include_archived: bool} $query */
-    private function recordMatches(StorageWorkbenchRecord $record, array $query, StorageWorkbenchStructure $structure): bool
-    {
-        $fieldTypes = [];
-        foreach ($structure->fields as $definition) {
-            $fieldTypes[(string) $definition['key']] = (string) $definition['type'];
-        }
-        if (!StorageRecordQueryMatcher::filtersMatch($record->values, $query['filters'], $fieldTypes)) {
-            return false;
-        }
-        if ($query['search'] === null) {
-            return true;
-        }
-
-        // Every term at the start of a word of the searchable fields (StorageViewSearch), as the витрина searches.
-        return StorageRecordQueryMatcher::searchMatches($record->values, $query['search'], StorageViewFieldOptions::resolve($structure->fields)->searchable);
-    }
-
-    /** @param list<array{field: string, direction: string}> $sort */
-    private function compareRecords(
-        StorageWorkbenchRecord $left,
-        StorageWorkbenchRecord $right,
-        array $sort,
-        StorageWorkbenchStructure $structure,
-    ): int {
-        $fieldTypes = [];
-        foreach ($structure->fields as $field) {
-            $fieldTypes[(string) $field['key']] = (string) $field['type'];
-        }
-        foreach ($sort as $item) {
-            $field = $item['field'];
-            $leftValue = $field === '_record_id'
-                ? $left->recordId
-                : ($field === '_revision' ? $left->revision : ($left->values[$field] ?? null));
-            $rightValue = $field === '_record_id'
-                ? $right->recordId
-                : ($field === '_revision' ? $right->revision : ($right->values[$field] ?? null));
-            $comparison = StorageRecordQueryMatcher::compareValues($leftValue, $rightValue, $fieldTypes[$field] ?? null);
-            if ($comparison !== 0) {
-                return $item['direction'] === 'desc' ? -$comparison : $comparison;
-            }
-        }
-        // Equal keys follow the record id in the direction of the last key, as the витрина's indexes read.
-        $tiebreak = strcmp($left->recordId, $right->recordId);
-
-        return ($sort[count($sort) - 1]['direction'] ?? 'asc') === 'desc' ? -$tiebreak : $tiebreak;
     }
 
     private function decodeContinuation(?string $continuation, string $queryHash, string $scopeHash, int $maxOffset): int

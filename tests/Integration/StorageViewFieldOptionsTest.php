@@ -26,6 +26,7 @@ use Larena\Storage\View\StorageViewSync;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../Support/storage-view-fixture.php';
+require_once __DIR__ . '/../Support/storage-reference-list.php';
 
 // The fields' витрина options (`searchable`, `indexed`), on SQLite with both DDL
 // paths, and the SQL the compiler writes for MySQL:
@@ -35,9 +36,10 @@ require_once __DIR__ . '/../Support/storage-view-fixture.php';
 //   string that becomes indexed gets a VARCHAR(max_length) column and index
 //   (backfilled, the old column answering meanwhile, then dropped), an index that
 //   is no longer wanted is dropped, the search text of new search fields is
-//   refilled by the queued rebuild while the PHP list answers searches;
+//   refilled by the queued rebuild while a search is refused (storage_view_not_ready)
+//   on a storage above the inline build limit, and refilled in the request below it;
 // - the search table is kept on create, update, archive and purge;
-// - search through the search table, with the same results as the PHP list;
+// - search through the search table, with the same results as the reference list;
 // - MySQL: MATCH ... AGAINST in boolean mode with `+word*`, the binary LIKE check,
 //   the substring fallback for short terms, the index range of a prefix filter.
 
@@ -93,7 +95,7 @@ function storageOptionsField(string $key, int $position, string $type, array $co
 }
 
 /** @return list<string> Record ids a list returns, in order. */
-function storageOptionsIds(DatabaseStorageWorkbench $workbench, string $scope, string $structureId, string $actor, array $filters = [], ?string $search = null, array $sort = [], bool $archived = false): array
+function storageOptionsIds(DatabaseStorageWorkbench|StorageReferenceList $workbench, string $scope, string $structureId, string $actor, array $filters = [], ?string $search = null, array $sort = [], bool $archived = false): array
 {
     $page = $workbench->listRecords(new StorageWorkbenchRecordQuery($scope, $structureId, $filters, $search, $sort, 100, null, $archived), $actor);
 
@@ -224,13 +226,18 @@ try {
         });
         $workbench = $runtime['workbench'];
         $views = $runtime['views'];
-        $php = new DatabaseStorageWorkbench($connection, Larena\Property\Runtime\PropertyTypeRegistry::builtIns(), new StorageViewFixtureAccess($actor, $scope),
+        // The expected answers, read record by record and never from the витрина.
+        $php = new StorageReferenceList($connection, $workbench, new StorageViewFixtureAccess($actor, $scope), 'storage-view-fixture-cursor-key-minimum-32-bytes');
+        // The same витрина with no inline build: every storage is «large», so a list it cannot answer yet is refused.
+        $waiting = new DatabaseStorageWorkbench($connection, Larena\Property\Runtime\PropertyTypeRegistry::builtIns(), new StorageViewFixtureAccess($actor, $scope),
             new StorageViewFixtureAccess($actor, $scope), $runtime['storage'], (static function () {
                 $policies = new Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry();
                 $policies->seal();
 
                 return $policies;
-            })(), 'storage-view-fixture-cursor-key-minimum-32-bytes');
+            })(), 'storage-view-fixture-cursor-key-minimum-32-bytes', null, $views, null, null, static function (string $schemaId) use ($requested): void {
+                $requested->add($schemaId);
+            }, null, DatabaseStorageWorkbench::INLINE_FIELD_CHANGE_LIMIT, 0);
         $rebuilder = new StorageViewRebuilder($views);
         $compiler = new StorageViewQueryCompiler();
 
@@ -273,7 +280,7 @@ try {
         storageViewExpect($search('СТОЛ') === [$records[2]->recordId], $mode . ': a Cyrillic term is not case-folded');
         storageViewExpect($search('wood') === [], $mode . ': the body is searched without being searchable');
         foreach (['chair', 'chair oak', 'oak chair', 'СТОЛ', 'wood', 'a', '1', 'hair', ',,'] as $term) {
-            storageViewExpect($search($term) === $searchPhp($term), $mode . ': the витрина and the PHP list disagree on ' . $term);
+            storageViewExpect($search($term) === $searchPhp($term), $mode . ': the витрина and the reference list disagree on ' . $term);
         }
 
         // An options change: code indexed, body searchable. No record is rewritten.
@@ -306,7 +313,12 @@ try {
         $query = static fn (array $filters = [], ?string $term = null, array $sort = []): array => ['filters' => $filters, 'search' => $term, 'sort' => $sort, 'include_archived' => false];
         storageViewExpect($compiler->compile($connection, $registration, $byKey, $query([], 'wood')) === null, $mode . ': a search was answered from search text still being refilled');
         storageViewExpect($compiler->compile($connection, $registration, $byKey, $query(['code' => ['operator' => 'eq', 'value' => 'B-2']])) !== null, $mode . ': the old code column stopped answering during the backfill');
-        storageViewExpect($search('wood') === [$records[0]->recordId], $mode . ': the PHP list does not search the newly searchable body meanwhile');
+        // Meanwhile a storage above the inline limit refuses the search (never a scan) and leaves the queued
+        // rebuild to it, and still lists from the old code column.
+        storageViewRejects(static fn () => storageOptionsIds($waiting, $scope, 'workbench.items', $actor, [], 'wood'), DatabaseStorageWorkbench::VIEW_NOT_READY);
+        storageViewExpect($requested->take() === [$schemaId], $mode . ': the refused search did not queue the rebuild');
+        storageViewExpect(storageOptionsIds($waiting, $scope, 'workbench.items', $actor, ['code' => ['operator' => 'eq', 'value' => 'B-2']]) === [$records[1]->recordId],
+            $mode . ': a list without a search stopped answering during the backfill');
         // A write during the backfill fills its own row in full.
         $records[3] = $workbench->updateRecord($scope, 'workbench.items', $records[3]->recordId, $records[3]->revision, ['title' => 'Pine shelf', 'code' => 'a-10', 'body' => 'Knotty pine', 'qty' => 2], $actor);
         $result = $rebuilder->rebuild($schemaId, 2);
@@ -319,7 +331,7 @@ try {
         storageViewExpect($search('oak') === storageOptionsSorted([$records[0]->recordId, $records[1]->recordId]), $mode . ': the body is not searched after the backfill');
         storageViewExpect($search('pine knotty') === [$records[3]->recordId], $mode . ': a write during the backfill lost its search text');
         foreach (['oak', 'wood', 'дуб', 'oak frame', 'a-1', 'leather oak'] as $term) {
-            storageViewExpect($search($term) === $searchPhp($term), $mode . ': the витрина and the PHP list disagree on ' . $term . ' after the backfill');
+            storageViewExpect($search($term) === $searchPhp($term), $mode . ': the витрина and the reference list disagree on ' . $term . ' after the backfill');
         }
         $registration = $views->registry()->find($schemaId, true);
         storageViewExpect($registration !== null && $compiler->compile($connection, $registration, storageOptionsFieldsByKey($structure->fields), $query([], 'oak')) !== null,

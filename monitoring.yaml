@@ -2,10 +2,11 @@
 # only when larena/monitoring is installed; storage never depends on it. Tags are codes only: never record ids,
 # schema ids, titles or values.
 metrics:
-  # One workbench record list. mode is sql (read from the витрина) or legacy (the versions scan); count is exact,
+  # One workbench record list. mode is sql (a ready витрина answered), inline (the витрина of a small storage was
+  # built in the request, then answered) or not_ready (refused while the queued rebuild builds it); count is exact,
   # approx (an estimate above the threshold) or skip; sort is indexed (every sorted field has an index), unindexed
-  # (a sorted field has none: slow on a large list; the versions scan always) or none (no sort asked); outcome ok,
-  # rejected (a refused query or access) or error.
+  # (a sorted field has none: slow on a large list) or none (no sort asked); outcome ok, rejected (a refused query or
+  # access, a list that is not ready) or error.
   storage.list:
     type: duration
     tags: [mode, count, sort]

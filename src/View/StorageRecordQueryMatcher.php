@@ -7,7 +7,7 @@ namespace Larena\Storage\View;
 /**
  * The PHP side of a normalized record list query (StorageRecordQueryNormalizer):
  * whether values match its filters and search, and how two values compare in its
- * sort. The workbench's PHP list and the site list's fallback use it, with the
+ * sort. The site list's fallback (and the tests' reference list) use it, with the
  * semantics the витрина compiles to SQL (StorageViewQueryCompiler):
  *
  * - a missing or null value never matches a filter;

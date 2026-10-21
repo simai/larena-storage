@@ -39,8 +39,8 @@ use Throwable;
  * twenty fields: list pages, filters, sorting, search, the matched count, and
  * single-record read, update and create. Every operation reports p50/p95/max
  * milliseconds, peak memory and the SQL query count of one call. An operation
- * the engine refuses (for example the 5000-record scan limit of a list without
- * a ready витрина) is recorded as failed with its reason; the run goes on.
+ * the engine refuses (for example a list of a large storage whose витрина is not
+ * ready yet) is recorded as failed with its reason; the run goes on.
  *
  * Records are seeded by writing exactly the rows the engine's create writes:
  * values normalized against the stored schema version, canonical JSON, a
@@ -48,7 +48,7 @@ use Throwable;
  * through the engine one record at a time would take hours at 100k.
  *
  * Writes keep each structure's витрина, as in the application; the seeded
- * records get theirs from one rebuild after seeding (not timed).
+ * records get theirs from one rebuild after seeding (timed: `view_build_ms`).
  *
  * The public reads are measured on a second storage of public fields, every record
  * published in one scope and locale: a projection page, a deep page, a record and a
@@ -186,10 +186,15 @@ final class StorageBenchmark
         $recordIds = $this->seed($structure, $size, fn (int $index): array => $this->values($index, $sectionIds));
         $seedMs = (hrtime(true) - $seedStarted) / 1e6;
         $optionsMs = null;
+        $buildMs = null;
         if ($this->views->enabled()) {
             // Nothing else writes the benchmark storage, so the build does not wait for writers.
+            // Timed: the build a list runs inline for a storage up to INLINE_VIEW_BUILD_LIMIT records
+            // (the inline build also waits twice for the registry memo, about 2 s with the default 1 s).
             $builder = new StorageViewSync($this->connection, new StorageViewRegistry($this->connection, 0.0), $this->views->ddl());
+            $buildStarted = hrtime(true);
             (new StorageViewRebuilder($builder))->rebuild($structure->schema->schemaId, StorageViewRebuilder::DEFAULT_CHUNK, true);
+            $buildMs = (hrtime(true) - $buildStarted) / 1e6;
             $this->views->registry()->forget($structure->schema->schemaId);
             // The field options are switched on the way an owner does it on a filled storage:
             // a structure change (no record rewritten) and the backfill of the витрина, timed.
@@ -286,6 +291,8 @@ final class StorageBenchmark
             'deep_page' => $deepPage,
             'seed_ms' => round($seedMs, 1),
             'seed_records_per_second' => $seedMs > 0 ? (int) round($size / ($seedMs / 1000)) : null,
+            // Building the витрина from the seeded current versions (chunks of 1000).
+            'view_build_ms' => $buildMs === null ? null : round($buildMs, 1),
             // Switching the field options on the filled storage: the structure change and the backfill.
             'options_backfill_ms' => $optionsMs === null ? null : round($optionsMs, 1),
             'operations' => $results,

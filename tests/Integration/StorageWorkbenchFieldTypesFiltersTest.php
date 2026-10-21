@@ -6,10 +6,12 @@ use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\Facade;
 use Larena\Property\Runtime\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
+use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 
 require __DIR__ . '/StorageWorkbenchTest.php';
+require_once __DIR__ . '/../Support/storage-view-fixture.php';
 
 /** @return list<array<string, mixed>> */
 function fieldTypesStatusOptions(bool $reorderedKeys = false): array
@@ -126,7 +128,11 @@ $fieldTypesOpened = workbenchOpen($fieldTypesPath);
 try {
     workbenchInstall();
     $connection = $fieldTypesOpened['connection'];
-    $workbench = workbenchRuntime($connection)['workbench'];
+    // The storages whose витрина rebuild the workbench queued.
+    $queuedBuilds = new StorageViewQueuedBuilds();
+    $runtime = workbenchRuntime($connection, null, DatabaseStorageWorkbench::INLINE_VIEW_BUILD_LIMIT, $queuedBuilds->closure());
+    $workbench = $runtime['workbench'];
+    $views = $runtime['views'];
 
     // Options constraints: only choice/choices may carry the declared option list.
     $emptyState = workbenchState($connection);
@@ -367,7 +373,8 @@ try {
     );
     unset($bravo, $delta);
 
-    // Scan limit is 5000 current records per structure; page numbers follow the scan limit.
+    // A storage whose витрина is not ready: up to the inline limit (5000 records) the first list builds it
+    // in the request and answers from it; with one record more the list is refused while its rebuild is queued.
     $scan = $workbench->createStructure('scope:tenant-alpha', [
         'structure_id' => 'workbench.scan_probe',
         'label' => 'Scan probe',
@@ -376,6 +383,8 @@ try {
         ],
     ], 'actor:admin:alpha');
     fieldTypesInsertRawRecords($connection, $scan->schema->schemaId, 0, 5000);
+    // The raw rows bypass the витрина, so it is no longer ready for them.
+    $views->registry()->delete($scan->schema->schemaId);
     $scanQuery = static fn (?int $page = null, array $filters = []): StorageWorkbenchRecordQuery => new StorageWorkbenchRecordQuery(
         'scope:tenant-alpha',
         $scan->structureId,
@@ -385,15 +394,20 @@ try {
     );
     $memoryBefore = memory_get_peak_usage(true);
     $fullScan = $workbench->listRecords($scanQuery(), 'actor:admin:alpha');
-    workbenchExpect($fullScan->matchedCount === 5000 && count($fullScan->items) === 100, 'scan of 5000 records did not complete');
+    workbenchExpect($fullScan->matchedCount === 5000 && count($fullScan->items) === 100, 'the first list of 5000 records did not build its витрина and answer');
+    workbenchExpect($views->registry()->find($scan->schema->schemaId, true)?->state === 'ready' && $queuedBuilds->ids() === [],
+        'the inline build did not leave the витрина ready, or queued a rebuild');
     $lastPage = $workbench->listRecords($scanQuery(50), 'actor:admin:alpha');
-    workbenchExpect(count($lastPage->items) === 100 && $lastPage->continuation === null, 'last scan page mismatch');
-    workbenchRejects(static fn () => $workbench->listRecords($scanQuery(51), 'actor:admin:alpha'), 'storage_workbench_record_page_invalid');
+    workbenchExpect(count($lastPage->items) === 100 && $lastPage->continuation === null, 'last page mismatch');
+    workbenchExpect($workbench->listRecords($scanQuery(101), 'actor:admin:alpha')->items === [], 'a page past the end is not empty');
+    workbenchRejects(static fn () => $workbench->listRecords($scanQuery(102), 'actor:admin:alpha'), 'storage_workbench_record_page_invalid');
     $filtered = $workbench->listRecords($scanQuery(null, ['name' => ['operator' => 'starts_with', 'value' => 'scan 499']]), 'actor:admin:alpha');
-    workbenchExpect($filtered->matchedCount === 11, 'filtered full scan mismatch');
-    workbenchExpect(memory_get_peak_usage(true) - $memoryBefore < 128 * 1024 * 1024, 'full scan memory exceeded budget');
+    workbenchExpect($filtered->matchedCount === 11, 'filtered list mismatch');
+    workbenchExpect(memory_get_peak_usage(true) - $memoryBefore < 128 * 1024 * 1024, 'the inline build exceeded the memory budget');
     fieldTypesInsertRawRecords($connection, $scan->schema->schemaId, 5000, 1);
-    workbenchRejects(static fn () => $workbench->listRecords($scanQuery(), 'actor:admin:alpha'), 'storage_workbench_record_scan_limit_exceeded');
+    $views->registry()->delete($scan->schema->schemaId);
+    workbenchRejects(static fn () => $workbench->listRecords($scanQuery(), 'actor:admin:alpha'), DatabaseStorageWorkbench::VIEW_NOT_READY);
+    workbenchExpect($queuedBuilds->ids() === [$scan->schema->schemaId], 'the refused list did not queue its rebuild');
 } finally {
     Facade::clearResolvedInstances();
     foreach ([$fieldTypesPath, $fieldTypesPath . '-wal', $fieldTypesPath . '-shm', $fieldTypesPath . '-journal'] as $file) {
