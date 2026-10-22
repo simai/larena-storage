@@ -19,7 +19,7 @@ use Larena\Storage\Exceptions\StorageRejected;
  *   constraints, a range bound or a text fragment without them); `contains` and
  *   `starts_with` lowercased, at most MAX_FILTER_TEXT_BYTES; `in` and `between` at
  *   most MAX_FILTER_VALUES distinct values, `between` ordered;
- * - search: trimmed, 1..MAX_SEARCH_BYTES bytes, no control character;
+ * - search: trimmed, 1..MAX_SEARCH_LENGTH characters (not bytes: a Cyrillic letter is two), no control character;
  * - sort: at most MAX_SORTS distinct `{field, direction}` over the given fields or
  *   the caller's system keys.
  *
@@ -37,7 +37,7 @@ final readonly class StorageRecordQueryNormalizer
     public const MAX_SORTS = 3;
     public const MAX_FILTER_VALUES = 100;
     public const MAX_FILTER_TEXT_BYTES = 1000;
-    public const MAX_SEARCH_BYTES = 100;
+    public const MAX_SEARCH_LENGTH = 100;
     public const FILTER_OPERATORS_BY_TYPE = [
         'string' => ['eq', 'in', 'contains', 'starts_with'],
         'text' => ['eq', 'in', 'contains', 'starts_with'],
@@ -99,7 +99,7 @@ final readonly class StorageRecordQueryNormalizer
         ksort($normalizedFilters, SORT_STRING);
         if ($search !== null) {
             $search = trim($search);
-            if ($search === '' || strlen($search) > self::MAX_SEARCH_BYTES || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $search) === 1) {
+            if ($search === '' || mb_strlen($search) > self::MAX_SEARCH_LENGTH || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $search) === 1) {
                 throw new StorageRejected('storage_workbench_record_search_invalid');
             }
             $plainText = false;
