@@ -55,6 +55,7 @@
     "src/Contracts/ReadContracts.php",
     "src/Runtime/DatabasePublicationLifecycle.php",
     "tests/Unit/PublishedProjectionSearchSourceTest.php",
+    "tests/Unit/PublishedTimesTest.php",
     "src/Runtime/ProjectionVersion.php",
     "src/Runtime/DatabaseLocalizedValues.php",
     "src/Runtime/ReadContractOperationHandlers.php",

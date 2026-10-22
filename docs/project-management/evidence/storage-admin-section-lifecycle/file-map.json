@@ -55,6 +55,7 @@
     "tests/Unit/ReadContractsFailsClosedTest.php",
     "tests/Unit/ReadOperationVisibilityTest.php",
     "tests/Unit/PublishedProjectionTest.php",
+    "tests/Unit/PublishedTimesTest.php",
     "src/Audit/PublicationAuditEventDescriptor.php",
     "src/Compatibility/Audit/AuditStorageSecurityEventSink.php",
     "src/Contracts/StorageSecurityEvent.php",

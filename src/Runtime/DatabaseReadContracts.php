@@ -906,6 +906,58 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
     }
 
     /**
+     * When each of these records was published in a scope and locale, as an ISO-8601
+     * UTC string (`2026-10-22T09:30:00+00:00`), read in one query per BATCH of ids.
+     *
+     * The time is that of the transition that made the current head published: an
+     * editor's publish, or the sweep promoting a scheduled (possibly newer) revision.
+     * A record that is not published there, or whose state carries no time, is absent.
+     * It is an addition beside `publishedProjection`, whose entries keep their shape,
+     * and it answers from the publication states, not from a projection: the caller
+     * applies the same visibility filter it applied to the projection it pairs it with
+     * (a sitemap's `lastmod`, for instance).
+     *
+     * @param list<string> $recordIds
+     * @return array<string, string> record id => published at
+     * @phpstan-impure
+     */
+    public function publishedTimes(string $roleRefOrSchemaId, string $scopeRef, string $locale, array $recordIds): array
+    {
+        return $this->metrics->timeRead(function () use ($roleRefOrSchemaId, $scopeRef, $locale, $recordIds): array {
+            $this->assertSchema();
+            LocaleFallbackChain::assertLocale($locale);
+            if ($recordIds === []) {
+                return [];
+            }
+
+            $times = [];
+            foreach ($this->publishedStates($this->schemaId($roleRefOrSchemaId), $scopeRef, $locale, $recordIds) as $recordId => $state) {
+                $time = self::isoUtc($state['published_at']);
+                if ($time !== null) {
+                    $times[$recordId] = $time;
+                }
+            }
+
+            return $times;
+        });
+    }
+
+    /** A stored UTC time (`Y-m-d H:i:s`) as ISO-8601; null when there is none or it does not parse. */
+    private static function isoUtc(?string $stored): ?string
+    {
+        if ($stored === null || $stored === '') {
+            return null;
+        }
+        try {
+            $moment = new \DateTimeImmutable($stored, new \DateTimeZone('UTC'));
+        } catch (\Exception) {
+            return null;
+        }
+
+        return $moment->setTimezone(new \DateTimeZone('UTC'))->format(\DateTimeInterface::ATOM);
+    }
+
+    /**
      * Each scope and locale where one revision of a record is the published head.
      *
      * @return list<array{scope_ref: string, locale: string}>

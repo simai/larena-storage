@@ -36,6 +36,22 @@ protected.
 
 A schema with no declared public field projects nothing at all, in any locale.
 
+## publishedTimes
+
+```php
+// DatabaseReadContracts only: an addition beside the interface, whose entries keep their shape.
+$times = $read->publishedTimes('site_node@v1', 'site:main', 'ru', ['home', 'about']);
+// ['home' => '2026-10-22T09:30:00+00:00', ...]
+```
+
+When each record was published in a scope and locale, as ISO-8601 UTC, read from the
+publication states in one query per batch of ids. It is the time of the transition that
+made the current head published: an editor's publish, or the sweep promoting a scheduled
+(possibly newer) revision; a schedule pending on a live record leaves the old time. A
+record that is not published there is absent. The caller applies the same visibility
+filter it applied to the projection it pairs the times with (the site sitemap writes its
+`lastmod` from them).
+
 ## publishedList
 
 ```php

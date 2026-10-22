@@ -189,6 +189,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublicationFailsClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadContractsResolveKeyTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublishedProjectionTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublishedTimesTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadOperationVisibilityTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublishedProjectionSearchSourceTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SlugUniquenessTest.php",
