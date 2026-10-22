@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\View;
 
 use Illuminate\Database\ConnectionInterface;
+use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
 use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Exceptions\StorageRejected;
 use stdClass;
@@ -14,17 +15,21 @@ use Throwable;
  * The витрина options of a structure's fields: which fields feed the search
  * text, and which strings get an index of their own.
  *
- * - `searchable` (bool) on a string or text field. A field that says nothing is
- *   searchable, as every string and text value was searched before the витрина;
- *   `false` leaves a field out of the search text.
- * - `indexed` (bool) on a string field whose `max_length` is at most 255: its
- *   витрина column is VARCHAR(max_length) with a `(state, cN, record_id)` index.
+ * - `searchable` (bool) on a field whose Property type is searchable (string, text).
+ *   A field that says nothing is searchable, as every string and text value was
+ *   searched before the витрина; `false` leaves a field out of the search text.
+ * - `indexed` (bool) on a field whose Property type is indexable (string) and whose
+ *   `max_length` the type's index bound takes (at most 255): its витрина column is
+ *   VARCHAR(max_length) with a `(state, cN, record_id)` index.
  *   Choice, record, user, date, datetime, number, integer and boolean fields are
  *   indexed automatically; long text never is.
  * - A table carries at most 40 field indexes: the automatic ones first, then the
  *   strings indexed on request.
  * - An encrypted field takes neither: it has no витрина column and no search text
  *   (storage_field_encrypted_searchable_refused, storage_field_encrypted_indexed_refused).
+ *
+ * Which types take which option is Property's declaration (PropertyTypeSettingsCatalog);
+ * the index budget is Storage's own.
  *
  * The options are presentation of the витрина, not of the data: they live in the
  * workbench structure, not in the versioned storage schema, so changing them
@@ -36,8 +41,6 @@ final readonly class StorageViewFieldOptions
     public const SEARCHABLE = 'searchable';
     public const INDEXED = 'indexed';
     public const KEYS = [self::SEARCHABLE, self::INDEXED];
-    public const SEARCHABLE_KINDS = ['string', 'text'];
-    public const INDEXED_KINDS = ['string'];
     public const MAX_FIELD_INDEXES = 40;
 
     public const REASON_OPTION_INVALID = 'storage_field_option_invalid';
@@ -89,11 +92,11 @@ final readonly class StorageViewFieldOptions
             if (StorageEncryptionPolicy::isEncrypted($field)) {
                 continue;
             }
-            if (array_key_exists(self::SEARCHABLE, $field) && !in_array($kind, self::SEARCHABLE_KINDS, true)) {
+            if (array_key_exists(self::SEARCHABLE, $field) && !self::searchableKind($kind)) {
                 throw new StorageRejected(self::REASON_SEARCHABLE_TYPE);
             }
             if (array_key_exists(self::INDEXED, $field)) {
-                if (!in_array($kind, self::INDEXED_KINDS, true)) {
+                if (!self::indexedKind($kind)) {
                     throw new StorageRejected(self::REASON_INDEXED_TYPE);
                 }
                 if ($field[self::INDEXED] === true && self::indexableLength($field) === null) {
@@ -131,13 +134,13 @@ final readonly class StorageViewFieldOptions
             if ($key === '' || str_starts_with($key, self::SYSTEM_PREFIX) || StorageEncryptionPolicy::isEncrypted($field)) {
                 continue;
             }
-            if (in_array($kind, self::SEARCHABLE_KINDS, true)) {
+            if (self::searchableKind($kind)) {
                 $flag = $field[self::SEARCHABLE] ?? null;
                 if ($flag !== false) {
                     $searchable[] = $key;
                 }
             }
-            if (in_array($kind, self::INDEXED_KINDS, true) && ($field[self::INDEXED] ?? false) === true
+            if (self::indexedKind($kind) && ($field[self::INDEXED] ?? false) === true
                 && self::indexableLength($field) !== null) {
                 $indexed[] = $key;
             }
@@ -198,12 +201,31 @@ final readonly class StorageViewFieldOptions
         return $this->searchable === $other->searchable && $this->indexed === $other->indexed;
     }
 
-    /** The max_length of a string that can be indexed (at most 255), or null. @param array<string, mixed> $field */
+    /** Whether a field type feeds the search text (Property: searchable). */
+    public static function searchableKind(string $kind): bool
+    {
+        return PropertyTypeSettingsCatalog::builtIns()->can($kind, 'searchable');
+    }
+
+    /** Whether a field type can be indexed on request (Property: indexable). */
+    public static function indexedKind(string $kind): bool
+    {
+        return PropertyTypeSettingsCatalog::builtIns()->can($kind, 'indexable');
+    }
+
+    /**
+     * The max_length of a field that can be indexed on request (its Property type is indexable and the length is
+     * within the type's index bound and the VARCHAR limit), or null.
+     *
+     * @param array<string, mixed> $field
+     */
     public static function indexableLength(array $field): ?int
     {
         $constraints = is_array($field['constraints'] ?? null) ? $field['constraints'] : [];
         $length = $constraints['max_length'] ?? null;
+        $typed = ['type' => $field['type'] ?? 'string'] + $field;
 
-        return is_int($length) && $length >= 1 && $length <= StorageViewColumn::VARCHAR_MAX ? $length : null;
+        return is_int($length) && $length <= StorageViewColumn::VARCHAR_MAX
+            && PropertyTypeSettingsCatalog::builtIns()->indexableField($typed) ? $length : null;
     }
 }

@@ -213,7 +213,8 @@
     "src/Console/Commands/StorageEncryptionStatusCommand.php",
     "tests/Integration/StorageFieldEncryptionRunTest.php",
     "tests/Integration/StorageFieldEncryptionRunMySqlTest.php",
-    "tests/Support/storage-encryption-run-fixture.php"
+    "tests/Support/storage-encryption-run-fixture.php",
+    "tests/Unit/StoragePropertyDeclarationTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

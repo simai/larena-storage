@@ -200,7 +200,7 @@ final readonly class StorageViewLayoutPlanner
 
         $searchFields = [];
         foreach ($options->searchable as $key) {
-            if (in_array($decisions[$key]['kind'] ?? null, StorageViewFieldOptions::SEARCHABLE_KINDS, true)) {
+            if (StorageViewFieldOptions::searchableKind((string) ($decisions[$key]['kind'] ?? ''))) {
                 $searchFields[] = $key;
             }
         }

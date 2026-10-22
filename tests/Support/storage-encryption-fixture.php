@@ -243,7 +243,8 @@ function storageEncryptionScenario(Connection $connection, StorageViewDdl $ddl, 
         [array_merge(storageEncryptionField('secret', 20, 'string'), ['visibility' => 'protected', 'encrypted' => true]), StorageEncryptionPolicy::VISIBILITY_REFUSED],
         [storageEncryptionField('secret', 20, 'string', [], false, ['encrypted' => true, 'searchable' => true]), StorageEncryptionPolicy::SEARCHABLE_REFUSED],
         [storageEncryptionField('secret', 20, 'string', ['max_length' => 100], false, ['encrypted' => true, 'indexed' => true]), StorageEncryptionPolicy::INDEXED_REFUSED],
-        [storageEncryptionField('secret', 20, 'string', ['unique' => true], false, ['encrypted' => true]), StorageEncryptionPolicy::UNIQUE_UNSUPPORTED],
+        // No type declares `unique`: Property refuses it on an encrypted field as on any other.
+        [storageEncryptionField('secret', 20, 'string', ['unique' => true], false, ['encrypted' => true]), 'storage_schema_constraint_invalid'],
     ] as [$field, $reason]) {
         storageEncryptionRejects(static fn () => $workbench->createStructure($scope, $base($field), $admin), $reason, $label . ': ' . $reason);
     }

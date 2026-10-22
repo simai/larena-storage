@@ -7,17 +7,18 @@ namespace Larena\Storage\Encryption;
 use Closure;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
+use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
 use Larena\Storage\Exceptions\StorageRejected;
 
 /**
  * What an encrypted field («Шифровать», `encrypted: true` in the versioned schema) may be, and the reason codes of
  * every refusal (larena-specs docs/architecture/2026-10-22-storage-field-encryption.md):
  *
- * - types: string, text, integer, number, date and datetime; choice, choices, boolean, references and files cannot
- *   (TYPE_UNSUPPORTED);
+ * - types: the ones Property declares encryptable (PropertyTypeSettingsCatalog: string, text, integer, number, date
+ *   and datetime); choice, choices, boolean, references and files cannot (TYPE_UNSUPPORTED);
  * - visibility `admin` only (VISIBILITY_REFUSED): no site витрина, search or published read can ever see it;
  * - only a schema owned by larena/storage (OWNER_UNSUPPORTED);
- * - no uniqueness (UNIQUE_UNSUPPORTED), no search text (SEARCHABLE_REFUSED), no index (INDEXED_REFUSED), never a
+ * - no search text (SEARCHABLE_REFUSED), no index (INDEXED_REFUSED), never a
  *   published key (KEY_FIELD_REFUSED);
  * - a list cannot filter, sort or search by it (FILTER_UNSUPPORTED, SORT_UNSUPPORTED, SEARCH_UNSUPPORTED);
  * - while encrypted a field is not retyped, and a field with values does not change its constraints or become
@@ -32,7 +33,6 @@ use Larena\Storage\Exceptions\StorageRejected;
 final class StorageEncryptionPolicy
 {
     public const OWNER_PACKAGE = 'larena/storage';
-    public const ENCRYPTABLE_TYPES = ['string', 'text', 'integer', 'number', 'date', 'datetime'];
     public const VISIBILITY = 'admin';
 
     public const TYPE_UNSUPPORTED = 'storage_field_encrypted_type_unsupported';
@@ -45,7 +45,6 @@ final class StorageEncryptionPolicy
     public const FILTER_UNSUPPORTED = 'storage_field_encrypted_filter_unsupported';
     public const SORT_UNSUPPORTED = 'storage_field_encrypted_sort_unsupported';
     public const SEARCH_UNSUPPORTED = 'storage_field_encrypted_search_unsupported';
-    public const UNIQUE_UNSUPPORTED = 'storage_field_encrypted_unique_unsupported';
     public const UNAVAILABLE = 'storage_field_encryption_unavailable';
     public const KEY_UNAVAILABLE = 'storage_field_encryption_key_unavailable';
     public const REWRITE_REQUIRED = 'storage_field_encryption_rewrite_required';
@@ -70,7 +69,6 @@ final class StorageEncryptionPolicy
         self::FILTER_UNSUPPORTED,
         self::SORT_UNSUPPORTED,
         self::SEARCH_UNSUPPORTED,
-        self::UNIQUE_UNSUPPORTED,
         self::UNAVAILABLE,
         self::KEY_UNAVAILABLE,
         self::REWRITE_REQUIRED,
@@ -121,16 +119,30 @@ final class StorageEncryptionPolicy
         if ($ownerPackage !== self::OWNER_PACKAGE) {
             throw new StorageRejected(self::OWNER_UNSUPPORTED);
         }
-        if (!in_array($field['type'] ?? null, self::ENCRYPTABLE_TYPES, true)) {
+        $type = $field['type'] ?? null;
+        if (!is_string($type) || !self::encryptable($type)) {
             throw new StorageRejected(self::TYPE_UNSUPPORTED);
         }
         if (($field['visibility'] ?? null) !== self::VISIBILITY) {
             throw new StorageRejected(self::VISIBILITY_REFUSED);
         }
-        $constraints = is_array($field['constraints'] ?? null) ? $field['constraints'] : [];
-        if (array_key_exists('unique', $constraints)) {
-            throw new StorageRejected(self::UNIQUE_UNSUPPORTED);
-        }
+        // No type declares a `unique` setting: Property refuses one on every field, encrypted or not.
+    }
+
+    /** Whether a field type can be encrypted (Property: encryptable). */
+    public static function encryptable(string $type): bool
+    {
+        return PropertyTypeSettingsCatalog::builtIns()->can($type, 'encryptable');
+    }
+
+    /**
+     * The field types that can be encrypted, in the order Property declares them.
+     *
+     * @return list<string>
+     */
+    public static function encryptableTypes(): array
+    {
+        return PropertyTypeSettingsCatalog::builtIns()->typesWith('encryptable');
     }
 
     /**

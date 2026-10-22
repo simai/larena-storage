@@ -118,6 +118,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSchemaEvolutionConcurrencyTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageCurrentReadLockingTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageViewLayoutTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StoragePropertyDeclarationTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewDdlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewWritePathTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageViewListTest.php",

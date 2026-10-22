@@ -6,6 +6,8 @@ namespace Larena\Storage\SchemaEvolution;
 
 use Larena\Property\Contracts\PropertyConstraintValidator;
 use Larena\Property\Contracts\PropertyTypeRegistry;
+use Larena\Property\Enums\PropertySettingKind;
+use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
 use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Encryption\StorageFieldEnvelope;
@@ -14,12 +16,6 @@ use Throwable;
 
 final readonly class SchemaDefinitionNormalizer
 {
-    /**
-     * Property types whose `options` constraint is a declared list of option objects.
-     * Every other constraint stays scalar-only.
-     */
-    private const OPTION_LIST_TYPES = ['choice', 'choices'];
-
     public function __construct(private PropertyTypeRegistry $propertyTypes)
     {
     }
@@ -90,15 +86,18 @@ final readonly class SchemaDefinitionNormalizer
             }
             $encrypted = ($field['encrypted'] ?? false) === true;
             if ($encrypted) {
-                // The encryption rules come before the constraints: an encrypted field never takes uniqueness.
+                // The encryption rules come before the constraints.
                 StorageEncryptionPolicy::assertField(['type' => $type, 'visibility' => $visibility, 'constraints' => $constraints], $ownerPackage);
             }
             foreach ($constraints as $constraintKey => $constraintValue) {
                 if (!is_string($constraintKey)) {
                     throw new StorageRejected('storage_schema_constraint_invalid');
                 }
-                if ($constraintKey === 'options' && in_array($type, self::OPTION_LIST_TYPES, true)) {
-                    if (!self::isScalarObjectList($constraintValue)) {
+                // A constraint is scalar unless its type declares it a list: the options of a choice (a list of
+                // option objects) or a list of strings (the formats a file accepts).
+                $kind = PropertyTypeSettingsCatalog::builtIns()->for($type, $typeVersion)?->setting($constraintKey)?->kind;
+                if ($kind === PropertySettingKind::Options || $kind === PropertySettingKind::StringList) {
+                    if (!($kind === PropertySettingKind::Options ? self::isScalarObjectList($constraintValue) : self::isStringList($constraintValue))) {
                         throw new StorageRejected('storage_schema_constraint_invalid');
                     }
                     continue;
@@ -259,6 +258,20 @@ final readonly class SchemaDefinitionNormalizer
         }
 
         return $constraints;
+    }
+
+    private static function isStringList(mixed $value): bool
+    {
+        if (!is_array($value) || !array_is_list($value)) {
+            return false;
+        }
+        foreach ($value as $item) {
+            if (!is_string($item)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static function isScalarObjectList(mixed $value): bool
