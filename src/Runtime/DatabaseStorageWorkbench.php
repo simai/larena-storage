@@ -14,6 +14,7 @@ use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
 use Larena\Access\ValueObjects\AccessDecision;
 use Larena\Property\Contracts\PropertyTypeRegistry;
+use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
 use Larena\Storage\Contracts\StorageRecordVersion;
 use Larena\Storage\Contracts\StorageRecordVersionRef;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
@@ -1148,9 +1149,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 }
                 continue;
             }
+            // A change of settings that do not touch stored data (Property's descriptors) checks no record.
             if (($source['type'] ?? null) !== ($field['type'] ?? null)
                 || ($source['type_version'] ?? 1) !== ($field['type_version'] ?? 1)
-                || $this->canonicalJson($source['constraints'] ?? []) !== $this->canonicalJson($field['constraints'] ?? [])
+                || ($this->canonicalJson($source['constraints'] ?? []) !== $this->canonicalJson($field['constraints'] ?? [])
+                    && !self::settingsChangeKeepsData($source, $field))
                 || (($source['required'] ?? false) === false && ($field['required'] ?? false) === true)) {
                 $checked[] = $key;
             }
@@ -2851,14 +2854,19 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             }
             // Whether a field is localized may change: it applies to revisions written
             // under the new schema version, and a translation of an older revision
-            // keeps the rule of its own version. Everything else must stay.
+            // keeps the rule of its own version. Settings that do not touch stored data
+            // (an input mask, a placeholder, a step, a unit: Property's descriptors say
+            // which) may change too. Everything else must stay.
             $stored = $field;
             // Encryption may switch too, on a field without values (assertEncryptionChange checks it).
             unset($stored['localized'], $stored['encrypted']);
             $semantic = $this->semanticField($candidate);
-            if ($this->canonicalJson($semantic) !== $this->canonicalJson($stored)) {
+            if ($this->canonicalJson(['constraints' => null] + $semantic) !== $this->canonicalJson(['constraints' => null] + $stored)
+                || ($this->canonicalJson($semantic['constraints']) !== $this->canonicalJson($stored['constraints'] ?? null)
+                    && !self::settingsChangeKeepsData($stored, $semantic))) {
                 throw new StorageRejected('storage_workbench_structure_field_changed');
             }
+            $stored['constraints'] = $semantic['constraints'];
             $currentUserKeys[$key] = true;
             $target[] = $stored + (($candidate['localized'] ?? false) === true ? ['localized' => true] : [])
                 + (($candidate['encrypted'] ?? false) === true ? ['encrypted' => true] : []);
@@ -2868,23 +2876,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if (isset($currentUserKeys[$key])) {
                 continue;
             }
-            // An added field is optional and unconstrained, so no stored record changes meaning; a
-            // record@1 field carries only its target, and a choice field only its options (and, for
-            // several choices, how many), which existing records (without the field) ignore. Other
-            // constraints go through migrateStructure, which adds the field the same way.
+            // An added field is optional, so no stored record changes meaning: every record is
+            // without it, whatever its settings (as migrateStructure adds it). Its settings are
+            // those its Property type declares; the normalizer checks their values.
             $constraints = $field['constraints'] ?? null;
-            $constraintKeys = is_array($constraints) ? array_keys($constraints) : null;
-            if ($constraintKeys !== null) {
-                sort($constraintKeys);
-            }
-            $allowedKeys = match ($field['type'] ?? null) {
-                'record' => [['target_structure_id']],
-                'choice' => [['options']],
-                'choices' => [['options'], ['max_items', 'options']],
-                default => [],
-            };
-            if (($field['required'] ?? null) !== false
-                || ($constraints !== [] && !in_array($constraintKeys, $allowedKeys, true))) {
+            $declared = is_string($field['type'] ?? null) && is_int($field['type_version'] ?? null)
+                ? PropertyTypeSettingsCatalog::builtIns()->for($field['type'], $field['type_version']) : null;
+            if (($field['required'] ?? null) !== false || !is_array($constraints) || $declared === null
+                || array_diff(array_map('strval', array_keys($constraints)), $declared->keys()) !== []) {
                 throw new StorageRejected('storage_workbench_structure_addition_incompatible');
             }
             $target[] = $this->semanticField($field) + (($field['localized'] ?? false) === true ? ['localized' => true] : [])
@@ -2982,6 +2981,26 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             'visibility' => $field['visibility'],
             'constraints' => $field['constraints'],
         ];
+    }
+
+    /**
+     * Whether a field's settings change without touching stored data: same type and version, and every setting that
+     * changes is one Property declares as acting on the form, a filter or a list only and free to change after
+     * creation (PropertyTypeSettings::dataChangingKeys()).
+     *
+     * @param array<array-key, mixed> $from @param array<array-key, mixed> $to
+     */
+    private static function settingsChangeKeepsData(array $from, array $to): bool
+    {
+        $type = $from['type'] ?? null;
+        $version = $from['type_version'] ?? null;
+        if (!is_string($type) || !is_int($version) || $type !== ($to['type'] ?? null) || $version !== ($to['type_version'] ?? null)
+            || !is_array($from['constraints'] ?? null) || !is_array($to['constraints'] ?? null)) {
+            return false;
+        }
+        $declared = PropertyTypeSettingsCatalog::builtIns()->for($type, $version);
+
+        return $declared !== null && $declared->dataChangingKeys($from['constraints'], $to['constraints']) === [];
     }
 
     /** @return list<array<string, mixed>> */

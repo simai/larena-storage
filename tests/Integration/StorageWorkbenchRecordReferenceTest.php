@@ -51,10 +51,15 @@ try {
         'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections')],
     ], $actor);
     workbenchExpect(($notes->fields[1]['constraints']['target_structure_id'] ?? null) === 'workbench.sections', 'record field was not added');
+    // An added field must be optional, and its settings those its type declares.
     workbenchRejects(static fn () => $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
         'structure_id' => 'workbench.notes', 'label' => 'Notes',
-        'fields' => [$string('title', 10), $section('workbench.sections'), ['key' => 'length', 'constraints' => ['max_length' => 5]] + $string('length', 30)],
+        'fields' => [$string('title', 10), $section('workbench.sections'), ['key' => 'length', 'required' => true] + $string('length', 30)],
     ], $actor), 'storage_workbench_structure_addition_incompatible');
+    workbenchRejects(static fn () => $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes',
+        'fields' => [$string('title', 10), $section('workbench.sections'), ['key' => 'length', 'constraints' => ['unique' => true]] + $string('length', 30)],
+    ], $actor), 'storage_schema_constraint_invalid');
     // ... and an optional choice field with its options: records without the field keep their meaning.
     $notes = $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
         'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections'),
@@ -62,6 +67,33 @@ try {
                 'visibility' => 'public', 'constraints' => ['options' => [['value' => 'new', 'label' => 'New', 'color' => 'info']]]]],
     ], $actor);
     workbenchExpect(($notes->fields[2]['constraints']['options'][0]['value'] ?? null) === 'new', 'choice field was not added');
+    // Any setting its type declares comes with an added field: no record has the field yet (as migrateStructure adds it).
+    $stage = $notes->fields[2];
+    $code = ['key' => 'code', 'constraints' => ['max_length' => 12, 'mask' => '00-00', 'placeholder' => 'Code']] + $string('code', 40);
+    $notes = $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections'), $stage, $code],
+    ], $actor);
+    workbenchExpect(($notes->fields[3]['constraints']['mask'] ?? null) === '00-00', 'a field with a mask was not added');
+    // A setting that does not touch stored data (mask, placeholder) changes without a migration, in place.
+    $schemaVersion = $notes->schema->version;
+    $notes = $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections'), $stage,
+            ['constraints' => ['max_length' => 12, 'mask' => 'AA-00']] + $code],
+    ], $actor);
+    workbenchExpect(($notes->fields[3]['constraints'] ?? null) === ['mask' => 'AA-00', 'max_length' => 12] && $notes->schema->version === $schemaVersion + 1,
+        'a mask change was not applied in place: ' . json_encode($notes->fields[3]['constraints'] ?? null));
+    // One that does (the maximum length) still takes migrateStructure.
+    workbenchRejects(static fn () => $workbench->updateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections'), $stage,
+            ['constraints' => ['max_length' => 8, 'mask' => 'AA-00']] + $code],
+    ], $actor), 'storage_workbench_structure_field_changed');
+    // Through migrateStructure the same settings change checks no record: the structure switches at once.
+    $workbench->createRecord($scope, 'workbench.notes', ['title' => 'First', 'code' => 'AB-12'], $actor);
+    $notes = $workbench->migrateStructure($scope, 'workbench.notes', $notes->version, [
+        'structure_id' => 'workbench.notes', 'label' => 'Notes', 'fields' => [$string('title', 10), $section('workbench.sections'), $stage,
+            ['constraints' => ['max_length' => 12, 'mask' => '00-AA', 'placeholder' => 'New code']] + $code],
+    ], $actor);
+    workbenchExpect(!$notes->changing() && ($notes->fields[3]['constraints']['placeholder'] ?? null) === 'New code', 'a mask change through migrate checked the records');
 
     $books = $workbench->createRecord($scope, 'workbench.sections', ['title' => 'Books'], $actor);
     $games = $workbench->createRecord($scope, 'workbench.sections', ['title' => 'Games'], $actor);

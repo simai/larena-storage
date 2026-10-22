@@ -6,6 +6,7 @@ namespace Larena\Storage\Runtime;
 
 use Illuminate\Database\Connection;
 use Larena\Property\Contracts\PropertyTypeRegistry;
+use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\PublicationState;
@@ -107,8 +108,6 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
     /** How many rows one list page scans at most through a visibility filter. */
     public const LIST_VISIBILITY_SCAN = 500;
 
-    /** The field types a public list sorts by: those with one value a column can hold. */
-    private const LIST_SORTABLE_TYPES = ['string', 'text', 'integer', 'number', 'date', 'datetime', 'boolean', 'choice', 'user', 'file', 'relation', 'record'];
 
     private readonly PublishedKeyTable $keys;
     private readonly StorageRecordConverter $converter;
@@ -325,6 +324,17 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
     }
 
     /**
+     * Whether a public list sorts by a field of this type: one value a column holds, as Property declares it: a
+     * sortable type, or a reference (a list orders references by their id, a stable order).
+     */
+    private static function listSortable(string $type): bool
+    {
+        $catalog = PropertyTypeSettingsCatalog::builtIns();
+
+        return $catalog->can($type, 'sortable') || $catalog->can($type, 'reference');
+    }
+
+    /**
      * @param 'none'|'slot'|'fallback' $mode Set to the path the list took.
      * @phpstan-impure
      */
@@ -354,7 +364,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
         }
         foreach ($normalized['sort'] as $item) {
             $type = $list['types'][$item['field']] ?? null;
-            if ($type !== null && !in_array($type, self::LIST_SORTABLE_TYPES, true)) {
+            if ($type !== null && !self::listSortable($type)) {
                 throw self::invalidQuery();
             }
         }

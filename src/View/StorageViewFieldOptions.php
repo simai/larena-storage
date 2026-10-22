@@ -103,7 +103,7 @@ final readonly class StorageViewFieldOptions
                     throw new StorageRejected(self::REASON_INDEXED_MAX_LENGTH);
                 }
             }
-            if (in_array($kind, StorageViewLayoutPlanner::AUTO_INDEX_KINDS, true)) {
+            if (StorageViewLayoutPlanner::autoIndexed($kind)) {
                 $automatic++;
             }
             if (($field[self::INDEXED] ?? false) === true) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\View;
 
+use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
 use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Exceptions\StorageRejected;
 
@@ -22,16 +23,15 @@ use Larena\Storage\Exceptions\StorageRejected;
  *
  * An encrypted field has no column: no value, no search text, never the title.
  *
- * Indexes: at most 40 field indexes a table, the automatic ones (choice, record,
- * user, date, datetime, number, integer, boolean, in field order) first, then the
- * strings indexed on request. A string that changes column (it becomes indexed)
+ * Indexes: at most 40 field indexes a table, the automatic ones (the types Property
+ * declares auto_indexed: choice, record, user, date, datetime, number, integer,
+ * boolean; in field order) first, then the strings indexed on request. A string that changes column (it becomes indexed)
  * keeps its old column ready until the new one is filled.
  */
 final readonly class StorageViewLayoutPlanner
 {
     /** The workbench's own fields; they have system columns (scope_ref, state). */
     public const SYSTEM_FIELDS = ['larena_scope_ref', 'larena_record_state'];
-    public const AUTO_INDEX_KINDS = ['choice', 'record', 'user', 'date', 'datetime', 'number', 'integer', 'boolean'];
     public const MAX_AUTO_INDEXES = 40;
     // Every field index, automatic or on request. MySQL allows 64 indexes a table; the main table's
     // system indexes take four (the primary key, (state, updated_at), (state, record_id) and
@@ -60,6 +60,12 @@ final readonly class StorageViewLayoutPlanner
         StorageViewColumn::STATE_BACKFILLING => 1,
         StorageViewColumn::STATE_ADDING => 2,
     ];
+
+    /** Whether a field of this type gets an index without being asked (Property: auto_indexed). */
+    public static function autoIndexed(string $kind): bool
+    {
+        return PropertyTypeSettingsCatalog::builtIns()->can($kind, 'auto_indexed');
+    }
 
     /**
      * @param list<array<string, mixed>> $fields Schema fields (key, type, constraints, ...).
@@ -115,14 +121,14 @@ final readonly class StorageViewLayoutPlanner
         $total = 0;
         $automatic = 0;
         foreach ($decisions as $key => $decision) {
-            if ($decision['reused'] !== null && in_array($decision['kind'], self::AUTO_INDEX_KINDS, true) && $existing[$decision['reused']]->indexed) {
+            if ($decision['reused'] !== null && self::autoIndexed($decision['kind']) && $existing[$decision['reused']]->indexed) {
                 $decisions[$key]['index'] = true;
                 $total++;
                 $automatic++;
             }
         }
         foreach ($decisions as $key => $decision) {
-            if ($decision['reused'] === null && in_array($decision['kind'], self::AUTO_INDEX_KINDS, true)
+            if ($decision['reused'] === null && self::autoIndexed($decision['kind'])
                 && $decision['sql_type'] !== StorageViewColumn::SQL_SIDE
                 && $automatic < self::MAX_AUTO_INDEXES && $total < self::MAX_FIELD_INDEXES) {
                 $decisions[$key]['index'] = true;
