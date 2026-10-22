@@ -67,6 +67,7 @@ final class MySqlStorageViewDdl extends StorageViewDdl
                 'PRIMARY KEY (`record_id`)',
                 'KEY `' . self::stateIndexName($table) . '` (`state`, `updated_at`, `record_id`)',
                 'KEY `' . self::stateRecordIndexName($table) . '` (`state`, `record_id`)',
+                'KEY `' . self::stateCreatedIndexName($table) . '` (`state`, `created_at`, `record_id`)',
             ];
             foreach ($layout->physical() as $column) {
                 if ($column->state === StorageViewColumn::STATE_DROPPING) {
@@ -79,9 +80,9 @@ final class MySqlStorageViewDdl extends StorageViewDdl
             }
             $this->database->statement('CREATE TABLE IF NOT EXISTS `' . $table . '` (' . implode(', ', array_merge($columns, $indexes))
                 . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC');
-        } elseif (!in_array(self::stateRecordIndexName($table), $this->indexes($table), true)) {
-            // A table built before the list read it gains its default-order index in place.
-            $this->database->statement('CREATE INDEX `' . self::stateRecordIndexName($table) . '` ON `' . $table . '` (`state`, `record_id`) ALGORITHM=INPLACE LOCK=NONE');
+        } else {
+            // A table built before an index joined its definition gains it in place.
+            $this->ensureSystemIndexes($table);
         }
         $multi = StorageViewNaming::multiTable($table);
         if (!$this->tableExists($multi)) {
@@ -95,6 +96,20 @@ final class MySqlStorageViewDdl extends StorageViewDdl
         }
         if ($layout->searchTable()) {
             $this->ensureSearchTable($table);
+        }
+    }
+
+    public function ensureSystemIndexes(string $table): void
+    {
+        $this->assertTable($table, StorageViewTableShape::Admin);
+        $indexes = $this->indexes($table);
+        foreach ([
+            self::stateRecordIndexName($table) => '(`state`, `record_id`)',
+            self::stateCreatedIndexName($table) => '(`state`, `created_at`, `record_id`)',
+        ] as $name => $columns) {
+            if (!in_array($name, $indexes, true)) {
+                $this->database->statement('CREATE INDEX `' . $name . '` ON `' . $table . '` ' . $columns . ' ALGORITHM=INPLACE LOCK=NONE');
+            }
         }
     }
 

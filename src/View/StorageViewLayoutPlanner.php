@@ -33,8 +33,10 @@ final readonly class StorageViewLayoutPlanner
     public const SYSTEM_FIELDS = ['larena_scope_ref', 'larena_record_state'];
     public const AUTO_INDEX_KINDS = ['choice', 'record', 'user', 'date', 'datetime', 'number', 'integer', 'boolean'];
     public const MAX_AUTO_INDEXES = 40;
-    // Every field index, automatic or on request. MySQL allows 64 indexes; the primary key,
-    // the (state, updated_at) and (state, record_id) indexes and the FULLTEXT search index take four.
+    // Every field index, automatic or on request. MySQL allows 64 indexes a table; the main table's
+    // system indexes take four (the primary key, (state, updated_at), (state, record_id) and
+    // (state, created_at)), so with 40 field indexes it has 44. The FULLTEXT search index is in the
+    // search table, and a site table's system indexes (primary key, record, published) are three.
     public const MAX_FIELD_INDEXES = StorageViewFieldOptions::MAX_FIELD_INDEXES;
     public const ROW_BYTES_LIMIT = 65535;
     public const STRING_INDEX_MAX_LENGTH = StorageViewColumn::VARCHAR_MAX;

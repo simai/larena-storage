@@ -55,6 +55,13 @@ abstract class StorageViewDdl
 
     abstract public function dropIndex(string $table, string $column): void;
 
+    /**
+     * Adds the admin table's system indexes it lacks (a table built before an index
+     * was added to its definition), in place: on MySQL INPLACE with LOCK=NONE, so
+     * writers are not blocked and the rows are not rewritten. Nothing else changes.
+     */
+    abstract public function ensureSystemIndexes(string $table): void;
+
     abstract public function dropTables(string $table): void;
 
     abstract public function tableExists(string $table): bool;
@@ -122,6 +129,12 @@ abstract class StorageViewDdl
     public static function stateRecordIndexName(string $table): string
     {
         return StorageViewNaming::index($table, 'state_record');
+    }
+
+    /** (state, created_at, record_id): the list by creation time, «newest first» read backwards. */
+    public static function stateCreatedIndexName(string $table): string
+    {
+        return StorageViewNaming::index($table, 'state_created');
     }
 
     /** A site table's (record_id) index: a record's rows in every slot, for a purge. */

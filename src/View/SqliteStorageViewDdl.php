@@ -63,7 +63,7 @@ final class SqliteStorageViewDdl extends StorageViewDdl
             $this->database->statement('CREATE TABLE "' . $table . '" (' . implode(', ', $columns) . ')');
         }
         $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::stateIndexName($table) . '" ON "' . $table . '" ("state", "updated_at", "record_id")');
-        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::stateRecordIndexName($table) . '" ON "' . $table . '" ("state", "record_id")');
+        $this->ensureSystemIndexes($table);
         foreach ($layout->physical() as $column) {
             if ($column->indexed && $column->state !== StorageViewColumn::STATE_DROPPING) {
                 $this->createIndex($table, $column);
@@ -75,6 +75,13 @@ final class SqliteStorageViewDdl extends StorageViewDdl
         if ($layout->searchTable()) {
             $this->ensureSearchTable($table);
         }
+    }
+
+    public function ensureSystemIndexes(string $table): void
+    {
+        $this->assertTable($table, StorageViewTableShape::Admin);
+        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::stateRecordIndexName($table) . '" ON "' . $table . '" ("state", "record_id")');
+        $this->database->statement('CREATE INDEX IF NOT EXISTS "' . self::stateCreatedIndexName($table) . '" ON "' . $table . '" ("state", "created_at", "record_id")');
     }
 
     public function addColumn(string $table, StorageViewColumn $column): void

@@ -70,6 +70,8 @@ final readonly class StorageViewRebuilder
             throw new StorageRejected('storage_view_rebuild_in_transaction');
         }
         [$version, $fields] = $this->currentSchema($database, $schemaId);
+        // A table built before a system index joined its definition gains it in place; a fresh build creates it.
+        $this->views->addMissingIndexes($schemaId);
         // The options the structure declares now; without a structure, the layout's own.
         $options = StorageViewFieldOptions::load($database, $schemaId);
         $runRef = 'storage-view-build-' . bin2hex(random_bytes(12));

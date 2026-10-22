@@ -787,6 +787,26 @@ final class StorageViewSync
         }
     }
 
+    /**
+     * Adds the system indexes a storage's витрина table lacks, in place (online on
+     * MySQL), without rebuilding its rows: the repair of `created_index_missing`.
+     * False when there is nothing to do it on now (no витрина, no table, or DDL
+     * cannot run inside the open transaction).
+     */
+    public function addMissingIndexes(string $schemaId): bool
+    {
+        if (!$this->enabled() || !$this->canRunDdl() || $this->ddl === null) {
+            return false;
+        }
+        $registration = $this->registry->find($schemaId, true);
+        if ($registration === null || !$this->ddl->tableExists($registration->tableName)) {
+            return false;
+        }
+        $this->ddl->ensureSystemIndexes($registration->tableName);
+
+        return true;
+    }
+
     /** Swaps the layout when nobody changed it since it was read. */
     private function replaceLayout(StorageViewRegistration $registration, StorageViewLayout $layout): bool
     {

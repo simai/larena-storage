@@ -28,9 +28,11 @@ use WeakMap;
  *   a витрина holds the records of one scope (its table is named from the scoped
  *   schema id), and the records read for a page are checked against the scope;
  * - sorting is up to three keys and then `record_id` in the direction of the
- *   last key, NULL first ascending; `_record_id` and `_revision` sort by the row's
- *   own columns, and on a site table `_published_at` by when the record was
- *   published in the slot.
+ *   last key, NULL first ascending; `_record_id`, `_revision` and `_created_at`
+ *   (when the record was created; the admin table's (state, created_at, record_id)
+ *   index serves it either way, so «newest first» reads it backwards) sort by the
+ *   row's own columns, and on a site table `_published_at` by when the record was
+ *   published in the slot (a site row has no `created_at`).
  *
  * On MySQL, string equality is exact (binary, as PHP's ===) while the index on
  * the column still narrows the rows; string sorting follows the column's
@@ -48,6 +50,8 @@ final class StorageViewQueryCompiler
     public const SQLITE_LOWER = 'larena_lower';
     /** The sort key of a site list by publication time (the `published_at` column of a site row). */
     public const SORT_PUBLISHED_AT = '_published_at';
+    /** The sort key of an admin list by creation time (the `created_at` column of an admin row). */
+    public const SORT_CREATED_AT = '_created_at';
     private const ESCAPE = '!';
     private const STRING_KINDS = ['string', 'text'];
     private const SCALAR_KINDS = ['string', 'text', 'integer', 'number', 'date', 'datetime', 'boolean', 'choice', 'user', 'file', 'relation', 'record'];
@@ -240,6 +244,14 @@ final class StorageViewQueryCompiler
             $field = $item['field'];
             if ($field === '_record_id' || $field === '_revision') {
                 $sort[] = ['column' => $field === '_record_id' ? 'record_id' : 'revision', 'direction' => $direction];
+                continue;
+            }
+            if ($field === self::SORT_CREATED_AT) {
+                if ($slotId !== null) {
+                    // A site row keeps when its record was published, not when it was created.
+                    return null;
+                }
+                $sort[] = ['column' => 'created_at', 'direction' => $direction];
                 continue;
             }
             if ($field === self::SORT_PUBLISHED_AT) {

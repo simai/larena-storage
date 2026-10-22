@@ -12,6 +12,7 @@ use Larena\Storage\View\Site\PublishedSiteViewRebuilder;
 use Larena\Storage\View\StorageViewChecker;
 use Larena\Storage\View\StorageViewRebuilder;
 use Larena\Storage\View\StorageViewRebuildQueue;
+use Larena\Storage\View\StorageViewShapeVerifier;
 use Larena\Storage\View\StorageViewSync;
 use Throwable;
 
@@ -20,7 +21,8 @@ use Throwable;
  * for the current schema version, the table's shape, one row per record at its
  * current revision and hash), and with --repair rebuilds the ones that do not:
  * inline, or as a `storage.view.rebuild` queue job with --queue. A build under
- * way is resumed, not restarted.
+ * way is resumed, not restarted. A table that only lacks a system index
+ * (`created_index_missing`) gets it in place first, online, and is not rebuilt.
  *
  *   larena:storage:view:check                        every storage
  *   larena:storage:view:check workbench.scope.x.y    one storage
@@ -106,6 +108,15 @@ final class StorageViewCheckCommand extends Command
                     $unhealthy++;
 
                     continue;
+                }
+                if (in_array(StorageViewShapeVerifier::CREATED_INDEX_MISSING, $report['problems'], true) && $views->addMissingIndexes($target)) {
+                    // A missing system index is added in place (online on MySQL); the rows stay.
+                    $after = $checker->check($target);
+                    if ($after['problems'] === []) {
+                        $this->line($summary . ' -> index added in place, ' . $after['records'] . ' records');
+
+                        continue;
+                    }
                 }
                 if ($queue !== null) {
                     $result = $queue->enqueue($target, $chunk);

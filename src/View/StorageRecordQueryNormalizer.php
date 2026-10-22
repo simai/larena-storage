@@ -54,8 +54,12 @@ final readonly class StorageRecordQueryNormalizer
         'record' => ['eq', 'in'],
     ];
     public const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
-    /** The workbench's system sort keys. */
-    public const WORKBENCH_SYSTEM_SORTS = ['_record_id', '_revision'];
+    /**
+     * The workbench's system sort keys: the record id, the revision, and when the
+     * record was created (`_created_at`, the admin's «newest first»). The site list
+     * passes its own (PublishedListQuery::SYSTEM_SORTS).
+     */
+    public const WORKBENCH_SYSTEM_SORTS = ['_record_id', '_revision', StorageViewQueryCompiler::SORT_CREATED_AT];
 
     public function __construct(private PropertyTypeRegistry $propertyTypes)
     {

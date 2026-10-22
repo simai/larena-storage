@@ -55,6 +55,8 @@ function storageViewDdlChecks(Connection $connection, StorageViewDdl $ddl): void
     $indexes = $ddl->indexes($first);
     storageViewExpect(in_array(StorageViewDdl::stateIndexName($first), $indexes, true), 'the (state, updated_at) index is missing');
     storageViewExpect(in_array(StorageViewDdl::stateRecordIndexName($first), $indexes, true), 'the (state, record_id) index is missing');
+    storageViewExpect(in_array(StorageViewDdl::stateCreatedIndexName($first), $indexes, true), 'the (state, created_at, record_id) index is missing');
+    storageViewExpect(StorageViewDdl::stateCreatedIndexName($first) !== StorageViewDdl::stateCreatedIndexName($second), 'created-at index names collide across tables');
     foreach ($layout->physical() as $column) {
         $name = StorageViewDdl::fieldIndexName($first, (string) $column->column);
         storageViewExpect(in_array($name, $indexes, true) === $column->indexed, 'index presence of ' . $column->column . ' is wrong');
@@ -87,6 +89,31 @@ function storageViewDdlChecks(Connection $connection, StorageViewDdl $ddl): void
     storageViewExpect($verifier->problems($first, $layout) === ['index_missing:c2'], 'a missing index was not reported');
     $ddl->materialize($first, $layout);
     storageViewExpect($verifier->matches($first, $layout), 'materialize did not repair the table');
+
+    // A table built before its system indexes: the created-at index is reported, the table
+    // still matches its layout, and the system indexes are added in place, idempotently.
+    $mysql = in_array($connection->getDriverName(), ['mysql', 'mariadb'], true);
+    foreach ([StorageViewDdl::stateCreatedIndexName($first), StorageViewDdl::stateRecordIndexName($first)] as $name) {
+        $connection->statement($mysql ? 'DROP INDEX `' . $name . '` ON `' . $first . '`' : 'DROP INDEX "' . $name . '"');
+    }
+    storageViewExpect($verifier->problems($first, $layout) === [StorageViewShapeVerifier::CREATED_INDEX_MISSING], 'a missing created-at index was not reported: ' . json_encode($verifier->problems($first, $layout)));
+    storageViewExpect($verifier->matches($first, $layout), 'a missing created-at index made the table not match its layout');
+    $ddl->ensureSystemIndexes($first);
+    $ddl->ensureSystemIndexes($first);
+    $indexes = $ddl->indexes($first);
+    storageViewExpect(in_array(StorageViewDdl::stateCreatedIndexName($first), $indexes, true) && in_array(StorageViewDdl::stateRecordIndexName($first), $indexes, true)
+        && $verifier->problems($first, $layout) === [], 'the system indexes were not added in place');
+    storageViewExpect($connection->table($first)->count() === 1, 'adding the system indexes touched the rows');
+    // ensureTable on an existing table adds them as well.
+    $connection->statement($mysql ? 'DROP INDEX `' . StorageViewDdl::stateCreatedIndexName($first) . '` ON `' . $first . '`' : 'DROP INDEX "' . StorageViewDdl::stateCreatedIndexName($first) . '"');
+    $ddl->ensureTable($first, $layout);
+    storageViewExpect($verifier->problems($first, $layout) === [], 'ensureTable did not add the created-at index to an existing table');
+    try {
+        $ddl->ensureSystemIndexes(StorageViewNaming::siteTable('workbench.ddl.first'));
+        throw new RuntimeException('a site table took the admin system indexes');
+    } catch (InvalidArgumentException $exception) {
+        storageViewExpect($exception->getMessage() === 'storage_view_table_invalid', 'a site table was refused the admin system indexes for another reason');
+    }
 
     // Only витрина tables are listed; an underscore in the pattern does not match any character.
     $decoy = 'larenaXstorageXviewX' . str_repeat('b', 24);
@@ -241,9 +268,9 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
 
     storageViewSiteDdlChecks($connection, $ddl);
 
-    // The admin DDL is byte for byte what it was before the site shape: the statements
-    // recorded before the change, without a shape and with the admin shape (MySQL's are
-    // recorded without a server, in pretend mode).
+    // The admin DDL is byte for byte the same without a shape and with the admin shape: the
+    // statements recorded when the (state, created_at, record_id) index joined the table
+    // (MySQL's are recorded without a server, in pretend mode).
     $sqlite = storageViewAdminDdlLog(
         static function (): Connection {
             $golden = new Capsule();
@@ -253,12 +280,12 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         },
         static fn (Connection $connection): StorageViewDdl => new SqliteStorageViewDdl($connection),
     );
-    storageViewExpect($sqlite === array_fill(0, 2, 'c95b5d4e78876e428097dfe50a9469529f72418c6cbfc1b34512e7a960535043'), 'the SQLite admin DDL changed: ' . json_encode($sqlite));
+    storageViewExpect($sqlite === array_fill(0, 2, '3c0935f3062957aa309bea8b8397af45392ba8930273359f695110804ccf25ae'), 'the SQLite admin DDL changed: ' . json_encode($sqlite));
     $mysql = storageViewAdminDdlLog(
         static fn (): Connection => new MySqlConnection(new PDO('sqlite::memory:'), 'golden', '', ['driver' => 'mysql', 'name' => 'mysql']),
         static fn (Connection $connection): StorageViewDdl => new MySqlStorageViewDdl($connection),
     );
-    storageViewExpect($mysql === array_fill(0, 2, 'f8e43ca148d9c7f207e223fb029a28170ea594a3384df81e5528911d05cf362b'), 'the MySQL admin DDL changed: ' . json_encode($mysql));
+    storageViewExpect($mysql === array_fill(0, 2, 'f7c7cd724ca6389fe4819c021fb1426b8dc033e4fa00f84314f4ef13d77039a7'), 'the MySQL admin DDL changed: ' . json_encode($mysql));
 
     echo "StorageViewDdlTest passed.\n";
 }

@@ -8,6 +8,13 @@ namespace Larena\Storage\View;
  * Compares a витрина's tables with its registered layout. The витрина tables are
  * created at runtime, one pair per storage, so the static StorageOwnedTableShapeGuard
  * does not list them; this verifier checks them against their layouts instead.
+ *
+ * Some problems are only a missing system index that the DDL adds in place
+ * (StorageViewDdl::ensureSystemIndexes, online on MySQL) to a table built before the
+ * index joined its definition: ONLINE_PROBLEMS. The table still holds the layout and
+ * is read and written as before (a sort on that index is slower until it is added),
+ * so problems() reports them and matches() does not count them; no write path turns
+ * a витрина pending, and no rebuild drops its rows, for an index alone.
  */
 final readonly class StorageViewShapeVerifier
 {
@@ -16,6 +23,10 @@ final readonly class StorageViewShapeVerifier
         'scope_ref', 'state', 'title', 'search_text',
     ];
     public const MULTI_COLUMNS = ['record_id', 'field_key', 'value'];
+    /** The admin table's (state, created_at, record_id) index is missing. */
+    public const CREATED_INDEX_MISSING = 'created_index_missing';
+    /** Problems the DDL repairs in place, without touching the rows. */
+    public const ONLINE_PROBLEMS = [self::CREATED_INDEX_MISSING];
 
     public function __construct(private StorageViewDdl $ddl)
     {
@@ -51,8 +62,13 @@ final readonly class StorageViewShapeVerifier
             if (!in_array(StorageViewDdl::sitePublishedIndexName($table), $indexes, true)) {
                 $problems[] = 'published_index_missing';
             }
-        } elseif (!in_array(StorageViewDdl::stateIndexName($table), $indexes, true)) {
-            $problems[] = 'state_index_missing';
+        } else {
+            if (!in_array(StorageViewDdl::stateIndexName($table), $indexes, true)) {
+                $problems[] = 'state_index_missing';
+            }
+            if (!in_array(StorageViewDdl::stateCreatedIndexName($table), $indexes, true)) {
+                $problems[] = self::CREATED_INDEX_MISSING;
+            }
         }
         if ($layout->searchTable()) {
             $search = StorageViewNaming::searchTable($table);
@@ -90,8 +106,9 @@ final readonly class StorageViewShapeVerifier
         return $problems;
     }
 
+    /** The tables hold the layout; a missing index the DDL adds in place (ONLINE_PROBLEMS) does not count. */
     public function matches(string $table, StorageViewLayout $layout, bool $includeReserved = true, ?StorageViewTableShape $shape = null): bool
     {
-        return $this->problems($table, $layout, $includeReserved, $shape) === [];
+        return array_diff($this->problems($table, $layout, $includeReserved, $shape), self::ONLINE_PROBLEMS) === [];
     }
 }

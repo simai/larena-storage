@@ -245,3 +245,121 @@ function storageViewParity(Connection $connection, StorageViewSync $views, strin
     ksort($expectedSearch, SORT_STRING);
     storageViewExpect($search === $expectedSearch, $message . ': the search rows are not the search text of the current records');
 }
+
+/**
+ * The admin list by creation time (`_created_at`) on any driver: both directions,
+ * ties broken by the record id in the direction of the key, keyset pages that walk
+ * exactly the whole list, archived rows left out unless asked for; then a table
+ * built before its (state, created_at, record_id) index: the verifier and the
+ * checker report `created_index_missing` (the table still matches its layout and
+ * stays ready), the list still answers, and StorageViewSync::addMissingIndexes and
+ * a rebuild add the index in place, keeping the rows.
+ */
+function storageViewCreatedAtChecks(Connection $connection, StorageViewDdl $ddl, DatabaseStorageWorkbench $workbench, StorageViewSync $views, string $scope, string $actor): void
+{
+    $structure = $workbench->createStructure($scope, ['structure_id' => 'workbench.created', 'label' => 'Created',
+        'fields' => [storageViewField('title', 10, 'string', [], true)]], $actor);
+    $schemaId = $structure->schema->schemaId;
+    $registration = $views->registry()->find($schemaId, true);
+    storageViewExpect($registration !== null && $registration->state === 'ready', 'the created-at storage has no ready витрина');
+    $table = $registration->tableName;
+    storageViewExpect(in_array(StorageViewDdl::stateCreatedIndexName($table), $ddl->indexes($table), true), 'a new витрина has no (state, created_at, record_id) index');
+    // Nine records in three seconds, three to a second (ties), the seconds out of record order; one archived.
+    $createdAt = ['2026-10-02 10:00:00', '2026-10-01 10:00:00', '2026-10-03 10:00:00'];
+    $records = [];
+    for ($index = 0; $index < 9; $index++) {
+        $record = $workbench->createRecord($scope, $structure->structureId, ['title' => 'Item ' . $index], $actor);
+        $records[$record->recordId] = $createdAt[$index % 3];
+    }
+    foreach ($records as $recordId => $at) {
+        $connection->table('larena_storage_records')->where('schema_id', $schemaId)->where('record_id', $recordId)->update(['created_at' => $at]);
+        $connection->table($table)->where('record_id', $recordId)->update(['created_at' => $at]);
+    }
+    $archived = array_keys($records)[4];
+    $head = $workbench->readRecord($scope, $structure->structureId, $archived, $actor);
+    $workbench->archiveRecord($scope, $structure->structureId, $archived, $head->revision, $actor);
+    storageViewParity($connection, $views, $schemaId, 'created-at seeded');
+
+    $expected = static function (string $direction, bool $includeArchived) use (&$records, $archived): array {
+        $ids = array_keys($records);
+        if (!$includeArchived) {
+            $ids = array_values(array_filter($ids, static fn (string $id): bool => $id !== $archived));
+        }
+        usort($ids, static function (string $left, string $right) use ($records, $direction): int {
+            $comparison = strcmp($records[$left], $records[$right]) ?: strcmp($left, $right);
+
+            return $direction === 'desc' ? -$comparison : $comparison;
+        });
+
+        return $ids;
+    };
+    $walk = static function (string $direction, bool $includeArchived, int $limit) use ($workbench, $scope, $structure, $actor): array {
+        $sort = [['field' => '_created_at', 'direction' => $direction]];
+        $walked = [];
+        $continuation = null;
+        $pages = 0;
+        do {
+            $page = $workbench->listRecords(new Larena\Storage\Contracts\StorageWorkbenchRecordQuery($scope, $structure->structureId, sort: $sort, limit: $limit,
+                continuation: $continuation, includeArchived: $includeArchived), $actor);
+            foreach ($page->items as $item) {
+                $walked[] = $item->recordId;
+            }
+            if ($page->continuation !== null) {
+                $payload = json_decode((string) base64_decode(strtr($page->continuation, '-_', '+/'), false), true);
+                storageViewExpect(is_array($payload) && $payload['version'] === 2 && is_string($payload['after'][0] ?? null), 'a created-at page did not continue by keyset');
+            }
+            $continuation = $page->continuation;
+        } while ($continuation !== null && ++$pages < 20);
+
+        return $walked;
+    };
+    $check = static function (string $label) use ($walk, $expected): void {
+        foreach (['asc', 'desc'] as $direction) {
+            foreach ([false, true] as $includeArchived) {
+                foreach ([2, 3, 100] as $limit) {
+                    $walked = $walk($direction, $includeArchived, $limit);
+                    storageViewExpect($walked === $expected($direction, $includeArchived),
+                        $label . ': the created-at list ' . $direction . ($includeArchived ? ' with archived' : '') . ' by ' . $limit . ' is ' . json_encode($walked));
+                }
+            }
+        }
+    };
+    $check('created-at');
+    // With another key first, `_created_at` is a later key like any other.
+    $two = $workbench->listRecords(new Larena\Storage\Contracts\StorageWorkbenchRecordQuery($scope, $structure->structureId,
+        sort: [['field' => '_created_at', 'direction' => 'desc'], ['field' => '_record_id', 'direction' => 'asc']], limit: 100), $actor);
+    $twoExpected = $expected('desc', false);
+    usort($twoExpected, static fn (string $left, string $right): int => strcmp($records[$right], $records[$left]) ?: strcmp($left, $right));
+    storageViewExpect(array_map(static fn ($item): string => $item->recordId, $two->items) === $twoExpected, 'a created-at sort with a second key is wrong');
+
+    // A table built before the index: reported, still read and written, and the index is added in place.
+    $index = StorageViewDdl::stateCreatedIndexName($table);
+    $dropIndex = static function () use ($connection, $index, $table): void {
+        $connection->statement(in_array($connection->getDriverName(), ['mysql', 'mariadb'], true)
+            ? 'DROP INDEX `' . $index . '` ON `' . $table . '`'
+            : 'DROP INDEX "' . $index . '"');
+    };
+    $dropIndex();
+    $layout = $views->registry()->find($schemaId, true)?->layout;
+    storageViewExpect($layout !== null, 'the created-at витрина lost its registration');
+    $verifier = new Larena\Storage\View\StorageViewShapeVerifier($ddl);
+    storageViewExpect($verifier->problems($table, $layout) === [Larena\Storage\View\StorageViewShapeVerifier::CREATED_INDEX_MISSING],
+        'the missing created-at index was not reported: ' . json_encode($verifier->problems($table, $layout)));
+    storageViewExpect($verifier->matches($table, $layout), 'a missing created-at index made the table not match its layout');
+    $checker = new Larena\Storage\View\StorageViewChecker($views);
+    storageViewExpect($checker->check($schemaId)['problems'] === ['created_index_missing'], 'the checker did not report the missing created-at index: ' . json_encode($checker->check($schemaId)));
+    $written = $workbench->createRecord($scope, $structure->structureId, ['title' => 'Written meanwhile'], $actor);
+    storageViewExpect($views->registry()->find($schemaId, true)?->state === 'ready', 'a write without the created-at index turned the витрина pending');
+    $records[$written->recordId] = (string) $connection->table('larena_storage_records')->where('record_id', $written->recordId)->value('created_at');
+    $check('created-at without its index');
+    $rows = $connection->table($table)->orderBy('record_id')->get()->map(static fn ($row): array => (array) $row)->all();
+    storageViewExpect($views->addMissingIndexes($schemaId), 'the missing indexes were not added');
+    storageViewExpect(in_array($index, $ddl->indexes($table), true) && $checker->check($schemaId)['problems'] === [], 'addMissingIndexes did not add the created-at index');
+    storageViewExpect($connection->table($table)->orderBy('record_id')->get()->map(static fn ($row): array => (array) $row)->all() === $rows, 'adding the index changed the rows');
+    // A rebuild adds it as well, before it walks the records.
+    $dropIndex();
+    (new Larena\Storage\View\StorageViewRebuilder($views))->rebuild($schemaId);
+    storageViewExpect(in_array($index, $ddl->indexes($table), true) && $checker->check($schemaId)['problems'] === [], 'a rebuild did not add the created-at index');
+    storageViewParity($connection, $views, $schemaId, 'created-at rebuilt');
+    $check('created-at rebuilt');
+}

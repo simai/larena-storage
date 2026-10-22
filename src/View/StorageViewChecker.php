@@ -18,7 +18,9 @@ use stdClass;
  * `view_building`, `view_failed`, `schema_version_behind`, `backfill_pending`
  * (rows still lack a column or their search text after a change of field
  * options, or the layout predates the declared options), `table_missing`,
- * `shape_mismatch`, `rows_missing`, `rows_extra`, `rows_stale`.
+ * `shape_mismatch`, `created_index_missing` (a table built before its (state,
+ * created_at, record_id) index: added in place by StorageViewSync::addMissingIndexes,
+ * the rows are not rebuilt), `rows_missing`, `rows_extra`, `rows_stale`.
  */
 final readonly class StorageViewChecker
 {
@@ -73,8 +75,12 @@ final readonly class StorageViewChecker
 
             return $report;
         }
-        if (!(new StorageViewShapeVerifier($ddl))->matches($table, $registration->layout)) {
+        $shape = (new StorageViewShapeVerifier($ddl))->problems($table, $registration->layout);
+        if (array_diff($shape, StorageViewShapeVerifier::ONLINE_PROBLEMS) !== []) {
             $report['problems'][] = 'shape_mismatch';
+        }
+        foreach (array_intersect(StorageViewShapeVerifier::ONLINE_PROBLEMS, $shape) as $online) {
+            $report['problems'][] = $online;
         }
         $report['rows'] = $database->table($table)->count();
         $report['missing'] = $database->table('larena_storage_records as heads')

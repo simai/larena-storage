@@ -53,8 +53,10 @@ final class StorageReferenceList
         $normalized = $this->queryNormalizer->normalize($fields, $query->filters, $query->search, $query->sort, $query->includeArchived);
         $searchable = StorageViewFieldOptions::resolve($structure->fields)->searchable;
         $matched = [];
+        $createdAt = [];
         foreach ($this->connection->table('larena_storage_records')->where('schema_id', $structure->schema->schemaId)
-            ->orderBy('record_id')->get(['record_id', 'current_revision']) as $head) {
+            ->orderBy('record_id')->get(['record_id', 'current_revision', 'created_at']) as $head) {
+            $createdAt[(string) $head->record_id] = (string) $head->created_at;
             $key = $head->record_id . '@' . $head->current_revision;
             if (!isset($this->records[$key])) {
                 try {
@@ -72,12 +74,13 @@ final class StorageReferenceList
             $matched[] = $record;
         }
         $sort = $normalized['sort'];
-        usort($matched, static function (StorageWorkbenchRecord $left, StorageWorkbenchRecord $right) use ($sort, $types): int {
+        usort($matched, static function (StorageWorkbenchRecord $left, StorageWorkbenchRecord $right) use ($sort, $types, $createdAt): int {
             foreach ($sort as $item) {
                 $field = $item['field'];
                 $value = static fn (StorageWorkbenchRecord $record): mixed => match ($field) {
                     '_record_id' => $record->recordId,
                     '_revision' => $record->revision,
+                    '_created_at' => $createdAt[$record->recordId],
                     default => $record->values[$field] ?? null,
                 };
                 $comparison = StorageRecordQueryMatcher::compareValues($value($left), $value($right), $types[$field] ?? null);

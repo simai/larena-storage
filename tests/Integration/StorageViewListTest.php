@@ -31,12 +31,13 @@ require_once __DIR__ . '/../Support/storage-reference-list.php';
 // Lists read from the витрина in SQL, on SQLite:
 // - parity with the reference list (every current record read and matched in PHP)
 //   on the same data: every filter operator of every field type, search, sorts
-//   (NULLs, three keys, record id, revision), archived;
+//   (NULLs, three keys, record id, revision, creation time), archived;
 // - keyset continuation across pages, page numbers, the earlier offset
 //   continuation, refused tampered or foreign continuations;
 // - counts: exact, an estimate above the threshold, Exact on request, Skip;
 // - incoming references answered from the витрина;
-// - a storage of 6000 records lists, filters, sorts and pages.
+// - a storage of 6000 records lists, filters, sorts and pages;
+// - the list by creation time with ties, and its index added to an older table.
 
 /** @return array{connection: Connection, path: string} */
 function storageViewListOpen(): array
@@ -268,7 +269,7 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     $both(['qty' => ['operator' => 'gte', 'value' => 0]], 'a', [['field' => 'price', 'direction' => 'desc']]);
 
     // Sorting: every sortable field both ways (NULL first ascending), three keys, record id and revision.
-    foreach (['title', 'label', 'body', 'qty', 'price', 'day', 'starts_at', 'active', 'status', 'owner', 'document', 'section', '_record_id', '_revision'] as $key) {
+    foreach (['title', 'label', 'body', 'qty', 'price', 'day', 'starts_at', 'active', 'status', 'owner', 'document', 'section', '_record_id', '_revision', '_created_at'] as $key) {
         foreach (['asc', 'desc'] as $direction) {
             $both([], null, [['field' => $key, 'direction' => $direction]]);
             $both([], null, [['field' => $key, 'direction' => $direction]], true);
@@ -276,6 +277,7 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
     }
     $both([], null, [['field' => 'status', 'direction' => 'asc'], ['field' => 'active', 'direction' => 'desc'], ['field' => 'qty', 'direction' => 'asc']], true);
     $both([], null, [['field' => 'label', 'direction' => 'desc'], ['field' => '_revision', 'direction' => 'desc']]);
+    $both([], null, [['field' => '_created_at', 'direction' => 'desc'], ['field' => 'qty', 'direction' => 'asc']], true);
 
     // Keyset continuation: page after page equals the whole list, also through NULL keys.
     foreach ([
@@ -283,6 +285,7 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
         [['field' => 'label', 'direction' => 'asc']],
         [['field' => 'label', 'direction' => 'desc'], ['field' => 'qty', 'direction' => 'asc']],
         [['field' => 'status', 'direction' => 'desc'], ['field' => 'price', 'direction' => 'desc'], ['field' => 'day', 'direction' => 'asc']],
+        [['field' => '_created_at', 'direction' => 'desc']],
     ] as $sort) {
         $whole = $ids($sql->listRecords(new StorageWorkbenchRecordQuery($scope, $items->structureId, sort: $sort, limit: 100, includeArchived: true), $actor));
         $walked = [];
@@ -471,6 +474,8 @@ function storageViewListScenario(Connection $connection, StorageViewDdl $ddl, bo
         $continuation = $page->continuation;
     } while ($continuation !== null && ++$pages < 100);
     storageViewExpect(count($seen) === 6000 && $continuation === null, 'keyset pages did not walk 6000 records');
+
+    storageViewCreatedAtChecks($connection, $ddl, $sql, $views, $scope, $actor);
 }
 
 $opened = storageViewListOpen();

@@ -21,9 +21,9 @@ require_once __DIR__ . '/../Support/storage-view-queue-fixture.php';
 
 // larena:storage:view:check on SQLite: a витрина in step with the versions is ok;
 // missing, extra and stale rows, a missing or not ready registration and a
-// storage that is gone are reported; --repair rebuilds inline what differs (a
-// storage that is gone is only reported), and --repair --queue enqueues the
-// storage.view.rebuild job the worker then runs.
+// storage that is gone are reported; --repair adds a missing system index in
+// place, rebuilds inline what differs (a storage that is gone is only reported),
+// and --repair --queue enqueues the storage.view.rebuild job the worker then runs.
 
 $actor = 'actor:admin:alpha';
 $scope = 'scope:tenant-alpha';
@@ -77,6 +77,19 @@ try {
     storageViewExpect($report['problems'] === [] && $report['records'] === 5 && $report['rows'] === 5, 'a витрина in step was reported: ' . json_encode($report));
     $run = storageViewCheckRun($container, []);
     storageViewExpect($run['status'] === 0 && str_contains($run['output'], $schemaId . ': ok, 5 records'), 'the check of a витрина in step failed: ' . $run['output']);
+
+    // A table built before its (state, created_at, record_id) index: reported, and --repair adds
+    // the index in place without rebuilding (the registration and the rows stay as they were).
+    $connection->statement('DROP INDEX "' . Larena\Storage\View\StorageViewDdl::stateCreatedIndexName($table) . '"');
+    storageViewExpect($checker->check($schemaId)['problems'] === ['created_index_missing'], 'a missing created-at index was not reported: ' . json_encode($checker->check($schemaId)));
+    $run = storageViewCheckRun($container, []);
+    storageViewExpect($run['status'] === 1 && str_contains($run['output'], $schemaId . ': created_index_missing'), 'the check did not fail on a missing index: ' . $run['output']);
+    $before = [$connection->table('larena_storage_views')->where('schema_id', $schemaId)->first(), $connection->table($table)->orderBy('record_id')->get()->all()];
+    $run = storageViewCheckRun($container, ['schema' => $schemaId, '--repair' => true]);
+    storageViewExpect($run['status'] === 0 && str_contains($run['output'], '-> index added in place, 5 records'), 'the repair did not add the index in place: ' . $run['output']);
+    storageViewExpect([$connection->table('larena_storage_views')->where('schema_id', $schemaId)->first(), $connection->table($table)->orderBy('record_id')->get()->all()] == $before,
+        'adding the index in place rebuilt the витрина');
+    storageViewExpect($checker->check($schemaId)['problems'] === [], 'the index added in place left a problem');
 
     // Drift: a row gone, a row that is no record, a row at an older revision.
     $connection->table($table)->where('record_id', $records[0]->recordId)->delete();

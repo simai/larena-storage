@@ -21,7 +21,9 @@ require_once __DIR__ . '/StorageViewDdlTest.php';
 // The витрина on a throwaway MySQL database (opt-in): the DDL (INSTANT/INPLACE
 // column changes, INPLACE indexes), the workbench write path with field changes
 // whose DDL runs outside the transaction, the pending path inside an outer
-// transaction, and two writers to one storage that no longer wait for each other.
+// transaction, two writers to one storage that no longer wait for each other, and
+// the list by creation time with its (state, created_at, record_id) index added
+// in place to a table built without it.
 
 $optIn = getenv('LARENA_STORAGE_VIEW_MYSQL_TEST');
 if (!is_string($optIn) || !filter_var($optIn, FILTER_VALIDATE_BOOL)) {
@@ -43,6 +45,7 @@ try {
     $workbench = $runtime['workbench'];
     $views = $runtime['views'];
     $verifier = new StorageViewShapeVerifier($ddl);
+    storageViewCreatedAtChecks($connection, $ddl, $workbench, $views, $scope, $actor);
     $fields = [
         storageViewField('title', 10, 'string', ['max_length' => 200], true),
         storageViewField('qty', 20, 'integer'),
