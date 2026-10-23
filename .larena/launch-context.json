@@ -214,7 +214,13 @@
     "tests/Integration/StorageFieldEncryptionRunTest.php",
     "tests/Integration/StorageFieldEncryptionRunMySqlTest.php",
     "tests/Support/storage-encryption-run-fixture.php",
-    "tests/Unit/StoragePropertyDeclarationTest.php"
+    "tests/Unit/StoragePropertyDeclarationTest.php",
+    "src/Contracts/StorageWorkbenchFieldChangeCheck.php",
+    "src/Runtime/StorageStructureOptionSource.php",
+    "tests/Integration/StorageLookupFieldTest.php",
+    "src/View/StorageViewLayoutPlanner.php",
+    "src/View/StorageRecordQueryNormalizer.php",
+    "src/View/StorageViewQueryCompiler.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

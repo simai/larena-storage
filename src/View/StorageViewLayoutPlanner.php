@@ -61,6 +61,9 @@ final readonly class StorageViewLayoutPlanner
         StorageViewColumn::STATE_ADDING => 2,
     ];
 
+    /** The column length of a lookup value (Property: PropertyOptionSourceRegistry::VALUE_PATTERN). */
+    public const LOOKUP_LENGTH = 128;
+
     /** Whether a field of this type gets an index without being asked (Property: auto_indexed). */
     public static function autoIndexed(string $kind): bool
     {
@@ -311,6 +314,8 @@ final readonly class StorageViewLayoutPlanner
                 ? StorageViewColumn::varchar($length)
                 : StorageViewColumn::SQL_TEXT,
             'choices' => StorageViewColumn::SQL_SIDE,
+            // A value of an option source: an identifier of at most 128 characters (Property's lookup), indexed.
+            'lookup' => StorageViewColumn::varchar(self::LOOKUP_LENGTH),
             default => StorageViewColumn::SQL_TEXT,
         };
     }

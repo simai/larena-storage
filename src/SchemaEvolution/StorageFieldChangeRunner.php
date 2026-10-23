@@ -422,6 +422,70 @@ final readonly class StorageFieldChangeRunner
             ]);
     }
 
+    /**
+     * Checks, without writing and without locks, how many current records of a schema would not convert to the
+     * target fields: up to $limit records in record id order, and up to five ids of those that would not.
+     *
+     * @param array{owner_package: string, fields: list<array<string, mixed>>} $target
+     * @return array{checked: int, invalid: int, complete: bool, samples: list<string>}
+     */
+    public function preview(string $schemaId, int $sourceVersion, array $target, int $limit): array
+    {
+        $source = $this->converter->fieldsOf($schemaId, $sourceVersion);
+        $byKey = StorageRecordConverter::byKey($target['fields']);
+        $schema = new StorageSchemaVersion(
+            new StorageSchemaVersionRef($schemaId, $sourceVersion + 1),
+            $target['owner_package'],
+            $target['fields'],
+            str_repeat('0', 64),
+            'storage-field-change-check',
+            null,
+            self::now(),
+        );
+        $limit = max(1, $limit);
+        $checked = 0;
+        $invalid = 0;
+        $samples = [];
+        $after = null;
+        $chunk = min(self::DEFAULT_CHUNK, $limit);
+        while ($checked < $limit) {
+            $query = $this->database->table('larena_storage_records as heads')
+                ->join('larena_storage_record_versions as versions', static function ($join): void {
+                    $join->on('versions.schema_id', '=', 'heads.schema_id')
+                        ->on('versions.record_id', '=', 'heads.record_id')
+                        ->on('versions.revision', '=', 'heads.current_revision');
+                })
+                ->where('heads.schema_id', $schemaId)
+                ->orderBy('heads.record_id')
+                ->limit(min($chunk, $limit - $checked))
+                ->select(['heads.record_id', 'versions.schema_version', 'versions.values_json']);
+            if ($after !== null) {
+                $query->where('heads.record_id', '>', $after);
+            }
+            $rows = $query->get()->all();
+            foreach ($rows as $row) {
+                $checked++;
+                $after = (string) $row->record_id;
+                try {
+                    $values = $this->converter->convert($schemaId, (int) $row->schema_version, $sourceVersion, self::decode((string) $row->values_json));
+                    $this->normalizer->normalizeValues($schema, $this->converter->step($values, $source, $byKey, true), true);
+                } catch (StorageRejected) {
+                    $invalid++;
+                    if (count($samples) < 5) {
+                        $samples[] = (string) $row->record_id;
+                    }
+                }
+            }
+            if (count($rows) < $chunk) {
+                return ['checked' => $checked, 'invalid' => $invalid, 'complete' => true, 'samples' => $samples];
+            }
+        }
+        $more = $this->database->table('larena_storage_records')->where('schema_id', $schemaId)
+            ->where('record_id', '>', (string) $after)->exists();
+
+        return ['checked' => $checked, 'invalid' => $invalid, 'complete' => !$more, 'samples' => $samples];
+    }
+
     public static function now(): string
     {
         return gmdate('Y-m-d H:i:s');

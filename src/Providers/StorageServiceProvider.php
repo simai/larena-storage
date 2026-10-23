@@ -50,6 +50,8 @@ use Larena\Access\ValueObjects\AccessOperationDescriptor;
 use Larena\Core\Contracts\ScopeRefResolver;
 use Larena\Core\Registry\DeclaredOperationRegistry;
 use Larena\Property\Contracts\PropertyTypeRegistry;
+use Larena\Property\Runtime\PropertyOptionSourceRegistry;
+use Larena\Storage\Runtime\StorageStructureOptionSource;
 use Larena\Storage\Contracts\StorageSchemaEvolution as StorageSchemaEvolutionContract;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
@@ -469,6 +471,16 @@ final class StorageServiceProvider extends ServiceProvider
         ));
         $this->app->afterResolving(JobTypeRegistry::class, static function (JobTypeRegistry $registry, Application $app): void {
             self::registerQueueJobs($registry, $app);
+        });
+        // «Выбор из справочника» over storages (Property's option source storage.structures): what a «Storage record»
+        // field points to, listed per scope as the person sees it.
+        $this->callAfterResolving(PropertyOptionSourceRegistry::class, static function (PropertyOptionSourceRegistry $sources, Application $app): void {
+            if (!$sources->has(StorageStructureOptionSource::KEY)) {
+                $sources->register(StorageStructureOptionSource::KEY, static fn (): StorageStructureOptionSource => new StorageStructureOptionSource(
+                    $app->make(DatabaseManager::class)->connection(),
+                    $app->make(StorageWorkbenchContract::class),
+                ));
+            }
         });
         $this->app->singleton(VersionedStorage::class, static function (Application $app): VersionedStorage {
             /** @var DatabaseManager $database */

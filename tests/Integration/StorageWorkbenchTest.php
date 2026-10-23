@@ -134,6 +134,7 @@ function workbenchInstall(): void
 
 /**
  * @param Closure(string): void|null $viewBuilds Receives the storages whose витрина rebuild the workbench queues.
+ * @param PropertyTypeRegistry|null $properties The Property registry (with option sources); the built-ins by default.
  * @return array{workbench: DatabaseStorageWorkbench, authorizer: WorkbenchAuthorizer, sink: WorkbenchAuditSink, views: StorageViewSync}
  */
 function workbenchRuntime(
@@ -141,10 +142,11 @@ function workbenchRuntime(
     ?WorkbenchScopeProvider $scope = null,
     int $inlineViewBuildLimit = DatabaseStorageWorkbench::INLINE_VIEW_BUILD_LIMIT,
     ?Closure $viewBuilds = null,
+    ?PropertyTypeRegistry $properties = null,
 ): array {
     $authorizer = new WorkbenchAuthorizer();
     $sink = new WorkbenchAuditSink();
-    $properties = PropertyTypeRegistry::builtIns();
+    $properties ??= PropertyTypeRegistry::builtIns();
     $audit = new AuditEventPipeline(new DefaultAuditRedactor(), [$sink]);
     $scope ??= new WorkbenchScopeProvider([
         'actor:admin:alpha' => 'scope:tenant-alpha',

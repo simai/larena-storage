@@ -60,7 +60,7 @@ final readonly class OptionalFieldCompatibilityAnalyzer
             }
             // Records written before the field have no value for it, so only a constraint that
             // never applies to an absent value is accepted: the target of a record@1 reference, the
-            // options of a choice field and how many of them several choices may hold.
+            // options of a choice field and how many of them several choices may hold, the source of a lookup.
             $constraints = $field['constraints'] ?? [];
             $constraintKeys = is_array($constraints) ? array_keys($constraints) : null;
             if ($constraintKeys !== null) {
@@ -70,6 +70,8 @@ final readonly class OptionalFieldCompatibilityAnalyzer
                 'record' => [['target_structure_id']],
                 'choice' => [['options']],
                 'choices' => [['options'], ['max_items', 'options']],
+                // The source of a lookup field names where its values come from.
+                'lookup' => [['source']],
                 default => [],
             };
             if ($constraints !== [] && !in_array($constraintKeys, $allowedKeys, true)) {

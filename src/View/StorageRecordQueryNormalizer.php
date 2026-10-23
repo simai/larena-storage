@@ -52,6 +52,7 @@ final readonly class StorageRecordQueryNormalizer
         'file' => ['eq', 'in'],
         'relation' => ['eq', 'in'],
         'record' => ['eq', 'in'],
+        'lookup' => ['eq', 'in'],
     ];
     public const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
     /**

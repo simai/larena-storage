@@ -25,6 +25,7 @@ use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChange;
+use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
 use Larena\Storage\Contracts\StorageWorkbenchPurgeReceipt;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
 use Larena\Storage\Contracts\StorageWorkbenchRecordPage;
@@ -64,7 +65,7 @@ use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
-final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption
+final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck
 {
     private const STRUCTURE_RESOURCE = 'storage.workbench.structure';
     private const RECORD_RESOURCE = 'storage.workbench.record';
@@ -461,6 +462,46 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
 
         return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), true, $confirmed);
+    }
+
+    /**
+     * What a change would do to the stored records, before it is confirmed: the fields every record must pass (the
+     * same rule migrateStructure follows: a retype, a field made required, settings Property says act on data), and
+     * how many of the current records would not take them. Read only; the change checks every record again.
+     */
+    public function checkFieldChange(string $scopeRef, string $structureId, array $descriptor, string $actor, int $limit = StorageWorkbenchFieldChangeCheck::DEFAULT_LIMIT): array
+    {
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.structure.migrate', $scopeRef, self::STRUCTURE_RESOURCE);
+        self::takeDisableConfirmation($descriptor);
+        $normalized = $this->normalizeDescriptor($descriptor);
+        if ($normalized['structure_id'] !== $structureId) {
+            throw new StorageRejected('storage_workbench_structure_identity_changed');
+        }
+        try {
+            $head = $this->structureHead($scopeRef, $structureId, null);
+            if ($this->headArchivedAt($head) !== null) {
+                throw new StorageRejected('storage_workbench_structure_archived');
+            }
+            $current = $this->hydrateStructureVersion($head);
+            $this->assertNoFieldChange($current->schema->schemaId);
+            $currentSchema = $this->storage->schemaVersion($current->schema, false);
+            $candidateDefinition = $this->schemaDefinition($current->schema->schemaId, $normalized['fields']);
+            $checked = $this->checkedFields($currentSchema, $candidateDefinition);
+            $total = $this->database->table('larena_storage_records')->where('schema_id', $current->schema->schemaId)->count();
+            if ($checked === []) {
+                return ['data_changing' => false, 'fields' => [], 'total' => $total, 'checked' => 0, 'invalid' => 0, 'complete' => true, 'samples' => []];
+            }
+            $runner = new StorageFieldChangeRunner($this->database, $this->normalizer, $this->fieldChanges, $this->views, $this->converter);
+            $preview = $runner->preview($current->schema->schemaId, $currentSchema->ref->version,
+                ['owner_package' => (string) $candidateDefinition['owner_package'], 'fields' => array_values($candidateDefinition['fields'])], $limit);
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+
+        return ['data_changing' => true, 'fields' => $checked, 'total' => $total] + $preview;
     }
 
     /**
