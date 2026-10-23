@@ -688,6 +688,8 @@ final class StorageServiceProvider extends ServiceProvider
         // Platform schema that is not part of the guarded installer bootstrap
         // lives in its own registered path, exactly as larena/core does.
         $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/platform');
+        // The names of Storage's access operations (larena-storage::operations.*), as a role's rights list shows them.
+        $this->loadTranslationsFrom(__DIR__ . '/../../resources/lang', 'larena-storage');
 
         if ($this->app->bound(AccessOperationRegistry::class)) {
             self::registerAccessOperations($this->app->make(AccessOperationRegistry::class));

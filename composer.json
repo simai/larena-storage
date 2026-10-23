@@ -166,6 +166,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StarterStructureRolesIdempotencyTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureRoleLifecycleTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageOperationDeclarationTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageAccessOperationLabelsTest.php",
             "php tests/Integration/RecordOperationExecutionTest.php",
             "php tests/Unit/MariaDbDriverDetectionTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RecordRelationsTest.php",

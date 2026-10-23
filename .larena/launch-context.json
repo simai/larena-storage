@@ -220,7 +220,8 @@
     "tests/Integration/StorageLookupFieldTest.php",
     "src/View/StorageViewLayoutPlanner.php",
     "src/View/StorageRecordQueryNormalizer.php",
-    "src/View/StorageViewQueryCompiler.php"
+    "src/View/StorageViewQueryCompiler.php",
+    "tests/Unit/StorageAccessOperationLabelsTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
