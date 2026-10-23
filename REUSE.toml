@@ -1,0 +1,10 @@
+version = 1
+SPDX-PackageName = "Larena Storage"
+SPDX-PackageSupplier = "Rim Zabarov <rim@zabarov.com>"
+SPDX-PackageDownloadLocation = "https://github.com/simai/larena-storage"
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Rim Zabarov"
+SPDX-License-Identifier = "Apache-2.0"

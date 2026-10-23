@@ -1,0 +1,17 @@
+Larena Storage
+Author: Rim Zabarov (Рим Забаров)
+Copyright 2026 Rim Zabarov
+
+This package is part of the open core of Larena and is licensed under the
+Apache License, Version 2.0 (LICENSE).
+The open-core licence does not cover Larena's paid packages, which carry
+their own licence (SIMAI Commercial or SIMAI Proprietary), nor the SIMAI Pro
+components bundled inside Larena; their use inside Larena is covered by
+Larena's licence.
+
+"SIMAI" is a trademark of its owner; no right to use it is granted.
+
+Distributed and supported under licence by ООО «Симай».
+
+Third-party dependencies installed by Composer are not part of this
+repository and keep their own licences.

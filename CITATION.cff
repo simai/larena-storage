@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you refer to Larena Storage, please cite it as below."
+title: "Larena Storage"
+abstract: "Larena Storage: Universal dynamic data storage layer for typed schemas, records, lists, query boundaries, persistence profiles, validation pipelines and portable SitePack-compatible data models."
+type: software
+authors:
+  - family-names: "Zabarov"
+    given-names: "Rim"
+    email: "rim@zabarov.com"
+license: Apache-2.0
+repository-code: "https://github.com/simai/larena-storage"

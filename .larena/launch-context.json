@@ -221,7 +221,12 @@
     "src/View/StorageViewLayoutPlanner.php",
     "src/View/StorageRecordQueryNormalizer.php",
     "src/View/StorageViewQueryCompiler.php",
-    "tests/Unit/StorageAccessOperationLabelsTest.php"
+    "tests/Unit/StorageAccessOperationLabelsTest.php",
+    "LICENSE",
+    "NOTICE",
+    "AUTHORS",
+    "CITATION.cff",
+    "REUSE.toml"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
