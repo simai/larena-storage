@@ -72,6 +72,8 @@ final readonly class OptionalFieldCompatibilityAnalyzer
                 'choices' => [['options'], ['max_items', 'options']],
                 // The source of a lookup field names where its values come from.
                 'lookup' => [['source']],
+                // How a phone typed without «+» is read; it never applies to an absent value.
+                'phone' => [['default_country']],
                 default => [],
             };
             if ($constraints !== [] && !in_array($constraintKeys, $allowedKeys, true)) {

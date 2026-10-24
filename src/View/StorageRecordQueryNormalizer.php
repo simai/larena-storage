@@ -53,6 +53,9 @@ final readonly class StorageRecordQueryNormalizer
         'relation' => ['eq', 'in'],
         'record' => ['eq', 'in'],
         'lookup' => ['eq', 'in'],
+        'color' => ['eq', 'in'],
+        'phone' => ['eq', 'in'],
+        'url' => ['eq', 'in'],
     ];
     public const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
     /**
@@ -160,7 +163,8 @@ final readonly class StorageRecordQueryNormalizer
             throw new StorageRejected('storage_workbench_record_filter_invalid');
         }
         $type = (string) ($definition['type'] ?? '');
-        $allowed = self::FILTER_OPERATORS_BY_TYPE[$type] ?? ['eq'];
+        // A type Property does not filter (a link) takes no operator.
+        $allowed = self::FILTER_OPERATORS_BY_TYPE[$type] ?? [];
         if (!in_array($operator, self::FILTER_OPERATORS, true) || !in_array($operator, $allowed, true)) {
             throw new StorageRejected('storage_query_filter_operator_unsupported');
         }

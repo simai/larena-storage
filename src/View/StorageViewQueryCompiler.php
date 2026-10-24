@@ -54,7 +54,7 @@ final class StorageViewQueryCompiler
     public const SORT_CREATED_AT = '_created_at';
     private const ESCAPE = '!';
     private const STRING_KINDS = ['string', 'text'];
-    private const SCALAR_KINDS = ['string', 'text', 'integer', 'number', 'date', 'datetime', 'boolean', 'choice', 'user', 'file', 'relation', 'record', 'lookup'];
+    private const SCALAR_KINDS = ['string', 'text', 'integer', 'number', 'date', 'datetime', 'boolean', 'choice', 'user', 'file', 'relation', 'record', 'lookup', 'color', 'phone', 'url'];
     private const STATE_ACTIVE = 'active';
 
     /** @var WeakMap<PDO, true> SQLite connections that have the lowercase function. */

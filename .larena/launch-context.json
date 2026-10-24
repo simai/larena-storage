@@ -218,6 +218,7 @@
     "src/Contracts/StorageWorkbenchFieldChangeCheck.php",
     "src/Runtime/StorageStructureOptionSource.php",
     "tests/Integration/StorageLookupFieldTest.php",
+    "tests/Integration/StorageCommonTypesFieldTest.php",
     "src/View/StorageViewLayoutPlanner.php",
     "src/View/StorageRecordQueryNormalizer.php",
     "src/View/StorageViewQueryCompiler.php",

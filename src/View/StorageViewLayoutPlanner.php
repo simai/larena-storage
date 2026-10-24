@@ -64,6 +64,12 @@ final readonly class StorageViewLayoutPlanner
     /** The column length of a lookup value (Property: PropertyOptionSourceRegistry::VALUE_PATTERN). */
     public const LOOKUP_LENGTH = 128;
 
+    /** The column length of a colour: #RRGGBBAA (Property color@1). */
+    public const COLOR_LENGTH = 9;
+
+    /** The column length of a phone: «+», 15 digits, «;ext=» and 10 digits (Property phone@1, E.164). */
+    public const PHONE_LENGTH = 31;
+
     /** Whether a field of this type gets an index without being asked (Property: auto_indexed). */
     public static function autoIndexed(string $kind): bool
     {
@@ -316,6 +322,9 @@ final readonly class StorageViewLayoutPlanner
             'choices' => StorageViewColumn::SQL_SIDE,
             // A value of an option source: an identifier of at most 128 characters (Property's lookup), indexed.
             'lookup' => StorageViewColumn::varchar(self::LOOKUP_LENGTH),
+            'color' => StorageViewColumn::varchar(self::COLOR_LENGTH),
+            'phone' => StorageViewColumn::varchar(self::PHONE_LENGTH),
+            // A URL (up to 2048 bytes) and a link ({href, text?}, as JSON) are long text.
             default => StorageViewColumn::SQL_TEXT,
         };
     }
