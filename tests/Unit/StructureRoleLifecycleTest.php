@@ -109,9 +109,12 @@ foreach ($files as $file) {
         continue;
     }
     $source = (string) file_get_contents($file->getPathname());
-    foreach (['site_node', 'doc_space', 'doc_page', 'org_chart', "'redirect'"] as $code) {
+    foreach (['site_node', 'doc_space', 'doc_page', 'org_chart'] as $code) {
         larena_storage_role_assert(!str_contains($source, $code), $relative . ' mentions the role ' . $code);
     }
+    // The role «redirect»: the admin's Storage section (src/Admin) answers every write with a receipt whose member is
+    // named 'redirect' (where the page goes next), which is no role.
+    larena_storage_role_assert(str_starts_with($relative, 'src/Admin/') || !str_contains($source, "'redirect'"), $relative . " mentions the role 'redirect'");
 }
 
 echo "Structure role lifecycle passed.\n";

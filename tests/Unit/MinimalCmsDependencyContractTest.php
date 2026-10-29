@@ -15,7 +15,9 @@ $actualRequireDev = $larena($composer['require-dev'] ?? []);
 // larena/queue runs the витрина rebuild as a durable job (storage.view.rebuild); larena/secret wraps the data keys
 // of encrypted fields (DataKeyWrapper).
 $expectedRequire = ['larena/access','larena/core','larena/property','larena/queue','larena/secret'];
-$expectedRequireDev = ['larena/audit'];
+// larena/admin is only suggested: the admin's Storage section (src/Admin) is Storage's own and is tested here with the
+// admin installed beside it (StorageWithoutAdminSourceTest keeps it out of require).
+$expectedRequireDev = ['larena/admin','larena/audit'];
 
 if ($actualRequire !== $expectedRequire) {
     throw new RuntimeException('Unexpected storage runtime dependencies: '.json_encode($actualRequire, JSON_THROW_ON_ERROR));

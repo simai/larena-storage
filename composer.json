@@ -32,8 +32,12 @@
         }
     },
     "require-dev": {
+        "larena/admin": "dev-main",
         "larena/audit": "dev-main",
         "phpstan/phpstan": "^2.0"
+    },
+    "suggest": {
+        "larena/admin": "The admin's Storage section (/admin/storage: storages, their records and settings, CSV import and export, SitePack, encryption) and the storage workbench stand. Storage contributes them only where the admin is installed; without it Storage runs headless."
     },
     "repositories": [
         {
@@ -201,7 +205,27 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PublishedKeyUniquenessTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadContractsFailsClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RoleBoundSiteTreeTwoLocalesTest.php",
-            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/BlockDocumentServiceTest.php"
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/BlockDocumentServiceTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageWithoutAdminSourceTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSectionRouteTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageWorkbenchRouteTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageWorkbenchAccessibilityTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSectionAdminPagesTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageBladeThinHostRatchetTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageFormPagesTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageLiveRegionsTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageFieldEditorParityTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSectionGatewayTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageWorkbenchGatewayTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageFieldOptionsPropertyViewTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageFieldEditorSchemaTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageFieldEncryptionAdminTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageFieldEncryptionRunAdminTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageFieldChangeStateTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSortHintTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageBackgroundJobsTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackExportTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackImportTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-publication": "LARENA_STORAGE_PUBLICATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationMySqlRestartTest.php",

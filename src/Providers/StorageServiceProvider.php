@@ -78,6 +78,7 @@ use Larena\Core\Starter\ScopeBaselineInstaller;
 use Larena\Storage\FirstRun\SiteFirstRunContributor;
 use Larena\Storage\FirstRun\StarterSite;
 use Larena\Storage\Registry\StorageOperationProvider;
+use Larena\Storage\Admin\StorageSectionBindings;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\DatabaseLocalizedValues;
 use Larena\Storage\Runtime\DatabasePublicationLifecycle;
@@ -679,6 +680,12 @@ final class StorageServiceProvider extends ServiceProvider
             AccessOperationRegistry::class,
             static fn (AccessOperationRegistry $registry): bool => self::registerAccessOperations($registry),
         );
+        // The admin's Storage section and the storage workbench stand are Storage's own UI (owner decision 2026-10-29),
+        // contributed into larena/admin only where the admin is installed: a site without it loads none of it.
+        if ($this->composesAdmin()) {
+            $this->mergeConfigFrom(__DIR__ . '/../../config/larena-admin-storage.php', 'larena-admin');
+            StorageSectionBindings::register($this->app);
+        }
     }
 
     public function boot(): void
@@ -690,6 +697,13 @@ final class StorageServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/platform');
         // The names of Storage's access operations (larena-storage::operations.*), as a role's rights list shows them.
         $this->loadTranslationsFrom(__DIR__ . '/../../resources/lang', 'larena-storage');
+        if ($this->composesAdmin()) {
+            // The Storage section's pages (larena-storage::admin.*), its routes, menu, search sources and queue jobs.
+            $this->loadViewsFrom(__DIR__ . '/../../resources/views', 'larena-storage');
+            $this->loadRoutesFrom(__DIR__ . '/../../routes/admin/workbench.php');
+            $this->loadRoutesFrom(__DIR__ . '/../../routes/admin/storage-section.php');
+            StorageSectionBindings::boot($this->app);
+        }
 
         if ($this->app->bound(AccessOperationRegistry::class)) {
             self::registerAccessOperations($this->app->make(AccessOperationRegistry::class));
@@ -866,5 +880,15 @@ final class StorageServiceProvider extends ServiceProvider
         }
 
         return $registered;
+    }
+
+    /**
+     * The admin's Storage section is composed: larena/admin is installed and the host is an application with a
+     * configuration repository (a bare container composes no admin).
+     */
+    private function composesAdmin(): bool
+    {
+        return StorageSectionBindings::adminInstalled() && $this->app->bound('config')
+            && $this->app->make('config') instanceof \Illuminate\Contracts\Config\Repository;
     }
 }

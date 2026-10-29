@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7397e250f6333623a90acbd8f4fac9cf",
+    "content-hash": "fb330bf9bf41d69e3ed2e6d25f2f7c31",
     "packages": [
         {
             "name": "brick/math",
@@ -1896,7 +1896,7 @@
             "dist": {
                 "type": "path",
                 "url": "../access",
-                "reference": "0a16adb5fe91a1058dee55ce4446a8d3c4b315f1"
+                "reference": "1704d76f0f0ce53fa9c462f90275aa128e4dcfc9"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2033,7 +2033,8 @@
             "authors": [
                 {
                     "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
                 }
             ],
             "description": "Larena Access: Operation permissions, target providers, query scopes and explainable access decisions.",
@@ -2162,7 +2163,7 @@
             "dist": {
                 "type": "path",
                 "url": "../core",
-                "reference": "41d18fb6bc069a3d71801226e3b62e4bb9466e60"
+                "reference": "88c42afa53ae14993ffe77c5ba812bb5c6726df1"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2259,7 +2260,9 @@
                     "@php tests/Unit/SolutionFailsClosedTest.php",
                     "@php tests/Unit/SitePackArchiveTest.php",
                     "@php tests/Unit/SitePackArchiveSafetyTest.php",
-                    "@php tests/Unit/SitePackStreamingTest.php"
+                    "@php tests/Unit/SitePackStreamingTest.php",
+                    "@php tests/Unit/ProcessExecutorTest.php",
+                    "@php tests/Unit/GatewayRunnerTest.php"
                 ],
                 "test:unit": [
                     "@php tests/Unit/OperationRuntimeContractTest.php",
@@ -2325,7 +2328,8 @@
             "authors": [
                 {
                     "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
                 }
             ],
             "description": "Larena Core: Platform foundation for package registry, operation runtime, compatibility, SitePack portable data standard and shared contracts.",
@@ -2340,14 +2344,13 @@
             "dist": {
                 "type": "path",
                 "url": "../property",
-                "reference": "580e7c5a84117a88099b37e2c6f3dbd5748c9325"
+                "reference": "ac0222aaec5af3859d68c0196c2f2d9c689c2467"
             },
             "require": {
                 "illuminate/console": "^13.0",
                 "illuminate/http": "^13.0",
                 "illuminate/support": "^13.0",
                 "illuminate/view": "^13.0",
-                "larena/core": "dev-main",
                 "php": "^8.3"
             },
             "require-dev": {
@@ -2381,16 +2384,18 @@
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyTypeRegistryTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyNormalizationValidationTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyFieldTypesTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyTypeSettingsTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyFieldTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyLookupTypeTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyCommonTypesTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyDisplayProjectorTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyPresentationRegistryTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsPropertyStorageContractTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryPropertyRuntimeTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegistryPropertyRuntimeTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryPropertyRuntimeFailsClosedTest.php",
-                    "php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PropertyCommandProviderMigrationTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PropertyServiceProviderRegistrationTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PropertyTypeRegistryProviderTest.php",
-                    "php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PropertyRouteRegistrationBoundaryTest.php",
                     "@php tests/Unit/MinimalCmsDependencyContractTest.php"
                 ],
                 "test:unit": [
@@ -2430,7 +2435,8 @@
             "authors": [
                 {
                     "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
                 }
             ],
             "description": "Larena Property: Universal property layer for field type registry, field definitions, structured render models, validation, templates and typed value interaction across settings, admin, storage and future content models.",
@@ -2445,7 +2451,7 @@
             "dist": {
                 "type": "path",
                 "url": "../queue",
-                "reference": "db4d1370d5222a24aa0c7e7f219bd0d819860fa5"
+                "reference": "6662134ce24beaefb3d809a611955facd7ada7d5"
             },
             "require": {
                 "ext-json": "*",
@@ -2514,7 +2520,8 @@
             "authors": [
                 {
                     "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
                 }
             ],
             "description": "Larena Queue: Mandatory system package for governed background execution, load smoothing, retry, timeout, worker supervision and hosting-safe operation scheduling across Larena packages.",
@@ -2529,7 +2536,7 @@
             "dist": {
                 "type": "path",
                 "url": "../secret",
-                "reference": "7c8cbc413d07612beacc9ec933ef23e7db3e2a72"
+                "reference": "30a1bcb2d08850a7520d65ffb19fd29a73d76d9a"
             },
             "require": {
                 "ext-sodium": "*",
@@ -2586,7 +2593,8 @@
             "authors": [
                 {
                     "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
                 }
             ],
             "description": "Larena Secret: Secret broker for SecretReference, vault adapters, scoped leases, redaction, rotation and audited runtime access.",
@@ -5671,12 +5679,254 @@
     ],
     "packages-dev": [
         {
+            "name": "larena/admin",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../admin",
+                "reference": "fba2be790e723a15ab63e27bc7fb7b7d0e92a02c"
+            },
+            "require": {
+                "illuminate/console": "^13.0",
+                "illuminate/http": "^13.0",
+                "illuminate/routing": "^13.0",
+                "illuminate/support": "^13.0",
+                "illuminate/view": "^13.0",
+                "larena/access": "dev-main",
+                "larena/audit": "dev-main",
+                "larena/auth": "dev-main",
+                "larena/core": "dev-main",
+                "larena/dataview": "dev-main",
+                "larena/filesystem": "dev-main",
+                "larena/layout": "dev-main",
+                "larena/property": "dev-main",
+                "larena/setting": "dev-main",
+                "larena/ui": "dev-main",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "larena/cockpit": "dev-main",
+                "larena/licensing": "dev-main",
+                "larena/link": "dev-main",
+                "larena/monitoring": "dev-main",
+                "larena/notification": "dev-main",
+                "larena/queue": "dev-main",
+                "larena/storage": "dev-main",
+                "larena/update": "dev-main",
+                "phpstan/phpstan": "^2.0"
+            },
+            "suggest": {
+                "larena/monitoring": "Runtime metrics of the packages: /admin/monitoring lists each declared metric with its verdict.",
+                "larena/notification": "Keeps the person's notifications: the menu counts the unread ones and /admin/notifications lists them.",
+                "larena/storage": "The Site pages screen (/admin/site/pages) reads the site's pages from Storage, and Storage brings its own Storage section (/admin/storage) into the admin. Without it the admin runs without them."
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Admin\\Providers\\AdminServiceProvider"
+                    ]
+                },
+                "larena": {
+                    "component_packages": {
+                        "larena": {
+                            "releases": "*",
+                            "release_repository": "simai/larena-ui",
+                            "source_repositories": [
+                                "simai/larena-ui",
+                                "simai/ui-admin",
+                                "simai/ui-pro"
+                            ]
+                        }
+                    }
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Admin\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Admin\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminAuthDiagnosticsSurfaceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminSearchTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminGroupsAndSitePagesRouteTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminWithoutStorageSourceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminWithoutStorageBootTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SitePageListQueryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureTreePublicationBadgeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSectionGatewayTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldOptionsPropertyViewTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldEditorSchemaTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminOptionSourcesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldEncryptionAdminTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldEncryptionRunAdminTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldChangeStateTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSortHintTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageBackgroundJobsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminLiveRegionTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSitePackExportTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSitePackImportTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminUsersRecordSourceProviderTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PersistentAdminIdentityLabelResolverTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminAccountSecuritySurfaceTest.php",
+                    "@php tests/Feature/OrdinaryHostingWebInstallPresentationContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkFormNamesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminNativeControlsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsSmartPagePresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RecordFilterFieldsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyViewFieldParityTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingCatalogPropertyValidationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingCatalogEditorTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingDraftsPagesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminDataviewPagePresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminRecordPanelPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminDataviewCellsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminMonitoringMetricRowsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminDataviewPageArchitectureGuardTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/JsonCollectionPageAssemblyDescriptorTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DeclarativeAuthLoginPageRendererTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsStructuresPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsRepresentativeFixtureCommandTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsRecordEditorPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsWorkbenchPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFormPagesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminInstallerScreensTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryAdminRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryAdminRuntimeFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminNavigationRegistryContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminPackageIntegrationNavigationContributorTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminNavigationRegistryFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminNavigationSettingsContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminRecordLayoutStoreTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminViewSettingsStoreTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyViewPortViewSettingsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyViewPortKitTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFavoritesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminContributionAggregatorContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminContributionAggregatorFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminContributionRegistryContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/DeveloperBetaAdminShellLayoutTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/PostBetaAdminProductShellTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminLocaleDirectionContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminProductShellArchitectureGuardTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminCollectionPresentationArchitectureGuardTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminStructuresReuseArchitectureGuardTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminShellIdentityLabelContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminUiLabContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminNavigationLabContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminDataviewWorkbenchContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminDataviewProfileStoreTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartCatalogPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SmartComponentReferenceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartRecipePresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SmartRecipeReferenceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminProductAssetManifestTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/FirstRunSiteWizardContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFormStateAssetTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminProductSfBootTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminSurfaceCompositionContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminSurfaceCompositionFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendConveyorDemoTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LayoutPageBuilderDemoTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentBlockWidgetDemoTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedSfPortableProvenanceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFrontendAssetActivationBoundaryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFrontendAssetTagsHtmlBoundaryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFrontendRenderArtifactConsumptionBoundaryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PreviewRenderArtifactPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RenderArtifactHtmlBuilderTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DeveloperPreviewProductFacingAdminRecoveryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageWorkbenchGatewayTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PackageOwnedAdminSettingsReadOnlyTableTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminServiceProviderRegistrationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminRouteRegistrationBoundaryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminRouteInventoryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminBladeThinHostRatchetTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/MinimalCmsRouteTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/StorageWorkbenchRouteTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/StorageSectionRouteTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/StorageWorkbenchAccessibilityTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/FrontendConveyorDemoPackageOwnedPresentationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/LayoutPageBuilderDemoPackageOwnedPresentationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SmartComponentBlockWidgetDemoPackageOwnedPresentationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/DeveloperPreviewProductFacingAdminRecoveryRoutePresentationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertySmartFieldPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/CompositionEditorFieldPresenterTest.php"
+                ],
+                "test:unit": [
+                    "@test"
+                ],
+                "test:js": [
+                    "node --test tests/JavaScript/*.test.mjs"
+                ],
+                "test:dependency": [
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "test:minimal-cms-admin": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsGatewayTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/MinimalCmsRouteTest.php"
+                ],
+                "lint": [
+                    "@php scripts/lint.php"
+                ],
+                "analyse": [
+                    "@php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "@php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "@php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "@php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@test:js",
+                    "@test:dependency",
+                    "@larena:metadata:check",
+                    "@evidence:check",
+                    "@scope:check"
+                ],
+                "larena:metadata:check": [
+                    "@php scripts/check-metadata-sync.php"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
+                }
+            ],
+            "description": "Larena Admin: Object-based, permission-aware administration platform for package contributions, screens, actions and diagnostics.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
             "name": "larena/audit",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "../audit",
-                "reference": "0dc92b8eb96daef885608b4aa9d8b9f441599a93"
+                "reference": "990889c0761bc1bf94021cce872d52612384e8dc"
             },
             "require": {
                 "illuminate/database": "^13.0",
@@ -5762,10 +6012,577 @@
             "authors": [
                 {
                     "name": "Rim Zabarov",
-                    "homepage": "https://github.com/zabarov"
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
                 }
             ],
             "description": "Larena Audit: Unified structured audit layer that receives package AuditEvent objects, validates taxonomy, redacts sensitive payloads, correlates runtime activity, routes events to sinks and provides operator search/export/diagnostics.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/dataview",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../dataview",
+                "reference": "b1ede1d014c644984b5b1914cf8ee5b694f7b105"
+            },
+            "require": {
+                "ext-pdo": "*",
+                "illuminate/database": "^13.0",
+                "illuminate/support": "^13.0",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Dataview\\Providers\\DataviewServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Dataview\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Dataview\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ReadOnlyDataviewTableAdapterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewTableRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewSixViewRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewWorkbenchFixtureTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewDescriptorNormalizerTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/DataviewDescriptorPersistenceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewServiceProviderTest.php",
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredQueryBoundaryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredPagedSourceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredSearchTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredSmartQueryCodecTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredDataviewSourceRegistryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewQueryCarryOverTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DataviewRoleBinderTest.php"
+                ],
+                "test:unit": [
+                    "@test"
+                ],
+                "lint": [
+                    "php scripts/lint.php"
+                ],
+                "analyse": [
+                    "php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@evidence:check",
+                    "@scope:check"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
+                }
+            ],
+            "description": "Larena Dataview: Universal data presentation layer that can render the same structured dataset as table, kanban, calendar, gantt, cards, tree or other reusable views without reimplementing the same UI for every package.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/filesystem",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../filesystem",
+                "reference": "2635072d9896c7771b5b47841b5d027f07197f8e"
+            },
+            "require": {
+                "illuminate/database": "^13.0",
+                "illuminate/filesystem": "^13.0",
+                "illuminate/http": "^13.0",
+                "illuminate/routing": "^13.0",
+                "illuminate/support": "^13.0",
+                "larena/property": "dev-main",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "orchestra/testbench": "^11.1",
+                "phpstan/phpstan": "^2.0",
+                "phpunit/phpunit": "^12.5"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Filesystem\\Providers\\FilesystemServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Filesystem\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Filesystem\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LogicalFileContractTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FilesystemRuntimeContractTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FilesystemFailsClosedTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FilesystemLogicalRuntimeTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FilesystemProjectionRedactionTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FilesystemMutationAuditTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FileLabelResolverTest.php",
+                    "php vendor/bin/phpunit tests/Feature --colors=never",
+                    "php vendor/bin/phpunit tests/Feature/FileManagerLogicalIdentityBoundaryTest.php --colors=never",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PersistentLogicalFileInspectorMySqlTest.php",
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "test:persistent-inspection": [
+                    "php vendor/bin/phpunit tests/Feature/PersistentLogicalFileInspectorTest.php tests/Feature/SafeFileServiceTest.php --colors=never"
+                ],
+                "test:file-manager-identity-boundary": [
+                    "php vendor/bin/phpunit tests/Feature/FileManagerLogicalIdentityBoundaryTest.php --colors=never"
+                ],
+                "test:minimal-cms-filesystem": [
+                    "php vendor/bin/phpunit tests/Feature/MinimalCmsFilesystemLifecycleTest.php tests/Feature/FileManagerLogicalIdentityBoundaryTest.php tests/Feature/PublicFileDeliveryTest.php --colors=never"
+                ],
+                "test:mysql-persistent-inspection": [
+                    "LARENA_FILESYSTEM_PERSISTENT_INSPECTION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PersistentLogicalFileInspectorMySqlTest.php"
+                ],
+                "test:unit": [
+                    "@test"
+                ],
+                "lint": [
+                    "php scripts/lint.php"
+                ],
+                "analyse": [
+                    "php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@larena:metadata:check",
+                    "@evidence:check",
+                    "@scope:check"
+                ],
+                "larena:metadata:check": [
+                    "php scripts/check-metadata-sync.php"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
+                }
+            ],
+            "description": "Larena Filesystem: File metadata, blob storage abstraction and safe file delivery layer used by content, storage, media, file-manager, link and search surfaces.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/layout",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../layout",
+                "reference": "60cb676bcbf2f7660faaade09c79736a7a49cd7f"
+            },
+            "require": {
+                "illuminate/database": "^13.0",
+                "illuminate/support": "^13.0",
+                "larena/core": "dev-main",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Layout\\Providers\\LayoutServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Layout\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Layout\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "test:unit": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "test:minimal-cms-layout": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsRenderPlanTest.php"
+                ],
+                "lint": [
+                    "@php scripts/lint.php"
+                ],
+                "analyse": [
+                    "@php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "@php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "@php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "@php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@evidence:check",
+                    "@scope:check"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
+                }
+            ],
+            "description": "Larena Layout: Universal layout and page composition engine for public pages, admin pages, dashboards, forms, lists, detail pages, documentation pages and widgets in Larena.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/setting",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../setting",
+                "reference": "7aca2e049944f417a419c3300361166e77255d25"
+            },
+            "require": {
+                "illuminate/console": "^13.0",
+                "illuminate/database": "^13.0",
+                "illuminate/http": "^13.0",
+                "illuminate/support": "^13.0",
+                "illuminate/view": "^13.0",
+                "larena/core": "dev-main",
+                "php": "^8.3",
+                "ramsey/uuid": "^4.9"
+            },
+            "require-dev": {
+                "larena/access": "dev-main",
+                "larena/audit": "dev-main",
+                "larena/licensing": "dev-main",
+                "phpstan/phpstan": "^2.0"
+            },
+            "suggest": {
+                "larena/access": "Required by the full SettingServiceProvider: the setting operations in the access registry.",
+                "larena/audit": "Required by the full SettingServiceProvider: the audit trail of site setting writes."
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Setting\\Providers\\MinimalSettingServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Setting\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Setting\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemorySettingRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemorySettingRuntimeFailsClosedTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemorySettingApplyRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingsSchemaRegistryFoundationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminSettingsFormReadModelTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingServiceProviderRegistrationTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SiteSettingPersistenceRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/ScopedSettingsRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingDefinitionRegistryConstraintsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/MinimalSettingPersistenceRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingRevisionMigrationRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingDraftPersistenceRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingDraftAtomicApplyRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/SettingDraftMySqlPersistenceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalSettingProviderBoundaryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingFirstRunContributorTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingCatalogModelTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingResolverTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingCatalogRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingChangesRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingStandardFixturesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingCommonPackRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/SettingCatalogSnapshotCostTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/ViewSettingsRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/ViewSettingsReadCostTest.php",
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "test:unit": [
+                    "@test"
+                ],
+                "lint": [
+                    "@php scripts/lint.php"
+                ],
+                "analyse": [
+                    "@php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "@php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "@php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "@php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@larena:metadata:check",
+                    "@evidence:check",
+                    "@scope:check"
+                ],
+                "larena:metadata:check": [
+                    "@php scripts/check-metadata-sync.php"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
+                }
+            ],
+            "description": "Larena Settings: Machine-readable settings definitions, runtime value resolution, pending changes and import/export policy.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "larena/ui",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../ui",
+                "reference": "fbb951354f1ce6cf1feab10a444736ae1917c79b"
+            },
+            "require": {
+                "illuminate/console": "^13.0",
+                "larena/core": "dev-main",
+                "larena/dataview": "dev-main",
+                "larena/layout": "dev-main",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Ui\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Ui\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "contracts:materialize": [
+                    "@php scripts/materialize-smart-contracts.php"
+                ],
+                "contracts:materialize:b0": [
+                    "@php scripts/materialize-smart-contracts.php"
+                ],
+                "contracts:verify": [
+                    "@php scripts/verify-smart-contracts-with-studio.php"
+                ],
+                "test": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminRecordEditorSmartViewTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminDataviewRendererTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminUiLabReferenceBehaviorTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedComponentRegistryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkContractRegistryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeLockTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ComponentPackageRequirementsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SourceBackedAssetProvenanceLockTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartManagerTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartFacadeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentReferenceTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartCatalogProjectionTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartAiCatalogProjectionTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartComponentLibraryTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SfActionLinkTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrontendRuntimeAssetResolverTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredListRendererTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredDocumentRendererTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RegisteredListDocumentNodeRendererTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkLayoutDocumentTypesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartDocumentNodeTypesTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SfElementDocumentNodeTypesTest.php"
+                ],
+                "test:unit": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 scripts/run-unit-tests.php"
+                ],
+                "test:dataview-host": [
+                    "node --test tests/JavaScript/dataview-host-lifecycle.test.mjs"
+                ],
+                "test:dependency": [
+                    "@php tests/Unit/MinimalCmsDependencyContractTest.php"
+                ],
+                "test:minimal-cms-ui": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemoryUiRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SmartManagerTest.php"
+                ],
+                "lint": [
+                    "@php scripts/lint.php"
+                ],
+                "analyse": [
+                    "@php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "@php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "@php scripts/check-evidence.php"
+                ],
+                "component-packages:check": [
+                    "@php scripts/check-component-packages.php"
+                ],
+                "scope:check": [
+                    "@php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@test:dataview-host",
+                    "@test:composition-routing-host",
+                    "@test:minimal-cms-port-bridge",
+                    "@test:minimal-cms-composite-port",
+                    "@test:composition-schema",
+                    "@test:composition-list",
+                    "@test:dependency",
+                    "@component-packages:check",
+                    "@evidence:check",
+                    "@scope:check"
+                ],
+                "test:composition-list": [
+                    "node --test tests/JavaScript/registered-list-composition.test.mjs"
+                ],
+                "test:composition-routing-host": [
+                    "node --test tests/JavaScript/composition-routing-host.test.mjs"
+                ],
+                "test:minimal-cms-port-bridge": [
+                    "node --test tests/JavaScript/minimal-cms-port-bridge.test.mjs"
+                ],
+                "test:minimal-cms-composite-port": [
+                    "node --test tests/JavaScript/minimal-cms-composite-port.test.mjs"
+                ],
+                "test:composition-schema": [
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkDocumentSchemaValidatorTest.php"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
+                }
+            ],
+            "description": "Larena UI: Universal UI/frontend package for Larena smart components, backend-first rendering, hydration, design packs, UI asset graph, component registry, playground and frontend behavior contracts.",
             "transport-options": {
                 "symlink": true,
                 "relative": true
@@ -5834,6 +6651,160 @@
                 }
             ],
             "time": "2026-07-05T06:31:06+00:00"
+        },
+        {
+            "name": "ramsey/collection",
+            "version": "2.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ramsey/collection.git",
+                "reference": "344572933ad0181accbf4ba763e85a0306a8c5e2"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ramsey/collection/zipball/344572933ad0181accbf4ba763e85a0306a8c5e2",
+                "reference": "344572933ad0181accbf4ba763e85a0306a8c5e2",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.1"
+            },
+            "require-dev": {
+                "captainhook/plugin-composer": "^5.3",
+                "ergebnis/composer-normalize": "^2.45",
+                "fakerphp/faker": "^1.24",
+                "hamcrest/hamcrest-php": "^2.0",
+                "jangregor/phpstan-prophecy": "^2.1",
+                "mockery/mockery": "^1.6",
+                "php-parallel-lint/php-console-highlighter": "^1.0",
+                "php-parallel-lint/php-parallel-lint": "^1.4",
+                "phpspec/prophecy-phpunit": "^2.3",
+                "phpstan/extension-installer": "^1.4",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-mockery": "^2.0",
+                "phpstan/phpstan-phpunit": "^2.0",
+                "phpunit/phpunit": "^10.5",
+                "ramsey/coding-standard": "^2.3",
+                "ramsey/conventional-commits": "^1.6",
+                "roave/security-advisories": "dev-latest"
+            },
+            "type": "library",
+            "extra": {
+                "captainhook": {
+                    "force-install": true
+                },
+                "ramsey/conventional-commits": {
+                    "configFile": "conventional-commits.json"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Ramsey\\Collection\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Ben Ramsey",
+                    "email": "ben@benramsey.com",
+                    "homepage": "https://benramsey.com"
+                }
+            ],
+            "description": "A PHP library for representing and manipulating collections.",
+            "keywords": [
+                "array",
+                "collection",
+                "hash",
+                "map",
+                "queue",
+                "set"
+            ],
+            "support": {
+                "issues": "https://github.com/ramsey/collection/issues",
+                "source": "https://github.com/ramsey/collection/tree/2.1.1"
+            },
+            "time": "2025-03-22T05:38:12+00:00"
+        },
+        {
+            "name": "ramsey/uuid",
+            "version": "4.9.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ramsey/uuid.git",
+                "reference": "75d73f48d02797c2c285a7e9f348fadc0102ffe2"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ramsey/uuid/zipball/75d73f48d02797c2c285a7e9f348fadc0102ffe2",
+                "reference": "75d73f48d02797c2c285a7e9f348fadc0102ffe2",
+                "shasum": ""
+            },
+            "require": {
+                "brick/math": "^0.8.16 || ^0.9 || ^0.10 || ^0.11 || ^0.12 || ^0.13 || ^0.14 || ^0.15 || ^0.16 || ^0.17 || ^0.18 || ^0.19 || ^0.20 || ^1.0",
+                "php": "^8.0",
+                "ramsey/collection": "^1.2 || ^2.0"
+            },
+            "replace": {
+                "rhumsaa/uuid": "self.version"
+            },
+            "require-dev": {
+                "captainhook/captainhook": "^5.25",
+                "captainhook/plugin-composer": "^5.3",
+                "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+                "ergebnis/composer-normalize": "^2.47",
+                "mockery/mockery": "^1.6",
+                "paragonie/random-lib": "^2",
+                "php-mock/php-mock": "^2.6",
+                "php-mock/php-mock-mockery": "^1.5",
+                "php-parallel-lint/php-parallel-lint": "^1.4.0",
+                "phpbench/phpbench": "^1.2.14",
+                "phpstan/extension-installer": "^1.4",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-mockery": "^2.0",
+                "phpstan/phpstan-phpunit": "^2.0",
+                "phpunit/phpunit": "^9.6",
+                "slevomat/coding-standard": "^8.18",
+                "squizlabs/php_codesniffer": "^3.13"
+            },
+            "suggest": {
+                "ext-bcmath": "Enables faster math with arbitrary-precision integers using BCMath.",
+                "ext-gmp": "Enables faster math with arbitrary-precision integers using GMP.",
+                "ext-uuid": "Enables the use of PeclUuidTimeGenerator and PeclUuidRandomGenerator.",
+                "paragonie/random-lib": "Provides RandomLib for use with the RandomLibAdapter",
+                "ramsey/uuid-doctrine": "Allows the use of Ramsey\\Uuid\\Uuid as Doctrine field type."
+            },
+            "type": "library",
+            "extra": {
+                "captainhook": {
+                    "force-install": true
+                }
+            },
+            "autoload": {
+                "files": [
+                    "src/functions.php"
+                ],
+                "psr-4": {
+                    "Ramsey\\Uuid\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "A PHP library for generating and working with universally unique identifiers (UUIDs).",
+            "keywords": [
+                "guid",
+                "identifier",
+                "uuid"
+            ],
+            "support": {
+                "issues": "https://github.com/ramsey/uuid/issues",
+                "source": "https://github.com/ramsey/uuid/tree/4.9.4"
+            },
+            "time": "2026-09-16T11:39:30+00:00"
         }
     ],
     "aliases": [],
@@ -5844,6 +6815,7 @@
         "larena/property": 20,
         "larena/queue": 20,
         "larena/secret": 20,
+        "larena/admin": 20,
         "larena/audit": 20
     },
     "prefer-stable": true,
