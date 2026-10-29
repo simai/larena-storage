@@ -784,8 +784,10 @@ return [
             'ok_title' => 'Workbench ready', 'ok_text' => 'The workbench is available.',
         ],
     ],
-    // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor).
+    // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
+    // the name of the site pages' storage (Larena\Storage\FirstRun\SitePagesStorage).
     'first_run' => [
+        'site_pages' => 'Site pages',
         'demo_data' => 'Install demo data: a catalog of solutions with every field type, and its sections. They are deleted like any storage.',
     ],
 ];

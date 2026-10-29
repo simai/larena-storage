@@ -784,8 +784,10 @@ return [
             'ok_title' => 'Рабочая область готова', 'ok_text' => 'Рабочая область доступна.',
         ],
     ],
-    // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor).
+    // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
+    // the name of the site pages' storage (Larena\Storage\FirstRun\SitePagesStorage).
     'first_run' => [
+        'site_pages' => 'Страницы сайта',
         'demo_data' => 'Установить демо-данные: каталог решений со всеми типами полей и его разделы. Их можно удалить, как любое хранилище.',
     ],
 ];

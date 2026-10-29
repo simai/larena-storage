@@ -21,6 +21,11 @@ use Throwable;
  * administrator and the site settings, because the page is written by that
  * administrator under settings that already exist.
  *
+ * The pages it writes become an ordinary storage, «Страницы сайта» (SitePagesStorage, owner decision 11), once
+ * the first run has committed: the adoption builds the pages' витрина table, which is made outside a transaction.
+ * If it fails, the installation stands, the pages are written all the same, and larena:storage:adopt-site-pages
+ * adopts them. state() reads the pages, adopted or not.
+ *
  * It offers «Установить демо-данные» (off unless chosen, owner decision
  * 2026-10-29): the storage demo, written as that administrator into the scope
  * they work in once the first run has committed. A storage's витрина table is made
@@ -34,13 +39,17 @@ final readonly class SiteFirstRunContributor implements FirstRunContributor, Fir
 
     public const DEMO_DATA = 'demo_data';
 
-    /** @param Closure(string): mixed $demo Installs the demo as the person, in the scope they work in. */
+    /**
+     * @param Closure(string): mixed $demo Installs the demo as the person, in the scope they work in.
+     * @param Closure(string, string): mixed $pages Adopts the site pages as the person, labelled in the locale.
+     */
     public function __construct(
         private StarterSite $site,
         private ?Connection $connection = null,
         private ?Closure $demo = null,
         private ?Translator $translator = null,
         private ?ExceptionHandler $errors = null,
+        private ?Closure $pages = null,
     ) {
     }
 
@@ -72,9 +81,21 @@ final readonly class SiteFirstRunContributor implements FirstRunContributor, Fir
             $payload->siteName,
             $payload->locale,
         );
+        $errors = $this->errors;
+        if ($this->pages !== null && $this->connection !== null) {
+            $pages = $this->pages;
+            $locale = $payload->locale;
+            // Before the demo: the pages are the site's, the demo is an extra.
+            $this->connection->afterCommit(static function () use ($pages, $actor, $locale, $errors): void {
+                try {
+                    $pages($actor, $locale);
+                } catch (Throwable $failure) {
+                    $errors?->report($failure);
+                }
+            });
+        }
         if ($payload->option(self::DEMO_DATA) && $this->demo !== null && $this->connection !== null) {
             $demo = $this->demo;
-            $errors = $this->errors;
             $this->connection->afterCommit(static function () use ($demo, $actor, $errors): void {
                 try {
                     $demo($actor);

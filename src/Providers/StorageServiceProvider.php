@@ -9,6 +9,7 @@ use Larena\Storage\Console\Commands\PublicationSweepCommand;
 use Larena\Storage\Console\Commands\PublishedKeyRebuildCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
 use Larena\Storage\Console\Commands\StorageDemoCommand;
+use Larena\Storage\Console\Commands\StorageSitePagesAdoptCommand;
 use Larena\Storage\Console\Commands\StorageViewCheckCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
 use Larena\Storage\Console\Commands\StorageSitePackExportCommand;
@@ -80,6 +81,7 @@ use Larena\Core\Contracts\FirstRunContributor;
 use Larena\Core\Starter\ScopeBaselineInstaller;
 use Larena\Storage\FirstRun\SiteFirstRunContributor;
 use Larena\Storage\Demo\StorageDemoData;
+use Larena\Storage\FirstRun\SitePagesStorage;
 use Larena\Storage\FirstRun\StarterSite;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Admin\StorageSectionBindings;
@@ -336,6 +338,14 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(StorageWorkbenchContract::class),
             $app->bound(AccessSubjectDirectory::class) ? $app->make(AccessSubjectDirectory::class) : null,
         ));
+        // The site pages as an ordinary storage, «Страницы сайта», in the scope the administrator works in: adopted
+        // by the site step once the first run has committed, or by larena:storage:adopt-site-pages.
+        $this->app->singleton(SitePagesStorage::class, static fn (Application $app): SitePagesStorage => new SitePagesStorage(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(DatabaseStorageWorkbench::class),
+            static fn (string $actor): string => $app->make(ScopeMembershipQueryScopeProvider::class)->scopeForActor($actor),
+            $app->bound('translator') ? $app->make('translator') : null,
+        ));
         $this->app->singleton(SiteFirstRunContributor::class, static fn (Application $app): SiteFirstRunContributor => new SiteFirstRunContributor(
             $app->make(StarterSite::class),
             $app->make(DatabaseManager::class)->connection(),
@@ -345,6 +355,7 @@ final class StorageServiceProvider extends ServiceProvider
             ),
             $app->bound('translator') ? $app->make('translator') : null,
             $app->bound(ExceptionHandler::class) ? $app->make(ExceptionHandler::class) : null,
+            static fn (string $actor, string $locale): array => $app->make(SitePagesStorage::class)->adopt($actor, null, $locale),
         ));
         $this->app->tag(SiteFirstRunContributor::class, FirstRunContributor::class);
 
@@ -748,6 +759,7 @@ final class StorageServiceProvider extends ServiceProvider
                 StorageEncryptionRewrapCommand::class,
                 StorageEncryptionStatusCommand::class,
                 StorageDemoCommand::class,
+                StorageSitePagesAdoptCommand::class,
             ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
