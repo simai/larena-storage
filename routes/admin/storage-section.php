@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Route;
 use Larena\Admin\Http\Controllers\RecordFilterOptionsController;
 use Larena\Admin\Http\Controllers\RecordRelationOptionsController;
+use Larena\Storage\Admin\Http\Controllers\FormerCmsAddressController;
 use Larena\Storage\Admin\Http\Controllers\StorageFieldRevealController;
 use Larena\Storage\Admin\Http\Controllers\StorageJobsController;
 use Larena\Storage\Admin\Http\Controllers\StorageSectionController;
@@ -76,4 +77,8 @@ if ((bool) config('larena-admin.storage_section.enabled', false)) {
         StoragePropertyViewPortController::class)
         ->middleware((array) config('larena-admin.storage_section.middleware', ['web', 'access:admin.frontend.read']))
         ->name('larena.storage-section.property-port');
+    // The address of the removed Minimal CMS demo (owner decision 2026-10-29): a permanent redirect into the section,
+    // /admin/cms?structure_id=X to that storage.
+    Route::get('admin/cms', FormerCmsAddressController::class)->middleware(['web'])
+        ->name((string) config('larena-admin.storage_section.name_prefix', 'larena.admin.storage.').'former-cms');
 }

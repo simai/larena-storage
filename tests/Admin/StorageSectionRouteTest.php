@@ -37,6 +37,11 @@ assert(str_contains($routeSource, "Route::get('/filter-options', RecordFilterOpt
 assert(str_contains($routeSource, "Route::get('/relation-options', RecordRelationOptionsController::class)->name('relation-options')"));
 assert(str_contains($controllerSource, '$this->container->bound(RecordFilterOptionsGateway::class)'));
 
+// The removed Minimal CMS demo's address is a permanent redirect into the section (owner decision 2026-10-29).
+$formerCms = (string) file_get_contents(__DIR__ . '/../../src/Admin/Http/Controllers/FormerCmsAddressController.php');
+assert(str_contains($routeSource, "Route::get('admin/cms', FormerCmsAddressController::class)->middleware(['web'])"));
+assert(str_contains($formerCms, "->to(\$target, 301)") && str_contains($formerCms, "'records', ['structure' => \$structure]"));
+
 // Menu: its own group with the storages item, guarded by the list permission.
 assert(str_contains($providerSource, "'larena.navigation.storage'"));
 assert(str_contains($providerSource, "'accessScope' => 'storage.workbench.structure.list'"));

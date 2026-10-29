@@ -318,7 +318,11 @@
     "tests/Admin/StorageWorkbenchGatewayTest.php",
     "tests/Admin/StorageWorkbenchRouteTest.php",
     "tests/Admin/bootstrap.php",
-    "tests/Unit/StorageWithoutAdminSourceTest.php"
+    "tests/Unit/StorageWithoutAdminSourceTest.php",
+    "src/FirstRun/SiteFirstRunContributor.php",
+    "src/Admin/Http/Controllers/FormerCmsAddressController.php",
+    "src/Console/Commands/StorageDemoCommand.php",
+    "src/Demo/StorageDemoData.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

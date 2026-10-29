@@ -8,6 +8,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
 use Larena\Storage\Console\Commands\PublishedKeyRebuildCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
+use Larena\Storage\Console\Commands\StorageDemoCommand;
 use Larena\Storage\Console\Commands\StorageViewCheckCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
 use Larena\Storage\Console\Commands\StorageSitePackExportCommand;
@@ -16,6 +17,7 @@ use Larena\Storage\Console\Commands\StorageSitePackImportCommand;
 use Larena\Storage\SitePack\StorageSitePackFileImports;
 use Larena\Storage\SitePack\StorageSitePackImportJob;
 use Larena\Access\Contracts\AccessSubjectDirectory;
+use Larena\Access\Runtime\ScopeMembershipQueryScopeProvider;
 use Larena\Core\Contracts\ScopeMembershipRegistry;
 use Larena\Core\SitePack\SitePackLimits;
 use Larena\Storage\Contracts\StorageSitePack;
@@ -42,6 +44,7 @@ use Larena\Storage\Contracts\LocaleFallbackResolver;
 use Larena\Storage\Contracts\PublicationObserver;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\ServiceProvider;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
@@ -76,6 +79,7 @@ use Larena\Storage\BlockDocuments\UnavailableBlockDocumentFileInspector;
 use Larena\Core\Contracts\FirstRunContributor;
 use Larena\Core\Starter\ScopeBaselineInstaller;
 use Larena\Storage\FirstRun\SiteFirstRunContributor;
+use Larena\Storage\Demo\StorageDemoData;
 use Larena\Storage\FirstRun\StarterSite;
 use Larena\Storage\Registry\StorageOperationProvider;
 use Larena\Storage\Admin\StorageSectionBindings;
@@ -326,8 +330,21 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(StarterStructureRoles::class),
             $app->make(ScopeBaselineInstaller::class),
         ));
+        // The storage demo: installed by larena:storage:demo, or by the site step when the person turns on
+        // «Установить демо-данные»; removed by deleting its storages like any other.
+        $this->app->singleton(StorageDemoData::class, static fn (Application $app): StorageDemoData => new StorageDemoData(
+            $app->make(StorageWorkbenchContract::class),
+            $app->bound(AccessSubjectDirectory::class) ? $app->make(AccessSubjectDirectory::class) : null,
+        ));
         $this->app->singleton(SiteFirstRunContributor::class, static fn (Application $app): SiteFirstRunContributor => new SiteFirstRunContributor(
             $app->make(StarterSite::class),
+            $app->make(DatabaseManager::class)->connection(),
+            static fn (string $actor): array => $app->make(StorageDemoData::class)->install(
+                $actor,
+                $app->make(ScopeMembershipQueryScopeProvider::class)->scopeForActor($actor),
+            ),
+            $app->bound('translator') ? $app->make('translator') : null,
+            $app->bound(ExceptionHandler::class) ? $app->make(ExceptionHandler::class) : null,
         ));
         $this->app->tag(SiteFirstRunContributor::class, FirstRunContributor::class);
 
@@ -730,6 +747,7 @@ final class StorageServiceProvider extends ServiceProvider
                 StorageEncryptionRotateCommand::class,
                 StorageEncryptionRewrapCommand::class,
                 StorageEncryptionStatusCommand::class,
+                StorageDemoCommand::class,
             ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
