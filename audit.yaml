@@ -43,6 +43,9 @@ events:
   - type: storage.workbench.structure.purged
     category: storage_structure
     severity: security
+  - type: storage.workbench.structure.adopted
+    category: storage_structure
+    severity: security
   - type: storage.role.registered
     category: storage_structure_role
     severity: security

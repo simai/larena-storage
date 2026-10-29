@@ -16,6 +16,7 @@ final readonly class StorageViewProjector
 {
     public const SCOPE_FIELD = 'larena_scope_ref';
     public const STATE_FIELD = 'larena_record_state';
+    private const STATE_ACTIVE = 'active';
     public const SEARCH_SEPARATOR = StorageViewSearch::FIELD_SEPARATOR;
     // DECIMAL(65,30): 35 digits before the point, 30 after.
     private const DECIMAL_INTEGER_DIGITS = 35;
@@ -51,7 +52,9 @@ final readonly class StorageViewProjector
             'created_at' => $createdAt,
             'updated_at' => $updatedAt,
             'scope_ref' => is_string($scope) ? $scope : null,
-            'state' => is_string($state) ? $state : null,
+            // A record without the reserved state (one of an adopted schema, written before the adoption) is not
+            // archived: it lists as active.
+            'state' => is_string($state) ? $state : self::STATE_ACTIVE,
             'title' => $this->title($layout, $values),
             'search_text' => null,
         ];

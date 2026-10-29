@@ -401,7 +401,7 @@ try {
     assert($shownFor($created['localized']) === ['string', 'text'] && $shownFor($created['encrypted']) === $map['encrypted']);
     // One key with different kinds is one editor field a kind (min: a whole number, a decimal, a date, a date-time).
     assert($map['min__integer'] === ['integer'] && $map['min__decimal'] === ['number'] && $map['min__date'] === ['date'] && $map['min__datetime'] === ['datetime']);
-    assert($map['max_length'] === ['string', 'text'] && $map['options_text'] === ['choice', 'choices'] && $map['source'] === ['lookup'] && $map['target_structure_id'] === ['record']);
+    assert($map['max_length'] === ['string', 'text', 'html'] && $map['options_text'] === ['choice', 'choices'] && $map['source'] === ['lookup'] && $map['target_structure_id'] === ['record']);
     assert($map['searchable'] === ['string', 'text', 'phone'] && $map['localized'] === ['string', 'text'] && $map['indexed'] === ['string']);
     // A lookup chooses among the registered sources; a «Storage record» field picks a storage with search.
     assert(array_column($created['source']['options'], 'label', 'value') === ['storage.structures' => 'Хранилища', 'test.zones' => 'Часовые пояса']);

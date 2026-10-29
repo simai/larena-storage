@@ -35,6 +35,8 @@ use Larena\Storage\Contracts\VersionedStorage;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Enums\PublicationStateValue;
+use Larena\Storage\Enums\RoleLifecycle;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\Encryption\StorageDataKeys;
 use Larena\Storage\Encryption\StorageEncryptionPolicy;
@@ -73,6 +75,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const STATE_FIELD = 'larena_record_state';
     private const STATE_ACTIVE = 'active';
     private const STATE_ARCHIVED = 'archived';
+    // The owner ref prefix of a workbench structure's records; an adopted structure declares its own.
+    private const OWNER_PREFIX = 'workbench.record:';
+    /** adoptSchema(): the schema became a workbench structure in this call. */
+    public const ADOPTED = 'adopted';
+    /** adoptSchema(): the schema was already this structure; nothing was written. */
+    public const ALREADY_ADOPTED = 'already_adopted';
     private const MAX_STRUCTURES = 100;
     private const MAX_FIELDS = 100;
     // A structure purge removes its records in one transaction, at most this many (VersionedStorage's purge limit).
@@ -296,6 +304,372 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
     }
 
+    /**
+     * What adoptSchema() would do, without writing anything: the structure it would make of the schema, the schema
+     * version it would append, how many records it takes over (each keeps its id, owner ref, revisions, relations,
+     * translations and publication), the roles the schema is bound to and the fields they lock. Refused like
+     * adoptSchema() would refuse it; `state` is `already_adopted` when the schema is that structure already.
+     *
+     * @return array<string, mixed>
+     */
+    public function planAdoption(
+        string $scopeRef,
+        string $structureId,
+        string $schemaId,
+        string $label,
+        string $ownerRefPrefix,
+        string $actor,
+        ?string $ownerRefField = null,
+    ): array {
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.structure.create', $scopeRef, self::STRUCTURE_RESOURCE);
+        try {
+            return $this->adoption($scopeRef, $structureId, $schemaId, $label, $ownerRefPrefix, $ownerRefField, false)['plan'];
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /**
+     * Makes an existing storage schema an ordinary storage of the workbench in place (larena-specs
+     * docs/architecture/2026-10-29-sites-work-plan.md, step 1.2): the same schema id and the same records, so nothing
+     * keyed by a record id (relations, translations, publication states, published keys, search documents, settings)
+     * is rewritten. The structure row names the schema (`adopted_schema_id`) instead of deriving one, and the owner
+     * refs of its records: `$ownerRefPrefix` (every record's owner ref must start with it) and, optionally, the field
+     * a new record's owner ref ends with (`site.pages:<slug>`).
+     *
+     * The schema gets one more version with the workbench's reserved fields, optional. No record version is written:
+     * a record without them (every record written before, and those the schema's earlier writers keep writing) reads
+     * as active, in the structure's scope; the workbench writes them with the record's next revision. So the
+     * published revisions, their values and the content hashes stay exactly as they were.
+     *
+     * One transaction; the витрина is built after the commit (here for a small storage, else by the queued rebuild),
+     * as a list would. Idempotent: the same call again writes nothing and says `already_adopted`. Needs the right to
+     * create structures in the scope, and the schema migration rights a field change asks for.
+     *
+     * @return array{state: string, structure: StorageWorkbenchStructure, plan: array<string, mixed>}
+     */
+    public function adoptSchema(
+        string $scopeRef,
+        string $structureId,
+        string $schemaId,
+        string $label,
+        string $ownerRefPrefix,
+        string $actor,
+        ?string $ownerRefField = null,
+        ?string $correlationId = null,
+    ): array {
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.structure.create', $scopeRef, self::STRUCTURE_RESOURCE);
+        $correlationId = $this->correlationId($correlationId);
+        try {
+            $adopted = $this->database->transaction(function () use ($scopeRef, $structureId, $schemaId, $label, $ownerRefPrefix, $ownerRefField, $actor, $correlationId): array {
+                $adoption = $this->adoption($scopeRef, $structureId, $schemaId, $label, $ownerRefPrefix, $ownerRefField, true);
+                if ($adoption['plan']['state'] === self::ALREADY_ADOPTED) {
+                    return ['state' => self::ALREADY_ADOPTED, 'plan' => $adoption['plan']];
+                }
+                $current = $adoption['schema'];
+                $definition = $adoption['definition'];
+                $descriptor = $adoption['descriptor'];
+                if (!$current instanceof StorageSchemaVersion || !is_array($definition) || !is_array($descriptor)) {
+                    throw new StorageRejected('storage_workbench_adopt_definition_unsupported');
+                }
+                // The schema's next version: its fields as they are, and the reserved ones, optional.
+                $target = $this->switchSchema($current, $definition, $actor, $correlationId);
+                $now = $this->timestamp();
+                $hash = $this->descriptorHash($structureId, $scopeRef, 1, $target->ref->version, $descriptor['label'], $descriptor['fields']);
+                $this->database->table('larena_storage_workbench_structures')->insert([
+                    'structure_id' => $structureId,
+                    'scope_ref' => $scopeRef,
+                    'storage_schema_id' => $schemaId,
+                    'current_version' => 1,
+                    'current_schema_version' => $target->ref->version,
+                    'current_hash' => $hash,
+                    'adopted_schema_id' => $schemaId,
+                    'record_owner_prefix' => $ownerRefPrefix,
+                    'record_owner_field' => $ownerRefField,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+                $this->insertStructureVersion($structureId, 1, $scopeRef, $schemaId, $descriptor['label'], $descriptor['fields'],
+                    $target->ref->version, $hash, $actor, $correlationId, $now);
+                $this->emitStructure('storage.workbench.structure.adopted', $scopeRef, $structureId, $actor, $correlationId, [
+                    'schema_id' => $schemaId,
+                    'source_version' => $current->ref->version,
+                    'target_version' => $target->ref->version,
+                    'record_count' => $adoption['plan']['records'],
+                ]);
+
+                return ['state' => self::ADOPTED, 'plan' => $adoption['plan']];
+            });
+            $this->views?->settle();
+        } catch (StorageRejected|StorageConflict $exception) {
+            throw $exception;
+        } catch (QueryException $exception) {
+            if ($this->isConstraintConflict($exception) || $this->isLockConflict($exception)) {
+                throw new StorageConflict('storage_workbench_structure_conflict');
+            }
+            throw StoragePersistenceFailed::from($exception);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+        if ($adopted['state'] === self::ADOPTED) {
+            // The витрина of the records it takes over, outside the transaction (MySQL cannot run DDL in one).
+            $this->replanView($schemaId);
+        }
+
+        return [
+            'state' => $adopted['state'],
+            'structure' => $this->stated([$this->readStructureInternal($scopeRef, $structureId)])[0],
+            'plan' => $adopted['plan'],
+        ];
+    }
+
+    /**
+     * The checks and the plan of an adoption, in the caller's transaction when $lock (the schema head is held for
+     * update: no record is written meanwhile).
+     *
+     * @return array{plan: array<string, mixed>, schema: ?StorageSchemaVersion, definition: ?array<string, mixed>, descriptor: ?array{structure_id: string, label: string, fields: list<array<string, mixed>>}}
+     */
+    private function adoption(
+        string $scopeRef,
+        string $structureId,
+        string $schemaId,
+        string $label,
+        string $ownerRefPrefix,
+        ?string $ownerRefField,
+        bool $lock,
+    ): array {
+        $label = $this->normalizeLabel($label, 'storage_workbench_structure_label_invalid');
+        if (preg_match('/\A[a-z][a-z0-9_.-]{0,62}:\z/D', $ownerRefPrefix) !== 1) {
+            throw new StorageRejected('storage_workbench_adopt_owner_prefix_invalid');
+        }
+        // A workbench storage is the workbench's already; any other schema id names one storage of the installation.
+        if (preg_match('/\A[a-z][a-z0-9_.:-]{1,119}\z/D', $schemaId) !== 1 || str_starts_with($schemaId, 'workbench.')) {
+            throw new StorageRejected('storage_workbench_adopt_schema_invalid');
+        }
+        $plan = [
+            'scope_ref' => $scopeRef,
+            'structure_id' => $structureId,
+            'schema_id' => $schemaId,
+            'label' => $label,
+            'record_owner_prefix' => $ownerRefPrefix,
+            'record_owner_field' => $ownerRefField,
+        ];
+        $head = $this->database->table('larena_storage_workbench_structures')->where('storage_schema_id', $schemaId)->first();
+        if ($head instanceof stdClass) {
+            if ((string) $head->scope_ref !== $scopeRef || (string) $head->structure_id !== $structureId
+                || ($head->adopted_schema_id ?? null) !== $schemaId) {
+                throw new StorageRejected('storage_workbench_adopt_schema_taken');
+            }
+
+            return ['plan' => $plan + [
+                'state' => self::ALREADY_ADOPTED,
+                'schema_version' => (int) $head->current_schema_version,
+                'target_schema_version' => null,
+                'records' => $this->database->table('larena_storage_records')->where('schema_id', $schemaId)->count(),
+                'writes' => ['schema_versions' => 0, 'structures' => 0, 'record_versions' => 0],
+            ], 'schema' => null, 'definition' => null, 'descriptor' => null];
+        }
+        if ($this->database->table('larena_storage_workbench_structures')
+            ->where('scope_ref', $scopeRef)->where('structure_id', $structureId)->exists()) {
+            throw new StorageRejected('storage_workbench_adopt_structure_taken');
+        }
+        $schemaQuery = $this->database->table('larena_storage_schemas')->where('schema_id', $schemaId);
+        if ($lock) {
+            $schemaQuery->lockForUpdate();
+        }
+        $schemaHead = $schemaQuery->first();
+        if (!$schemaHead instanceof stdClass) {
+            throw new StorageRejected('storage_workbench_adopt_schema_unknown');
+        }
+        $current = $this->storage->schemaVersion(new StorageSchemaVersionRef($schemaId, (int) $schemaHead->current_version), $lock);
+        if ($current->ownerPackage !== 'larena/storage') {
+            // Another package's schema keeps its owner's rules: the workbench changes only its own package's.
+            throw new StorageRejected('storage_workbench_adopt_owner_unsupported');
+        }
+        $this->assertNoFieldChange($schemaId);
+        $stored = json_decode((string) $this->database->table('larena_storage_schema_versions')
+            ->where('schema_id', $schemaId)->where('version', $current->ref->version)->value('definition'), true);
+        // Declared relations and partial locales are no part of a workbench structure: a later field change would
+        // drop them. A schema that already has reserved fields is not one the workbench can take as it is.
+        if (!is_array($stored) || array_diff(array_keys($stored), ['schema_id', 'owner_package', 'fields']) !== []
+            || count($current->fields) > self::MAX_FIELDS) {
+            throw new StorageRejected('storage_workbench_adopt_definition_unsupported');
+        }
+        $fields = [];
+        foreach ($current->fields as $index => $field) {
+            $key = (string) ($field['key'] ?? '');
+            if (str_starts_with($key, 'larena_')) {
+                throw new StorageRejected('storage_workbench_adopt_definition_unsupported');
+            }
+            $fields[] = [
+                'key' => $key,
+                'label' => ucfirst(str_replace('_', ' ', $key)),
+                'position' => ($index + 1) * 10,
+                'type' => $field['type'] ?? null,
+                'type_version' => $field['type_version'] ?? null,
+                'required' => $field['required'] ?? null,
+                'visibility' => $field['visibility'] ?? null,
+                'constraints' => $field['constraints'] ?? null,
+                'localized' => ($field['localized'] ?? false) === true,
+            ] + (($field['encrypted'] ?? false) === true ? ['encrypted' => true] : []);
+        }
+        try {
+            $descriptor = $this->normalizeDescriptor(['structure_id' => $structureId, 'label' => $label, 'fields' => $fields]);
+        } catch (StorageRejected $exception) {
+            throw new StorageRejected('storage_workbench_adopt_definition_unsupported', $exception);
+        }
+        $definition = $this->normalizer->normalize([
+            'schema_id' => $schemaId,
+            'owner_package' => $current->ownerPackage,
+            'fields' => array_merge($this->reservedSchemaFields(true), $current->fields),
+        ]);
+        // The structure must read back as the schema it adopts: a later update compares its fields with the schema's.
+        if ($this->canonicalJson($this->schemaDefinition($schemaId, $descriptor['fields'], true)) !== $this->canonicalJson($definition)) {
+            throw new StorageRejected('storage_workbench_adopt_definition_unsupported');
+        }
+        if ($ownerRefField !== null) {
+            $owner = StorageRecordConverter::byKey($current->fields)[$ownerRefField] ?? null;
+            if ($owner === null || ($owner['type'] ?? null) !== 'string' || StorageEncryptionPolicy::isEncrypted($owner)) {
+                throw new StorageRejected('storage_workbench_adopt_owner_field_invalid');
+            }
+        }
+        $records = 0;
+        $foreign = 0;
+        // Every record keeps its owner ref, so every owner ref must be one the structure accepts.
+        $this->database->table('larena_storage_records')->where('schema_id', $schemaId)->orderBy('record_id')
+            ->select(['record_id', 'owner_ref'])
+            ->chunk(1000, static function ($rows) use (&$records, &$foreign, $ownerRefPrefix): void {
+                foreach ($rows as $row) {
+                    $records++;
+                    if (!str_starts_with((string) $row->owner_ref, $ownerRefPrefix)) {
+                        $foreign++;
+                    }
+                }
+            });
+        if ($foreign > 0) {
+            throw new StorageRejected('storage_workbench_adopt_owner_ref_mismatch');
+        }
+        $bindings = [];
+        foreach ($this->roleBindings($schemaId) as $binding) {
+            $bindings[] = $binding['role_ref'] . ' ' . $binding['scope_ref'];
+        }
+
+        return ['plan' => $plan + [
+            'state' => 'ready',
+            'schema_version' => $current->ref->version,
+            'target_schema_version' => $current->ref->version + 1,
+            'records' => $records,
+            // Every record reads its reserved values (this scope, active) until its next revision writes them.
+            'records_without_reserved_fields' => $records,
+            'role_bindings' => $bindings,
+            'locked_fields' => $this->roleRequiredFields($schemaId),
+            'fields' => $descriptor['fields'],
+            'writes' => ['schema_versions' => 1, 'structures' => 1, 'record_versions' => 0],
+        ], 'schema' => $current, 'definition' => $definition, 'descriptor' => $descriptor];
+    }
+
+    /**
+     * A field a role bound to the structure requires (a site page's slug, title, order index and address) is not removed
+     * or retyped: the structure would stop conforming to its role, and what reads it by the role (the site tree, its
+     * addresses) would break. Refused with `storage_role_field_locked:<key>`; the other fields change as before.
+     *
+     * @param list<array<string, mixed>> $fields
+     */
+    private function assertRoleFields(StorageWorkbenchStructure $current, array $fields): void
+    {
+        $locked = $this->roleRequiredFields($current->schema->schemaId);
+        if ($locked === []) {
+            return;
+        }
+        $before = StorageRecordConverter::byKey($current->fields);
+        $after = StorageRecordConverter::byKey($fields);
+        foreach ($locked as $key) {
+            $was = $before[$key] ?? null;
+            if ($was === null) {
+                // The structure did not have it: no change of this one removes it.
+                continue;
+            }
+            $now = $after[$key] ?? null;
+            if ($now === null || ($now['type'] ?? null) !== ($was['type'] ?? null)
+                || ($now['type_version'] ?? null) !== ($was['type_version'] ?? null)) {
+                throw new StorageRejected('storage_role_field_locked:' . $key);
+            }
+        }
+    }
+
+    /**
+     * The fields the roles bound to the schema (active bindings, in any scope) require, sorted.
+     *
+     * @return list<string>
+     */
+    private function roleRequiredFields(string $schemaId): array
+    {
+        $keys = [];
+        foreach ($this->roleBindings($schemaId) as $binding) {
+            $required = json_decode($binding['required_fields'], true);
+            foreach (is_array($required) ? $required : [] as $field) {
+                if (is_array($field) && is_string($field['key'] ?? null)) {
+                    $keys[$field['key']] = true;
+                }
+            }
+        }
+        $keys = array_map('strval', array_keys($keys));
+        sort($keys, SORT_STRING);
+
+        return $keys;
+    }
+
+    /** @return list<array{role_ref: string, scope_ref: string, required_fields: string, lifecycle: string}> */
+    private function roleBindings(string $schemaId): array
+    {
+        if (!$this->tableExists(DatabaseStructureRoleRegistry::BINDINGS_TABLE) || !$this->tableExists(DatabaseStructureRoleRegistry::ROLES_TABLE)) {
+            return [];
+        }
+        $bindings = [];
+        foreach ($this->database->table(DatabaseStructureRoleRegistry::BINDINGS_TABLE . ' as bindings')
+            ->join(DatabaseStructureRoleRegistry::ROLES_TABLE . ' as roles', 'roles.role_ref', '=', 'bindings.role_ref')
+            ->where('bindings.schema_id', $schemaId)
+            ->where('bindings.status', 'active')
+            ->orderBy('bindings.role_ref')
+            ->orderBy('bindings.scope_ref')
+            ->get(['bindings.role_ref', 'bindings.scope_ref', 'roles.required_fields', 'roles.lifecycle']) as $row) {
+            $bindings[] = ['role_ref' => (string) $row->role_ref, 'scope_ref' => (string) $row->scope_ref,
+                'required_fields' => (string) $row->required_fields, 'lifecycle' => (string) $row->lifecycle];
+        }
+
+        return $bindings;
+    }
+
+    /**
+     * In a structure bound to a publishable role (the site pages), a record that is published, or waits for a
+     * scheduled publication, in any scope and locale is not archived: it is unpublished first, through the
+     * publication lifecycle (its own right, its own audit, its published keys and site витрина kept in step).
+     * Archiving never takes a page off the site behind its publisher, and an archived page never stays live. Refused
+     * with `storage_workbench_record_published`. A structure without such a role archives as before.
+     *
+     * @param list<string> $recordIds
+     */
+    private function assertNotPublished(string $schemaId, array $recordIds): void
+    {
+        if ($recordIds === [] || !$this->tableExists(DatabasePublicationLifecycle::STATES_TABLE)
+            || !in_array(RoleLifecycle::Publishable->value, array_column($this->roleBindings($schemaId), 'lifecycle'), true)) {
+            return;
+        }
+        foreach (array_chunk($recordIds, 500) as $chunk) {
+            if ($this->database->table(DatabasePublicationLifecycle::STATES_TABLE)
+                ->where('schema_id', $schemaId)
+                ->whereIn('record_id', $chunk)
+                ->whereIn('state', [PublicationStateValue::Published->value, PublicationStateValue::Scheduled->value])
+                ->exists()) {
+                throw new StorageRejected('storage_workbench_record_published');
+            }
+        }
+    }
+
     /** @param array<string, mixed> $descriptor */
     private function insertStructure(
         string $scopeRef,
@@ -486,7 +860,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $current = $this->hydrateStructureVersion($head);
             $this->assertNoFieldChange($current->schema->schemaId);
             $currentSchema = $this->storage->schemaVersion($current->schema, false);
-            $candidateDefinition = $this->schemaDefinition($current->schema->schemaId, $normalized['fields']);
+            $this->assertRoleFields($current, $normalized['fields']);
+            $candidateDefinition = $this->schemaDefinition($current->schema->schemaId, $normalized['fields'], $current->adopted());
             $checked = $this->checkedFields($currentSchema, $candidateDefinition);
             $total = $this->database->table('larena_storage_records')->where('schema_id', $current->schema->schemaId)->count();
             if ($checked === []) {
@@ -863,8 +1238,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         bool $migrate,
         bool $disableConfirmed = false,
     ): StorageWorkbenchStructure {
+        $existing = $this->readStructureInternal($scopeRef, $structureId);
+        // A role's required fields stay, refused before the витрина is prepared for the change (and again in it).
+        $this->assertRoleFields($existing, $normalized['fields']);
         // A change of which fields are encrypted needs the manage right and a working key, asked before anything.
-        $before = StorageEncryptionPolicy::encryptedKeys($this->readStructureInternal($scopeRef, $structureId)->fields);
+        $before = StorageEncryptionPolicy::encryptedKeys($existing->fields);
         $after = StorageEncryptionPolicy::encryptedKeys($normalized['fields']);
         sort($before, SORT_STRING);
         sort($after, SORT_STRING);
@@ -899,9 +1277,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 }
                 $current = $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
                 $this->assertNoFieldChange($current->schema->schemaId);
+                $this->assertRoleFields($current, $normalized['fields']);
                 $currentSchema = $this->storage->schemaVersion($current->schema, true);
                 $candidateDefinition = $migrate
-                    ? $this->schemaDefinition($current->schema->schemaId, $normalized['fields'])
+                    ? $this->schemaDefinition($current->schema->schemaId, $normalized['fields'], $current->adopted())
                     : $this->schemaDefinitionForUpdate($currentSchema, $normalized['fields']);
                 $rewrite = $this->assertEncryptionChange($currentSchema, $candidateDefinition);
                 $checked = $migrate ? $this->checkedFields($currentSchema, $candidateDefinition) : [];
@@ -1083,6 +1462,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $current->archivedAt,
             $current->archivedBy,
             $current->historyKeep,
+            recordOwnerPrefix: $current->recordOwnerPrefix,
+            recordOwnerField: $current->recordOwnerField,
         ), $viewBuild];
     }
 
@@ -1494,8 +1875,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->assertRecordReferences($structure, $scopeRef, $values, null, $actor);
         $values[self::SCOPE_FIELD] = $scopeRef;
         $values[self::STATE_FIELD] = self::STATE_ACTIVE;
-        $ownerRef = 'workbench.record:' . bin2hex(random_bytes(16));
-        $result = $this->storage->create($ownerRef, $structure->schema, $values, $actor, $correlationId);
+        $result = $this->storage->create($this->newOwnerRef($structure, $values), $structure->schema, $values, $actor, $correlationId);
 
         return $this->workbenchRecord($structure, $result->version);
     }
@@ -1538,7 +1918,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ACTIVE;
             $version = $this->storage->compareAndSwap(
-                $this->ownerRef($structure->schema->schemaId, $current->recordId),
+                $this->ownerRef($structure, $current->recordId),
                 new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
                 $structure->schema,
                 $values,
@@ -1582,11 +1962,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if ($current->state !== self::STATE_ACTIVE) {
                 throw new StorageRejected('storage_workbench_record_archived');
             }
+            $this->assertNotPublished($structure->schema->schemaId, [$recordId]);
             $values = $current->values;
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ARCHIVED;
             $version = $this->storage->transition(
-                $this->ownerRef($structure->schema->schemaId, $recordId),
+                $this->ownerRef($structure, $recordId),
                 new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
                 $structure->schema,
                 $values,
@@ -1635,7 +2016,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ACTIVE;
             $version = $this->storage->transition(
-                $this->ownerRef($structure->schema->schemaId, $recordId),
+                $this->ownerRef($structure, $recordId),
                 new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
                 $structure->schema,
                 $values,
@@ -1688,6 +2069,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 }
                 $preflight[$recordId] = $record;
             }
+            $this->assertNotPublished($structure->schema->schemaId, array_map('strval', array_keys($preflight)));
 
             $archived = [];
             foreach ($preflight as $recordId => $record) {
@@ -1695,7 +2077,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $values[self::SCOPE_FIELD] = $scopeRef;
                 $values[self::STATE_FIELD] = self::STATE_ARCHIVED;
                 $version = $this->storage->transition(
-                    $this->ownerRef($structure->schema->schemaId, $recordId),
+                    $this->ownerRef($structure, $recordId),
                     new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $record->revision),
                     $structure->schema,
                     $values,
@@ -2169,7 +2551,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             }
             $currentSchema = $this->storage->schemaVersion($current->schema);
             $candidate = $migrate
-                ? $this->schemaDefinition($current->schema->schemaId, $fields)
+                ? $this->schemaDefinition($current->schema->schemaId, $fields, $current->adopted())
                 : $this->schemaDefinitionForUpdate($currentSchema, $fields);
             // A field switched off that holds values gets its column only once its decrypt run is done.
             $sealed = [];
@@ -2524,7 +2906,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 throw new StorageRejected('storage_workbench_record_head_corrupt');
             }
             $version = $this->hydrateRawRecordVersion($row, false);
-            if (($version->values[self::SCOPE_FIELD] ?? null) !== $query->scopeRef) {
+            if ($this->recordScope($structure, $version->values) !== $query->scopeRef) {
                 continue;
             }
             $record = $this->workbenchRecord($structure, $version);
@@ -2676,7 +3058,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $history = [];
             foreach ($rows as $row) {
                 $version = $this->hydrateRawRecordVersion($row);
-                if (($version->values[self::SCOPE_FIELD] ?? null) !== $scopeRef) {
+                if ($this->recordScope($structure, $version->values) !== $scopeRef) {
                     throw new StorageRejected('storage_workbench_record_scope_mismatch');
                 }
                 $history[] = $this->workbenchRecord($structure, $version);
@@ -2852,12 +3234,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     /** @param list<array<string, mixed>> $fields
      * @return array<string, mixed>
      */
-    private function schemaDefinition(string $structureId, array $fields): array
+    private function schemaDefinition(string $structureId, array $fields, bool $adopted = false): array
     {
         return $this->normalizer->normalize([
             'schema_id' => $structureId,
             'owner_package' => 'larena/storage',
-            'fields' => array_merge($this->reservedSchemaFields(), array_map(
+            'fields' => array_merge($this->reservedSchemaFields($adopted), array_map(
                 static fn (array $field): array => [
                     'key' => $field['key'],
                     'type' => $field['type'],
@@ -3044,12 +3426,18 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         return $declared !== null && $declared->dataChangingKeys($from['constraints'], $to['constraints']) === [];
     }
 
-    /** @return list<array<string, mixed>> */
-    private function reservedSchemaFields(): array
+    /**
+     * The workbench's reserved fields. In an adopted schema they are optional: its records written before the
+     * adoption have none (they read as the structure's scope, active), and so may the records the schema's earlier
+     * writers keep writing (the admin's site pages) until they write through the workbench.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function reservedSchemaFields(bool $adopted = false): array
     {
         return [
-            ['key' => self::SCOPE_FIELD, 'type' => 'string', 'type_version' => 1, 'required' => true, 'visibility' => 'protected', 'constraints' => ['min_length' => 1, 'max_length' => 191]],
-            ['key' => self::STATE_FIELD, 'type' => 'string', 'type_version' => 1, 'required' => true, 'visibility' => 'protected', 'constraints' => ['min_length' => 6, 'max_length' => 8]],
+            ['key' => self::SCOPE_FIELD, 'type' => 'string', 'type_version' => 1, 'required' => !$adopted, 'visibility' => 'protected', 'constraints' => ['min_length' => 1, 'max_length' => 191]],
+            ['key' => self::STATE_FIELD, 'type' => 'string', 'type_version' => 1, 'required' => !$adopted, 'visibility' => 'protected', 'constraints' => ['min_length' => 6, 'max_length' => 8]],
         ];
     }
 
@@ -3130,10 +3518,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             || !hash_equals((string) $head->current_hash, $hash)
             || (string) $head->scope_ref !== (string) $row->scope_ref
             || (string) $head->storage_schema_id !== (string) $row->storage_schema_id
-            || !hash_equals(
-                ScopedStorageWorkbenchSchemaIdentity::derive((string) $row->scope_ref, (string) $row->structure_id),
-                (string) $row->storage_schema_id,
-            )
+            || !hash_equals($this->headSchemaId($head), (string) $row->storage_schema_id)
             || (int) $head->current_schema_version !== (int) $row->schema_version) {
             throw new StorageRejected('storage_workbench_structure_corrupt');
         }
@@ -3161,7 +3546,27 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $this->headArchivedAt($head),
             $this->headArchivedAt($head) === null || !is_string($head->archived_by ?? null) ? null : $head->archived_by,
             isset($head->history_keep) ? (int) $head->history_keep : null,
+            recordOwnerPrefix: is_string($head->record_owner_prefix ?? null) ? $head->record_owner_prefix : null,
+            recordOwnerField: is_string($head->record_owner_field ?? null) ? $head->record_owner_field : null,
         );
+    }
+
+    /**
+     * The storage schema a structure's head names: the one derived from its scope and id, or the one it adopted
+     * (adoptSchema). An adopted schema id never has the derived form, so the two cannot be confused.
+     */
+    private function headSchemaId(stdClass $head): string
+    {
+        $adopted = $head->adopted_schema_id ?? null;
+        if (is_string($adopted)) {
+            if (($head->record_owner_prefix ?? null) === null) {
+                throw new StorageRejected('storage_workbench_structure_corrupt');
+            }
+
+            return $adopted;
+        }
+
+        return ScopedStorageWorkbenchSchemaIdentity::derive((string) $head->scope_ref, (string) $head->structure_id);
     }
 
     /**
@@ -3220,7 +3625,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $actor,
             $forUpdate,
         );
-        if (($version->values[self::SCOPE_FIELD] ?? null) !== $scopeRef
+        if ($this->recordScope($structure, $version->values) !== $scopeRef
             || !hash_equals($version->contentHash, (string) $head->current_hash)
             || $version->schema->version !== (int) $head->current_schema_version) {
             throw new StorageRejected('storage_workbench_record_scope_mismatch');
@@ -3231,11 +3636,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
 
     private function workbenchRecord(StorageWorkbenchStructure $structure, StorageRecordVersion $version): StorageWorkbenchRecord
     {
-        $scope = $version->values[self::SCOPE_FIELD] ?? null;
-        $state = $version->values[self::STATE_FIELD] ?? null;
+        $scope = $this->recordScope($structure, $version->values);
+        $state = $version->values[self::STATE_FIELD] ?? ($structure->adopted() ? self::STATE_ACTIVE : null);
         if (!is_string($scope) || !in_array($state, [self::STATE_ACTIVE, self::STATE_ARCHIVED], true)
             || $version->ref->schemaId !== $structure->schema->schemaId
-            || !str_starts_with($version->ownerRef, 'workbench.record:')) {
+            || !str_starts_with($version->ownerRef, $structure->recordOwnerPrefix ?? self::OWNER_PREFIX)) {
             throw new StorageRejected('storage_workbench_record_corrupt');
         }
         $values = $version->values;
@@ -3260,6 +3665,23 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $version->createdBy,
             $version->correlationId,
         );
+    }
+
+    /**
+     * The scope a record version belongs to: its reserved field. A record of an adopted structure written before the
+     * adoption (or since, by a writer that is not the workbench) has none, and belongs to the structure's scope: the
+     * adopted schema is that one structure's.
+     *
+     * @param array<string, mixed> $values
+     */
+    private function recordScope(StorageWorkbenchStructure $structure, #[\SensitiveParameter] array $values): ?string
+    {
+        $scope = $values[self::SCOPE_FIELD] ?? null;
+        if ($scope === null && $structure->adopted()) {
+            return $structure->scopeRef;
+        }
+
+        return is_string($scope) ? $scope : null;
     }
 
     /**
@@ -3417,17 +3839,45 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
     }
 
-    private function ownerRef(string $storageSchemaId, string $recordId): string
+    private function ownerRef(StorageWorkbenchStructure $structure, string $recordId): string
     {
         $ownerRef = $this->database->table('larena_storage_records')
-            ->where('schema_id', $storageSchemaId)
+            ->where('schema_id', $structure->schema->schemaId)
             ->where('record_id', $recordId)
             ->value('owner_ref');
-        if (!is_string($ownerRef) || !str_starts_with($ownerRef, 'workbench.record:')) {
+        if (!is_string($ownerRef) || !str_starts_with($ownerRef, $structure->recordOwnerPrefix ?? self::OWNER_PREFIX)) {
             throw new StorageRejected('storage_workbench_record_corrupt');
         }
 
         return $ownerRef;
+    }
+
+    /**
+     * The owner ref of a record the workbench creates: the structure's prefix and a random part, or, in an adopted
+     * structure that names an owner field, the prefix and that field's value (site.pages:<slug>, the form the site
+     * pages always had). A value that cannot end an owner ref gets the random part; one another record of the
+     * storage already ends with is refused, since owner refs are unique in a storage.
+     *
+     * @param array<string, mixed> $values
+     */
+    private function newOwnerRef(StorageWorkbenchStructure $structure, #[\SensitiveParameter] array $values): string
+    {
+        $prefix = $structure->recordOwnerPrefix ?? self::OWNER_PREFIX;
+        $field = $structure->recordOwnerField;
+        $value = $field === null ? null : ($values[$field] ?? null);
+        if (is_string($value) && preg_match('/\A[a-z0-9][a-z0-9_.-]*\z/D', $value) === 1 && strlen($prefix . $value) <= 191) {
+            $ownerRef = $prefix . $value;
+            if ($this->database->table('larena_storage_records')
+                ->where('schema_id', $structure->schema->schemaId)
+                ->where('owner_ref', $ownerRef)
+                ->exists()) {
+                throw new StorageConflict('storage_workbench_record_owner_taken');
+            }
+
+            return $ownerRef;
+        }
+
+        return $prefix . bin2hex(random_bytes(16));
     }
 
     /** @param list<array<string, mixed>> $fields */

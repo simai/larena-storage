@@ -40,6 +40,11 @@ final readonly class StorageWorkbenchStructure
         // The encryption run that is queued, running or failed (larena-specs
         // docs/architecture/2026-10-22-storage-field-encryption.md); null when there is none.
         public ?StorageWorkbenchEncryptionRun $encryptionRun = null,
+        // A structure that adopted an existing storage schema in place (DatabaseStorageWorkbench::adoptSchema): the
+        // prefix its records' owner refs start with (null: a workbench structure, `workbench.record:`), and the field
+        // whose value a new record's owner ref ends with (null: a random one).
+        public ?string $recordOwnerPrefix = null,
+        public ?string $recordOwnerField = null,
     ) {
     }
 
@@ -75,7 +80,15 @@ final readonly class StorageWorkbenchStructure
             $viewPendingFields,
             $fieldChange,
             $encryptionRun,
+            $this->recordOwnerPrefix,
+            $this->recordOwnerField,
         );
+    }
+
+    /** True for a structure that adopted an existing storage schema: its schema id is not derived from its id. */
+    public function adopted(): bool
+    {
+        return $this->recordOwnerPrefix !== null;
     }
 
     /**

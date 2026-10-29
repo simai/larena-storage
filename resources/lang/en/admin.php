@@ -421,6 +421,7 @@ return [
             'phone' => 'Phone',
             'url' => 'URL',
             'link' => 'Link',
+            'html' => 'Formatted text',
         ],
         'options' => 'Options',
         'options_new' => 'Options (for «Choice» and «Several choices»)',
