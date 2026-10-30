@@ -833,6 +833,7 @@ return [
         'site_pages' => 'Страницы сайта',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
         'site_page_fields' => [
+            'visible_in_menu' => 'Показывать в меню',
             'records_storage' => 'Выдаёт записи',
             'slug' => 'Адрес', 'title' => 'Название', 'order_index' => 'Порядок', 'target' => 'Цель', 'description' => 'Описание',
             'content_mode' => 'Форма содержимого', 'body' => 'Текст', 'blocks' => 'Блоки',

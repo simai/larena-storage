@@ -833,6 +833,7 @@ return [
         'site_pages' => 'Site pages',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
         'site_page_fields' => [
+            'visible_in_menu' => 'Show in menus',
             'records_storage' => 'Gives out records of',
             'slug' => 'Address', 'title' => 'Title', 'order_index' => 'Order', 'target' => 'Target', 'description' => 'Description',
             'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',

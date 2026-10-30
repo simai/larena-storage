@@ -55,6 +55,9 @@ final readonly class SitePagesStorage
     /** «Выдаёт записи»: the storage whose records have their addresses under this page (sites plan, step 5.7). */
     public const RECORDS_FIELD = 'records_storage';
 
+    /** «Показывать в меню»: a page with no such value shows (SitePageMenu). */
+    public const MENU_FIELD = 'visible_in_menu';
+
     /** The fields that became per language after a storage may have been made (sites plan, step 4.3). */
     public const LOCALIZED_FIELDS = ['slug', 'content_mode'];
 
@@ -71,7 +74,7 @@ final readonly class SitePagesStorage
     private const DEFAULT_FIELD_LABELS = [
         'slug' => 'Address', 'title' => 'Title', 'order_index' => 'Order', 'target' => 'Target', 'description' => 'Description',
         'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',
-        'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks', 'records_storage' => 'Gives out records of',
+        'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks', 'records_storage' => 'Gives out records of', 'visible_in_menu' => 'Show in menus',
     ];
 
     /** @param Closure(string): string $scopeForActor The scope the person works in, the one the storage section lists. */
@@ -141,7 +144,7 @@ final readonly class SitePagesStorage
                 }
                 // What a storage of pages made before them lacks: their optional fields, a safe addition.
                 $added = [];
-                foreach ([...$this->contentFields($last), $this->recordsField($last + 40)] as $field) {
+                foreach ([...$this->contentFields($last), $this->recordsField($last + 40), $this->menuField($last + 50)] as $field) {
                     if (!in_array($field['key'], $present, true)) {
                         $added[] = $field;
                         $changed = true;
@@ -242,6 +245,13 @@ final readonly class SitePagesStorage
         return $fields;
     }
 
+    /** @return array<string, mixed> */
+    private function menuField(int $position, ?string $locale = null): array
+    {
+        return ['key' => self::MENU_FIELD, 'label' => $this->word(self::MENU_FIELD, $locale), 'position' => $position, 'type' => 'boolean', 'type_version' => 1,
+            'required' => false, 'visibility' => 'public', 'constraints' => []];
+    }
+
     /**
      * The field that makes a page a section giving out records. The card offers it as a choice of the site's storages, so
      * the storage's own forms do not show it; it is not a text of the site's.
@@ -276,6 +286,7 @@ final readonly class SitePagesStorage
             $string('description', 50, false, 2000, true),
             ...$this->contentFields(50, $locale),
             $this->recordsField(90, $locale),
+            $this->menuField(100, $locale),
         ]];
     }
 

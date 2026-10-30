@@ -966,6 +966,13 @@ final class StorageServiceProvider extends ServiceProvider
             $app->bound(StructureRoleChoice::class) ? $app->make(StructureRoleChoice::class) : null,
             $app->make(SiteRecordAddresses::class),
         ));
+        $this->app->scoped(\Larena\Storage\SitePage\SitePageMenu::class, static fn (Application $app): \Larena\Storage\SitePage\SitePageMenu => new \Larena\Storage\SitePage\SitePageMenu(
+            $app->make(SitePageAddressCache::class),
+            $app->make(SitePageTree::class),
+            $app->make(DatabaseReadContracts::class),
+            $app->make(SitePageAddresses::class),
+            $app->bound('cache.store') ? $app->make('cache.store') : null,
+        ));
         $this->app->singleton(SitePageRules::class, static fn (Application $app): SitePageRules => new SitePageRules(
             $app->make(SitePageTree::class),
             $app->make(SitePageAddresses::class),

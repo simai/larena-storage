@@ -373,7 +373,8 @@
     "src/Presets/StoragePresets.php",
     "src/SitePage/SiteRecordAddresses.php",
     "src/SitePage/SiteRecordValidator.php",
-    "tests/Unit/SiteRecordRoleTest.php"
+    "tests/Unit/SiteRecordRoleTest.php",
+    "src/SitePage/SitePageMenu.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

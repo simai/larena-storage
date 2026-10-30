@@ -23,7 +23,7 @@ final readonly class SitePageAddresses
     }
 
     /** The language a page above stands in when it is not out in $locale; null in the own structure and for the main language. */
-    private function sourceLanguage(string $site, string $locale): ?string
+    public function sourceLanguage(string $site, string $locale): ?string
     {
         if ($this->languages === null || $this->languages->ownStructure($site)) {
             return null;
