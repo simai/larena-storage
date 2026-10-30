@@ -18,6 +18,12 @@ use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Providers\StorageServiceProvider;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\NullStorageSecurityEventSink;
+use Larena\Storage\Runtime\DatabasePublicationLifecycle;
+use Larena\Storage\SiteRedirect\PublicationObserverChain;
+use Larena\Storage\SiteRedirect\SiteRedirectMiddleware;
+use Larena\Storage\SiteRedirect\SiteRedirects;
+use Larena\Storage\SiteRedirect\SiteRedirectsStorage;
+use Larena\Storage\SiteRedirect\SiteRedirectValidator;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -128,5 +134,17 @@ foreach ([
     workbenchProviderExpect($descriptor?->ownerPackage === 'larena/storage', $operation . ' owner mismatch');
     workbenchProviderExpect($descriptor?->target === $target, $operation . ' target mismatch');
 }
+
+// The site redirects: the workbench asks their validator; the middleware, ensure() and the storage resolve, and the
+// publication lifecycle tells the maps.
+$validators = (new ReflectionProperty(DatabaseStorageWorkbench::class, 'recordValidators'))->getValue($workbench);
+workbenchProviderExpect($validators instanceof Closure && array_map('get_class', $validators()) === [SiteRedirectValidator::class],
+    'the workbench does not ask the site redirect validator');
+foreach ([SiteRedirectMiddleware::class, SiteRedirects::class, SiteRedirectsStorage::class] as $service) {
+    // Resolving it is the check: a missing dependency throws.
+    $app->make($service);
+}
+$observer = (new ReflectionProperty(DatabasePublicationLifecycle::class, 'observer'))->getValue($app->make(DatabasePublicationLifecycle::class));
+workbenchProviderExpect($observer instanceof PublicationObserverChain, 'the publication lifecycle does not tell the site redirect maps');
 
 echo "StorageWorkbenchProviderBindingTest passed.\n";

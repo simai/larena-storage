@@ -111,22 +111,22 @@ larena_storage_role_assert($explained['exists'] === true);
 larena_storage_role_assert($explained['active_binding_count'] === 2);
 larena_storage_role_assert($registry->explain('site_node@v9')['exists'] === false);
 
-// The five starter roles install, and installing them again changes nothing.
+// The six starter roles install, and installing them again changes nothing.
 $fresh = new DatabaseStructureRoleRegistry(larena_storage_structure_role_connection());
 $starter = new StarterStructureRoles($fresh);
 
 $first = $starter->install('actor:installer');
-larena_storage_role_assert(count($first['installed']) === 5, 'five starter roles install');
+larena_storage_role_assert(count($first['installed']) === 6, 'six starter roles install');
 larena_storage_role_assert($first['already_present'] === []);
 
 $second = $starter->install('actor:installer');
 larena_storage_role_assert($second['installed'] === [], 'a re-run installs nothing');
-larena_storage_role_assert(count($second['already_present']) === 5, 'a re-run reports what was already there');
+larena_storage_role_assert(count($second['already_present']) === 6, 'a re-run reports what was already there');
 
 $codes = array_map(static fn (StructureRole $r): string => $r->roleCode, $fresh->list());
 larena_storage_role_assert(
-    $codes === ['doc_page', 'doc_space', 'org_chart', 'redirect', 'site_node'],
-    'the starter set is site_node, redirect, doc_space, doc_page and org_chart: ' . implode(', ', $codes),
+    $codes === ['doc_page', 'doc_space', 'org_chart', 'redirect', 'site_node', 'site_redirect'],
+    'the starter set is site_node, redirect, site_redirect, doc_space, doc_page and org_chart: ' . implode(', ', $codes),
 );
 
 echo "Structure role registry passed.\n";

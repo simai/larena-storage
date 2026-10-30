@@ -31,6 +31,8 @@ use Larena\Storage\Contracts\StorageWorkbenchRecord;
 use Larena\Storage\Contracts\StorageWorkbenchRecordPage;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
+use Larena\Storage\Contracts\StructureRoleRecordValidator;
+use Larena\Storage\Contracts\StructureRoleRecordWrite;
 use Larena\Storage\Contracts\VersionedStorage;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
@@ -163,6 +165,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         private ?Closure $encryptionJobs = null,
         // Up to this many rows an encryption run runs in the request; above it, in the background.
         private int $inlineEncryptionRunLimit = self::INLINE_ENCRYPTION_RUN_LIMIT,
+        // The roles' own record rules (Closure(): list<StructureRoleRecordValidator>), asked on every record create
+        // and update of a storage bound to their role; read at the write, so a validator may use the workbench.
+        private ?Closure $recordValidators = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
@@ -1872,12 +1877,90 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         $this->assertScope($actor, 'storage.workbench.record.create', $scopeRef, self::RECORD_RESOURCE);
         $this->assertUserValues($values);
         $structure = $this->readStructureInternal($scopeRef, $structureId, null, true);
+        if ($this->roleRecordChecks($structure, $scopeRef, null, $values, $actor, $correlationId) !== []) {
+            return $this->database->transaction(function () use ($structure, $scopeRef, $values, $actor, $correlationId): StorageWorkbenchRecord {
+                // Again inside the transaction: the role's checks read the other records under it.
+                $checks = $this->roleRecordChecks($structure, $scopeRef, null, $values, $actor, $correlationId);
+                $values = $this->validateRoleRecord($checks);
+                $this->assertRecordReferences($structure, $scopeRef, $values, null, $actor);
+                $record = $this->insertRecord($structure, $scopeRef, $values, $actor, $correlationId);
+                $this->roleRecordWritten($checks, $record);
+
+                return $record;
+            });
+        }
         $this->assertRecordReferences($structure, $scopeRef, $values, null, $actor);
+
+        return $this->insertRecord($structure, $scopeRef, $values, $actor, $correlationId);
+    }
+
+    /** @param array<string, mixed> $values the person's values, checked */
+    private function insertRecord(StorageWorkbenchStructure $structure, string $scopeRef, #[\SensitiveParameter] array $values, string $actor, ?string $correlationId): StorageWorkbenchRecord
+    {
         $values[self::SCOPE_FIELD] = $scopeRef;
         $values[self::STATE_FIELD] = self::STATE_ACTIVE;
         $result = $this->storage->create($this->newOwnerRef($structure, $values), $structure->schema, $values, $actor, $correlationId);
 
         return $this->workbenchRecord($structure, $result->version);
+    }
+
+    /**
+     * The checks of the roles bound to the structure that have a record validator, one per binding, each with the
+     * write as it is asked (StructureRoleRecordWrite); none when no validator is composed or none applies.
+     *
+     * @param array<string, mixed> $values
+     * @return list<array{0: StructureRoleRecordValidator, 1: StructureRoleRecordWrite}>
+     */
+    private function roleRecordChecks(StorageWorkbenchStructure $structure, string $scopeRef, ?string $recordId, #[\SensitiveParameter] array $values, string $actor, ?string $correlationId): array
+    {
+        $validators = $this->recordValidators === null ? [] : ($this->recordValidators)();
+        if (!is_array($validators) || $validators === []) {
+            return [];
+        }
+        $byRole = [];
+        foreach ($validators as $validator) {
+            if ($validator instanceof StructureRoleRecordValidator) {
+                $byRole[$validator->roleRef()] = $validator;
+            }
+        }
+        $checks = [];
+        foreach ($this->roleBindings($structure->schema->schemaId) as $binding) {
+            $validator = $byRole[$binding['role_ref']] ?? null;
+            if ($validator !== null) {
+                $checks[] = [$validator, new StructureRoleRecordWrite($binding['role_ref'], $binding['scope_ref'], $scopeRef,
+                    $structure->structureId, $structure->schema->schemaId, $recordId, $values, $actor, $correlationId)];
+            }
+        }
+
+        return $checks;
+    }
+
+    /**
+     * The values the roles' validators let through, each validator given the values of the one before; each check
+     * keeps the write as its validator let it through.
+     *
+     * @param list<array{0: StructureRoleRecordValidator, 1: StructureRoleRecordWrite}> $checks
+     * @return array<string, mixed>
+     */
+    private function validateRoleRecord(array &$checks): array
+    {
+        $values = [];
+        foreach ($checks as $index => [$validator, $write]) {
+            $write = $index === 0 ? $write : $write->withValues($values);
+            $values = $validator->validate($write);
+            $this->assertUserValues($values);
+            $checks[$index][1] = $write->withValues($values);
+        }
+
+        return $values;
+    }
+
+    /** @param list<array{0: StructureRoleRecordValidator, 1: StructureRoleRecordWrite}> $checks */
+    private function roleRecordWritten(array $checks, StorageWorkbenchRecord $record): void
+    {
+        foreach ($checks as [$validator, $write]) {
+            $validator->written($write, $record, $this);
+        }
     }
 
     public function updateRecord(
@@ -1914,6 +1997,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if ($current->state !== self::STATE_ACTIVE) {
                 throw new StorageRejected('storage_workbench_record_archived');
             }
+            $checks = $this->roleRecordChecks($structure, $scopeRef, $recordId, $values, $actor, $correlationId);
+            if ($checks !== []) {
+                $values = $this->validateRoleRecord($checks);
+            }
             $this->assertRecordReferences($structure, $scopeRef, $values, $current, $actor);
             $values[self::SCOPE_FIELD] = $scopeRef;
             $values[self::STATE_FIELD] = self::STATE_ACTIVE;
@@ -1926,8 +2013,10 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $correlationId,
             )->version;
             $this->keepHistory($structure, [$recordId], $actor, $correlationId);
+            $record = $this->workbenchRecord($structure, $version);
+            $this->roleRecordWritten($checks, $record);
 
-            return $this->workbenchRecord($structure, $version);
+            return $record;
         });
     }
 

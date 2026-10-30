@@ -10,6 +10,21 @@ use Larena\Storage\Console\Commands\PublishedKeyRebuildCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
 use Larena\Storage\Console\Commands\StorageDemoCommand;
 use Larena\Storage\Console\Commands\StorageSitePagesAdoptCommand;
+use Larena\Storage\Console\Commands\StorageSiteRedirectsCommand;
+use Larena\Storage\Contracts\RequestSiteScope;
+use Larena\Storage\SiteRedirect\PublicationObserverChain;
+use Larena\Storage\SiteRedirect\SiteRedirectCache;
+use Larena\Storage\SiteRedirect\SiteRedirectInvalidation;
+use Larena\Storage\SiteRedirect\SiteRedirectMiddleware;
+use Larena\Storage\SiteRedirect\SiteRedirectRules;
+use Larena\Storage\SiteRedirect\SiteRedirects;
+use Larena\Storage\SiteRedirect\SiteRedirectsStorage;
+use Larena\Storage\SiteRedirect\SiteRedirectValidator;
+use Larena\Storage\Exceptions\StorageRejected;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Larena\Core\Enums\ScopeKind;
+use Larena\Core\Scope\DatabaseScopeRegistry;
+use Larena\Core\Scope\ScopeRef;
 use Larena\Storage\Console\Commands\StorageViewCheckCommand;
 use Larena\Storage\Console\Commands\StorageViewRebuildCommand;
 use Larena\Storage\Console\Commands\StorageSitePackExportCommand;
@@ -248,8 +263,11 @@ final class StorageServiceProvider extends ServiceProvider
                     ->where('record_id', $recordId)
                     ->where('revision', $revision)
                     ->exists(),
-                // A derived index the application binds (Search) hears of every change.
-                $app->bound(PublicationObserver::class) ? $app->make(PublicationObserver::class) : null,
+                // A derived index the application binds (Search) hears of every change, and so do the site redirect maps.
+                new PublicationObserverChain(array_values(array_filter([
+                    $app->bound(PublicationObserver::class) ? $app->make(PublicationObserver::class) : null,
+                    $app->make(SiteRedirectInvalidation::class),
+                ]))),
                 // Every transition is audited, whatever path called it.
                 $app->make(StorageSecurityEventSink::class),
                 // A key the application routes by stays unique among published records.
@@ -356,8 +374,10 @@ final class StorageServiceProvider extends ServiceProvider
             $app->bound('translator') ? $app->make('translator') : null,
             $app->bound(ExceptionHandler::class) ? $app->make(ExceptionHandler::class) : null,
             static fn (string $actor, string $locale): array => $app->make(SitePagesStorage::class)->adopt($actor, null, $locale),
+            static fn (string $actor, string $locale): array => $app->make(SiteRedirectsStorage::class)->create($actor, null, $locale),
         ));
         $this->app->tag(SiteFirstRunContributor::class, FirstRunContributor::class);
+        $this->registerSiteRedirects();
 
         $this->app->bindIf(BlockDocumentService::class, static fn (Application $app): BlockDocumentService => new StorageBackedBlockDocumentService(
             $app->make(VersionedStorageContract::class),
@@ -595,6 +615,8 @@ final class StorageServiceProvider extends ServiceProvider
 
                     return true;
                 },
+                // The roles' record rules: the site redirects'.
+                recordValidators: static fn (): array => [$app->make(SiteRedirectValidator::class)],
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
@@ -760,6 +782,7 @@ final class StorageServiceProvider extends ServiceProvider
                 StorageEncryptionStatusCommand::class,
                 StorageDemoCommand::class,
                 StorageSitePagesAdoptCommand::class,
+                StorageSiteRedirectsCommand::class,
             ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
@@ -774,6 +797,76 @@ final class StorageServiceProvider extends ServiceProvider
     private static function sitePackDirectory(Application $app): string
     {
         return rtrim($app->storagePath(), '/') . '/app/private/larena-storage-sitepack';
+    }
+
+    /**
+     * The site redirects (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, steps 2.4–2.6): the rules'
+     * checks on every write, the per-site maps (the configured cache and the request), their invalidation, the
+     * programmatic SiteRedirects::ensure(), each site's «Переадресации» storage and the middleware, which the
+     * application adds to its web group after the site is resolved. The request's site is RequestSiteScope when the
+     * application binds it, else the default site.
+     */
+    private function registerSiteRedirects(): void
+    {
+        $this->app->singleton(SiteRedirectRules::class, static fn (Application $app): SiteRedirectRules => new SiteRedirectRules(
+            $app->make(DatabaseManager::class)->connection(),
+        ));
+        // One per request: its maps are the request's; the configured cache keeps them across requests.
+        $this->app->scoped(SiteRedirectCache::class, static fn (Application $app): SiteRedirectCache => new SiteRedirectCache(
+            $app->make(SiteRedirectRules::class),
+            $app->bound(CacheRepository::class) ? $app->make(CacheRepository::class) : null,
+        ));
+        $cache = fn (): SiteRedirectCache => $this->app->make(SiteRedirectCache::class);
+        $this->app->singleton(SiteRedirectInvalidation::class, static fn (Application $app): SiteRedirectInvalidation => new SiteRedirectInvalidation(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(SiteRedirectRules::class),
+            $cache,
+        ));
+        $this->app->singleton(SiteRedirectValidator::class, static fn (Application $app): SiteRedirectValidator => new SiteRedirectValidator(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(SiteRedirectRules::class),
+            $app->make(PublicationLifecycle::class),
+            $cache,
+        ));
+        $this->app->singleton(SiteRedirects::class, static fn (Application $app): SiteRedirects => new SiteRedirects(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(StorageWorkbenchContract::class),
+            $app->make(PublicationLifecycle::class),
+            $app->make(SiteRedirectRules::class),
+            $app->make(SiteRedirectValidator::class),
+            // An automatic rule is published in the application's language; any language publishes it for the site.
+            static function (string $siteRef) use ($app): string {
+                $locale = $app->make('config')->get('app.locale');
+
+                return is_string($locale) && $locale !== '' ? $locale : 'en';
+            },
+        ));
+        $this->app->singleton(SiteRedirectsStorage::class, static fn (Application $app): SiteRedirectsStorage => new SiteRedirectsStorage(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(StorageWorkbenchContract::class),
+            $app->make(StructureRoleRegistry::class),
+            $app->make(StarterStructureRoles::class),
+            $app->make(SiteRedirectRules::class),
+            // Every active site; before any is recorded, the default one.
+            static function () use ($app): array {
+                $sites = array_map(static fn ($site): string => $site->ref->toString(), $app->make(DatabaseScopeRegistry::class)->list(ScopeKind::Site));
+
+                return $sites !== [] ? $sites : [$app->make(ScopeBaselineInstaller::class)->defaultSiteRef()->toString()];
+            },
+            // A site's storages live in its data scope (scope:minimal-cms for Root's main site).
+            static function (string $siteRef, string $actor) use ($app): string {
+                $ref = ScopeRef::tryParse($siteRef) ?? throw new StorageRejected('site_redirects_site_unknown');
+                $site = $app->make(DatabaseScopeRegistry::class)->read($ref) ?? throw new StorageRejected('site_redirects_site_unknown');
+
+                return $site->dataRef();
+            },
+            $app->bound('translator') ? $app->make('translator') : null,
+        ));
+        $this->app->bind(SiteRedirectMiddleware::class, static fn (Application $app): SiteRedirectMiddleware => new SiteRedirectMiddleware(
+            $app->make(SiteRedirectCache::class),
+            static fn (): string => $app->make(ScopeBaselineInstaller::class)->defaultSiteRef()->toString(),
+            $app->bound(RequestSiteScope::class) ? $app->make(RequestSiteScope::class) : null,
+        ));
     }
 
     /** Declares Storage's metrics in larena/monitoring's catalog when monitoring is installed. */

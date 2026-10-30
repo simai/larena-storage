@@ -10,7 +10,7 @@ use Larena\Storage\Enums\RoleLifecycle;
 use Larena\Storage\Exceptions\StructureRoleRejected;
 
 /**
- * The five roles the platform ships with.
+ * The six roles the platform ships with.
  *
  * Installation is idempotent and never edits an existing row: if a starter role
  * needs to change, it becomes a new `role_version`, so a structure already bound
@@ -24,6 +24,12 @@ final class StarterStructureRoles
     public const SITE_NODE = 'site_node';
 
     public const REDIRECT = 'redirect';
+
+    /** A site's redirect rule (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, step 2.4). */
+    public const SITE_REDIRECT = 'site_redirect';
+
+    /** The role ref site_redirect bindings carry. */
+    public const SITE_REDIRECT_REF = self::SITE_REDIRECT . '@v1';
 
     public const DOC_SPACE = 'doc_space';
 
@@ -75,6 +81,27 @@ final class StarterStructureRoles
                 // A redirect answers immediately or not at all; a draft redirect is
                 // a contradiction, so it has no publication lifecycle.
                 lifecycle: RoleLifecycle::Plain,
+                ownerPackage: self::OWNER_PACKAGE,
+            ),
+            new StructureRole(
+                roleCode: self::SITE_REDIRECT,
+                roleVersion: 1,
+                title: 'Site redirect',
+                // from_path: a site path; to_path: a site path or an absolute https URL; status_code: 301 or 302;
+                // match: exact or prefix; origin: manual or auto (written by a page move, a language switch).
+                requiredFields: [
+                    ['key' => 'from_path', 'type' => 'string'],
+                    ['key' => 'to_path', 'type' => 'string'],
+                    ['key' => 'status_code', 'type' => 'choice'],
+                    ['key' => 'match', 'type' => 'choice'],
+                    ['key' => 'origin', 'type' => 'choice'],
+                ],
+                optionalFields: [
+                    ['key' => 'note', 'type' => 'text'],
+                ],
+                requiredRelations: [],
+                // A manual rule works once it is published; an automatic one is published as it is written.
+                lifecycle: RoleLifecycle::Publishable,
                 ownerPackage: self::OWNER_PACKAGE,
             ),
             new StructureRole(

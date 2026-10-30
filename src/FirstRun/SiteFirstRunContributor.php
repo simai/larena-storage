@@ -26,6 +26,9 @@ use Throwable;
  * If it fails, the installation stands, the pages are written all the same, and larena:storage:adopt-site-pages
  * adopts them. state() reads the pages, adopted or not.
  *
+ * After the pages, the site gets its «Переадресации» storage (SiteRedirectsStorage, step 2.6), by the same route and
+ * for the same reason; if it fails, larena:storage:site-redirects makes it.
+ *
  * It offers «Установить демо-данные» (off unless chosen, owner decision
  * 2026-10-29): the storage demo, written as that administrator into the scope
  * they work in once the first run has committed. A storage's витрина table is made
@@ -42,6 +45,7 @@ final readonly class SiteFirstRunContributor implements FirstRunContributor, Fir
     /**
      * @param Closure(string): mixed $demo Installs the demo as the person, in the scope they work in.
      * @param Closure(string, string): mixed $pages Adopts the site pages as the person, labelled in the locale.
+     * @param Closure(string, string): mixed $redirects Gives the site its redirects storage as the person, in the locale.
      */
     public function __construct(
         private StarterSite $site,
@@ -50,6 +54,7 @@ final readonly class SiteFirstRunContributor implements FirstRunContributor, Fir
         private ?Translator $translator = null,
         private ?ExceptionHandler $errors = null,
         private ?Closure $pages = null,
+        private ?Closure $redirects = null,
     ) {
     }
 
@@ -89,6 +94,17 @@ final readonly class SiteFirstRunContributor implements FirstRunContributor, Fir
             $this->connection->afterCommit(static function () use ($pages, $actor, $locale, $errors): void {
                 try {
                     $pages($actor, $locale);
+                } catch (Throwable $failure) {
+                    $errors?->report($failure);
+                }
+            });
+        }
+        if ($this->redirects !== null && $this->connection !== null) {
+            $redirects = $this->redirects;
+            $locale = $payload->locale;
+            $this->connection->afterCommit(static function () use ($redirects, $actor, $locale, $errors): void {
+                try {
+                    $redirects($actor, $locale);
                 } catch (Throwable $failure) {
                     $errors?->report($failure);
                 }

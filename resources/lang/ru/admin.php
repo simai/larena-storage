@@ -798,6 +798,14 @@ return [
             'content_mode' => 'Форма содержимого', 'body' => 'Текст', 'blocks' => 'Блоки',
             'content_mode_text' => 'Текст', 'content_mode_blocks' => 'Блоки',
         ],
+        'site_redirects' => 'Переадресации',
+        // The fields of each site's redirects storage (SiteRedirectsStorage) and their options.
+        'site_redirect_fields' => [
+            'from_path' => 'Откуда', 'to_path' => 'Куда', 'status_code' => 'Код', 'match' => 'Совпадение', 'origin' => 'Источник', 'note' => 'Примечание',
+            'status_code_301' => '301 — навсегда', 'status_code_302' => '302 — временно',
+            'match_exact' => 'Этот адрес', 'match_prefix' => 'Адреса, которые с него начинаются',
+            'origin_manual' => 'Вручную', 'origin_auto' => 'Автоматически',
+        ],
         'demo_data' => 'Установить демо-данные: каталог решений со всеми типами полей и его разделы. Их можно удалить, как любое хранилище.',
     ],
 ];

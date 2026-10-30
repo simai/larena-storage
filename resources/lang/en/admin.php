@@ -798,6 +798,14 @@ return [
             'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',
             'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks',
         ],
+        'site_redirects' => 'Redirects',
+        // The fields of each site's redirects storage (SiteRedirectsStorage) and their options.
+        'site_redirect_fields' => [
+            'from_path' => 'From', 'to_path' => 'To', 'status_code' => 'Code', 'match' => 'Match', 'origin' => 'Origin', 'note' => 'Note',
+            'status_code_301' => '301 — moved permanently', 'status_code_302' => '302 — moved temporarily',
+            'match_exact' => 'This address', 'match_prefix' => 'Addresses starting with it',
+            'origin_manual' => 'Manual', 'origin_auto' => 'Automatic',
+        ],
         'demo_data' => 'Install demo data: a catalog of solutions with every field type, and its sections. They are deleted like any storage.',
     ],
 ];
