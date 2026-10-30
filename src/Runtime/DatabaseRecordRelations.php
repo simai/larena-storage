@@ -7,6 +7,7 @@ namespace Larena\Storage\Runtime;
 use Illuminate\Database\Connection;
 use Larena\Storage\Audit\RelationAuditEventCatalog;
 use Larena\Storage\Contracts\RecordRelations;
+use Larena\Storage\Contracts\RecordTreeListener;
 use Larena\Storage\Contracts\RelationDescriptor;
 use Larena\Storage\Contracts\RelationRecord;
 use Larena\Storage\Contracts\RelationTargets;
@@ -38,11 +39,13 @@ final class DatabaseRecordRelations implements RecordRelations
     /**
      * @param RelationTargets|null $targets what the records are; without it (a package test
      *                                      of the bare table) targets are not checked
+     * @param (\Closure(): ?RecordTreeListener)|null $treeListener what hears a tree's edges change, built at its first use
      */
     public function __construct(
         private readonly Connection $connection,
         private readonly ?RelationTargets $targets = null,
         private readonly ?StorageSecurityEventSink $securityEvents = null,
+        private readonly ?\Closure $treeListener = null,
     ) {
     }
 
@@ -70,6 +73,9 @@ final class DatabaseRecordRelations implements RecordRelations
         }
 
         $this->assertTargets($descriptor, $schemaId, $fromRecordId, $toRecordId);
+        if ($descriptor->kind->isTree()) {
+            $this->listener()?->placing($descriptor->relationKey, $schemaId, $fromRecordId, $toRecordId);
+        }
 
         $path = null;
         $depth = 0;
@@ -129,6 +135,10 @@ final class DatabaseRecordRelations implements RecordRelations
             }
 
             throw $failure;
+        }
+
+        if ($descriptor->kind->isTree()) {
+            $this->listener()?->placed($descriptor->relationKey, $schemaId, $fromRecordId, $toRecordId, $actorId, $correlationId);
         }
 
         return new RelationRecord(
@@ -281,6 +291,8 @@ final class DatabaseRecordRelations implements RecordRelations
             $newPath = $parentPath->child($recordId);
         }
 
+        $this->listener()?->placing($relationKey, $edge->schemaId, $recordId, $newParentRecordId);
+
         $moved = [];
 
         $this->connection->transaction(function () use (
@@ -364,7 +376,14 @@ final class DatabaseRecordRelations implements RecordRelations
             ]);
         });
 
+        $this->listener()?->placed($relationKey, $edge->schemaId, $recordId, $newParentRecordId, $actorId, $correlationId);
+
         return $this->page($moved, $this->budget(null), null);
+    }
+
+    private function listener(): ?RecordTreeListener
+    {
+        return $this->treeListener === null ? null : ($this->treeListener)();
     }
 
     /**
@@ -458,6 +477,10 @@ final class DatabaseRecordRelations implements RecordRelations
                 })
                 ->delete();
         });
+
+        if ($edge !== null) {
+            $this->listener()?->removed($relationKey, $edge->schemaId);
+        }
 
         return [
             'relation_key' => $relationKey,
@@ -712,6 +735,7 @@ final class DatabaseRecordRelations implements RecordRelations
         $this->assertSchema();
         $removed = [];
         $detached = [];
+        $trees = [];
         $now = $this->now();
 
         foreach (array_chunk($recordIds, 500) as $chunk) {
@@ -733,6 +757,9 @@ final class DatabaseRecordRelations implements RecordRelations
                     );
                 }
                 $isTree = $row['kind'] === RelationKind::TreeParent->value;
+                if ($isTree) {
+                    $trees[(string) $row['relation_key'] . "\n" . (string) $row['schema_id']] = [(string) $row['relation_key'], (string) $row['schema_id']];
+                }
                 if ($policy === RelationDeletePolicy::Detach && $isTree) {
                     $this->detachChild($row, $correlationId, $now);
                     $detached[] = $fromRecordId;
@@ -764,6 +791,10 @@ final class DatabaseRecordRelations implements RecordRelations
                 'removed_record_ids' => array_values(array_unique($removed)),
                 'detached_record_ids' => $detached,
             ]);
+        }
+
+        foreach ($trees as [$relationKey, $schemaId]) {
+            $this->listener()?->removed($relationKey, $schemaId);
         }
 
         return ['removed' => array_values(array_unique($removed)), 'detached' => $detached];

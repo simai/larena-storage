@@ -805,6 +805,15 @@ return [
     ],
     // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
     // the name of the site pages' storage and its content fields (Larena\Storage\FirstRun\SitePagesStorage).
+    'site_pages' => [
+        'redirect_note' => 'Адрес страницы изменился.',
+        'refusals' => [
+            'site_page_address_taken' => 'Адрес уже занят другой страницей в этом разделе',
+            'site_page_slug_reserved' => 'Этот адрес занят самой системой (например, admin или api). Выберите другой.',
+            'site_page_slug_invalid' => 'Адрес — латинские буквы, цифры, «-» и «_», с буквы или цифры.',
+            'site_page_home_fixed' => 'Главная страница всегда на адресе «/»: пока она опубликована, её адрес и место не меняются.',
+        ],
+    ],
     'first_run' => [
         'site_pages' => 'Страницы сайта',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.

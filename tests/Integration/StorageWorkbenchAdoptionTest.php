@@ -13,7 +13,6 @@ use Larena\Storage\Contracts\StorageSchemaVersionRef;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Enums\RelationDeletePolicy;
 use Larena\Storage\Enums\RelationKind;
-use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\FirstRun\StarterSite;
 use Larena\Storage\Runtime\DatabaseLocalizedValues;
 use Larena\Storage\Runtime\DatabasePublicationLifecycle;
@@ -182,16 +181,13 @@ try {
     storageViewExpect($publication->head(StarterSite::SCHEMA_ID, $home->ref->recordId, 'site:main', 'en')?->publishedRevision === 1,
         'the edit moved the published revision');
 
-    // 7. A new page through the workbench: the slug owner ref; the same slug again is refused.
+    // 7. A new page through the workbench: the slug owner ref; a slug that repeats (under another parent) gets a generated one.
     $about = $workbench->createRecord($scope, 'workbench.site_pages', ['slug' => 'about', 'title' => 'About', 'order_index' => 2, 'target' => '/about'], $actor);
     storageViewExpect($connection->table('larena_storage_records')->where('record_id', $about->recordId)->value('owner_ref') === 'site.pages:about'
         && $about->state === 'active', 'a new page did not get the slug owner ref');
-    try {
-        $workbench->createRecord($scope, 'workbench.site_pages', ['slug' => 'about', 'title' => 'About 2', 'order_index' => 3, 'target' => '/about-2'], $actor);
-        throw new RuntimeException('a second page with the same slug owner ref was created');
-    } catch (StorageConflict $exception) {
-        storageViewExpect($exception->getMessage() === 'storage_workbench_record_owner_taken', 'the slug conflict says ' . $exception->getMessage());
-    }
+    $again = $workbench->createRecord($scope, 'workbench.site_pages', ['slug' => 'about', 'title' => 'About 2', 'order_index' => 3, 'target' => '/about-2'], $actor);
+    storageViewExpect(preg_match('/\Asite\.pages:[0-9a-f]{32}\z/', (string) $connection->table('larena_storage_records')->where('record_id', $again->recordId)->value('owner_ref')) === 1,
+        'a page whose slug repeats did not get a generated owner ref');
     $odd = $workbench->createRecord($scope, 'workbench.site_pages', ['slug' => 'Odd Slug', 'title' => 'Odd', 'order_index' => 4, 'target' => '/odd'], $actor);
     storageViewExpect(preg_match('/\Asite\.pages:[0-9a-f]{32}\z/', (string) $connection->table('larena_storage_records')->where('record_id', $odd->recordId)->value('owner_ref')) === 1,
         'a slug that cannot end an owner ref did not get the random one');
@@ -234,7 +230,7 @@ try {
     storageViewExpect($workbench->archiveRecord($scope, 'workbench.site_pages', $docs->ref->recordId, $docsCurrent->revision, $actor)->state === 'archived',
         'a draft page was not archived');
     $active = $workbench->listRecords(new StorageWorkbenchRecordQuery($scope, 'workbench.site_pages', limit: 10), $actor);
-    storageViewExpect(count($active->items) === 2, 'archived pages still list as active');
+    storageViewExpect(count($active->items) === 3, 'archived pages still list as active');
     storageViewExpect($connection->table('larena_storage_record_relations')->count() === count($before['larena_storage_record_relations']),
         'the tree changed');
 } finally {

@@ -138,8 +138,8 @@ foreach ([
 // The site redirects: the workbench asks their validator; the middleware, ensure() and the storage resolve, and the
 // publication lifecycle tells the maps.
 $validators = (new ReflectionProperty(DatabaseStorageWorkbench::class, 'recordValidators'))->getValue($workbench);
-workbenchProviderExpect($validators instanceof Closure && array_map('get_class', $validators()) === [SiteRedirectValidator::class],
-    'the workbench does not ask the site redirect validator');
+workbenchProviderExpect($validators instanceof Closure && array_map('get_class', $validators()) === [SiteRedirectValidator::class, \Larena\Storage\SitePage\SitePageRecordValidator::class],
+    'the workbench does not ask the site redirect and site page validators');
 foreach ([SiteRedirectMiddleware::class, SiteRedirects::class, SiteRedirectsStorage::class] as $service) {
     // Resolving it is the check: a missing dependency throws.
     $app->make($service);

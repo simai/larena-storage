@@ -204,6 +204,12 @@ final class StoragePropertyViewPort extends PropertyViewPort
         if ($reason === StorageSectionGateway::FIELD_VALUE_INVALID) {
             return $this->fieldReasonMessage('');
         }
+        if (str_starts_with($reason, 'site_page_')) {
+            $container = \Illuminate\Container\Container::getInstance();
+            $text = $container->bound('translator') ? $container->make('translator')->get('larena-storage::admin.site_pages.refusals.'.$reason) : null;
+
+            return is_string($text) && !str_starts_with($text, 'larena-storage::') ? $text : null;
+        }
         if (!in_array($reason, StorageSectionGateway::ENCRYPTION_REASONS, true)) {
             return null;
         }

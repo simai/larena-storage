@@ -63,6 +63,9 @@ final class PublishedKeyIndex implements PublicationIndex, LocalizedValueObserve
         }
 
         $this->table->forgetRecord($state->schemaId, $state->scopeRef, $state->locale, $state->recordId);
+        if ($this->dropSetsNoLongerKept($state->schemaId, $state->scopeRef, $state->locale)) {
+            return;
+        }
         if (!$state->isPublished() || $state->publishedRevision === null) {
             return;
         }
@@ -82,6 +85,9 @@ final class PublishedKeyIndex implements PublicationIndex, LocalizedValueObserve
                 continue;
             }
             $this->table->forgetRecord($schemaId, $placement['scope_ref'], $placement['locale'], $recordId);
+            if ($this->dropSetsNoLongerKept($schemaId, $placement['scope_ref'], $placement['locale'])) {
+                continue;
+            }
             // A translation is not refused for its key: a duplicate it causes stops
             // the set from answering, and a lookup reports it as ambiguous.
             $this->place($schemaId, $placement['scope_ref'], $placement['locale'], $recordId, $revision, false);
@@ -194,6 +200,25 @@ final class PublishedKeyIndex implements PublicationIndex, LocalizedValueObserve
     public function available(): bool
     {
         return $this->table->available();
+    }
+
+    /**
+     * A storage that has no key any more (the site pages, once their slugs repeat under different parents) keeps no
+     * set: the first change after that would leave one short, answering misses for records it no longer holds. Key
+     * reads go on through the site витрина or the scan. True when the storage has no key.
+     *
+     * @phpstan-impure
+     */
+    private function dropSetsNoLongerKept(string $schemaId, string $scopeRef, string $locale): bool
+    {
+        if ($this->keys->keyFieldFor($schemaId, $scopeRef) !== null) {
+            return false;
+        }
+        foreach ($this->table->setFields($schemaId, $scopeRef, $locale) as $field) {
+            $this->table->dropSet($schemaId, $scopeRef, $locale, $field);
+        }
+
+        return true;
     }
 
     /**

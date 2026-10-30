@@ -194,6 +194,19 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
         });
     }
 
+    /**
+     * The schema that answers a role in a scope: the binding of this scope, the scope's choice where it has several.
+     *
+     * @throws ReadContractRejected when no structure answers
+     * @phpstan-impure
+     */
+    public function roleSchema(string $roleRef, string $scopeRef): string
+    {
+        $this->assertSchema();
+
+        return $this->schemaId($roleRef, $scopeRef);
+    }
+
     /** @phpstan-impure */
     public function publishedProjection(
         string $roleRefOrSchemaId,

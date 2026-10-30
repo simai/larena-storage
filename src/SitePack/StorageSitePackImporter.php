@@ -650,7 +650,7 @@ final class StorageSitePackImporter
                         $this->publication->publish($schemaId, $recordId, $this->siteRef, $locale, $revisions[$state['revision']], $this->actor, $this->correlationId);
                         $counts['publications'] = ($counts['publications'] ?? 0) + 1;
                     } catch (PublicationRejected $exception) {
-                        $key = $exception->reasonCode === 'key_conflict' ? 'publication_key_conflicts' : 'publications_skipped';
+                        $key = in_array($exception->reasonCode, ['key_conflict', \Larena\Storage\SitePage\SitePageRules::ADDRESS_TAKEN], true) ? 'publication_key_conflicts' : 'publications_skipped';
                         $counts[$key] = ($counts[$key] ?? 0) + 1;
                     }
                 }

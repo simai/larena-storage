@@ -14,6 +14,16 @@ use Larena\Storage\Console\Commands\StorageSiteRedirectsCommand;
 use Larena\Core\Contracts\SiteBindings;
 use Larena\Storage\Contracts\RequestSiteScope;
 use Larena\Storage\Contracts\StructureRoleChoice;
+use Larena\Storage\Contracts\SitePageAddressObserver;
+use Larena\Storage\Runtime\PublicationGuardChain;
+use Larena\Storage\SitePage\SitePageAddressCache;
+use Larena\Storage\SitePage\SitePageAddressChanges;
+use Larena\Storage\SitePage\SitePageAddresses;
+use Larena\Storage\SitePage\SitePagePlacement;
+use Larena\Storage\SitePage\SitePageRecordValidator;
+use Larena\Storage\SitePage\SitePageReservedSlugs;
+use Larena\Storage\SitePage\SitePageRules;
+use Larena\Storage\SitePage\SitePageTree;
 use Larena\Storage\SiteRedirect\PublicationObserverChain;
 use Larena\Storage\SiteRedirect\SiteRedirectCache;
 use Larena\Storage\SiteRedirect\SiteRedirectInvalidation;
@@ -218,6 +228,8 @@ final class StorageServiceProvider extends ServiceProvider
                 $connection,
                 new DatabaseRelationTargets($connection),
                 $app->make(StorageSecurityEventSink::class),
+                // A site page's address follows its place in the tree.
+                static fn (): SitePageAddressChanges => $app->make(SitePageAddressChanges::class),
             );
         });
         $this->app->alias(DatabaseRecordRelations::class, RecordRelations::class);
@@ -241,6 +253,7 @@ final class StorageServiceProvider extends ServiceProvider
                 static fn (): LocalizedValueObserver => new LocalizedValueObserverChain([
                     $app->make(PublishedKeyIndex::class),
                     $app->make(PublishedSiteViewIndex::class),
+                    $app->make(SitePageAddressChanges::class),
                 ]),
                 // A translation of an encrypted field is sealed for its locale.
                 $app->make(StorageFieldSealer::class),
@@ -270,11 +283,15 @@ final class StorageServiceProvider extends ServiceProvider
                 new PublicationObserverChain(array_values(array_filter([
                     $app->bound(PublicationObserver::class) ? $app->make(PublicationObserver::class) : null,
                     $app->make(SiteRedirectInvalidation::class),
+                    $app->make(SitePageAddressChanges::class),
                 ]))),
                 // Every transition is audited, whatever path called it.
                 $app->make(StorageSecurityEventSink::class),
-                // A key the application routes by stays unique among published records.
-                new PublishedKeyUniqueness($app->make(DatabaseReadContracts::class), $app->make(PublishedKeyPolicy::class)),
+                // A key the application routes by stays unique among published records; a site page's address, among its siblings.
+                new PublicationGuardChain([
+                    new PublishedKeyUniqueness($app->make(DatabaseReadContracts::class), $app->make(PublishedKeyPolicy::class)),
+                    $app->make(SitePageAddressChanges::class),
+                ]),
                 // The indexed published keys and the site витрина move with the head, in its transaction.
                 new PublicationIndexChain([
                     $app->make(PublishedKeyIndex::class),
@@ -393,6 +410,7 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(SiteRedirectsStorage::class),
         ));
         $this->registerSiteRedirects();
+        $this->registerSitePages();
 
         $this->app->bindIf(BlockDocumentService::class, static fn (Application $app): BlockDocumentService => new StorageBackedBlockDocumentService(
             $app->make(VersionedStorageContract::class),
@@ -630,8 +648,8 @@ final class StorageServiceProvider extends ServiceProvider
 
                     return true;
                 },
-                // The roles' record rules: the site redirects'.
-                recordValidators: static fn (): array => [$app->make(SiteRedirectValidator::class)],
+                // The roles' record rules: the site redirects' and the site pages'.
+                recordValidators: static fn (): array => [$app->make(SiteRedirectValidator::class), $app->make(SitePageRecordValidator::class)],
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
@@ -882,6 +900,55 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(SiteRedirectCache::class),
             static fn (): string => $app->make(ScopeBaselineInstaller::class)->defaultSiteRef()->toString(),
             $app->bound(RequestSiteScope::class) ? $app->make(RequestSiteScope::class) : null,
+        ));
+    }
+
+    /**
+     * A site page's address by its place in the tree (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, stage
+     * 3): the map in the cache, the rules of a slug, and what follows a change of address.
+     */
+    private function registerSitePages(): void
+    {
+        $this->app->singleton(SitePageTree::class, static fn (Application $app): SitePageTree => new SitePageTree(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(DatabaseReadContracts::class),
+        ));
+        $this->app->singleton(SitePageAddresses::class);
+        $this->app->singleton(SitePagePlacement::class);
+        $this->app->scoped(SitePageAddressCache::class, static fn (Application $app): SitePageAddressCache => new SitePageAddressCache(
+            $app->make(SitePageTree::class),
+            $app->make(SitePageAddresses::class),
+            $app->bound('cache.store') ? $app->make('cache.store') : null,
+            $app->bound(StructureRoleChoice::class) ? $app->make(StructureRoleChoice::class) : null,
+        ));
+        $this->app->singleton(SitePageRules::class, static fn (Application $app): SitePageRules => new SitePageRules(
+            $app->make(SitePageTree::class),
+            $app->make(SitePageAddresses::class),
+            $app->make(DatabaseReadContracts::class),
+            static function () use ($app): array {
+                $uris = [];
+                if ($app->bound('router')) {
+                    foreach ($app->make('router')->getRoutes()->getRoutes() as $route) {
+                        if (!$route->isFallback) {
+                            $uris[] = $route->uri();
+                        }
+                    }
+                }
+                $public = is_dir($app->publicPath()) ? scandir($app->publicPath()) : false;
+
+                return SitePageReservedSlugs::from($uris, is_array($public) ? array_diff($public, ['.', '..']) : []);
+            },
+        ));
+        $this->app->singleton(SitePageRecordValidator::class);
+        $this->app->singleton(SitePageAddressChanges::class, static fn (Application $app): SitePageAddressChanges => new SitePageAddressChanges(
+            $app->make(SitePageTree::class),
+            $app->make(SitePageAddresses::class),
+            $app->make(SitePageRules::class),
+            static fn (): SitePageAddressCache => $app->make(SitePageAddressCache::class),
+            static fn (): SiteRedirects => $app->make(SiteRedirects::class),
+            static fn (): ?SitePageAddressObserver => $app->bound(SitePageAddressObserver::class) ? $app->make(SitePageAddressObserver::class) : null,
+            $app->bound('log') ? $app->make('log') : null,
+            $app->bound('translator') ? $app->make('translator') : null,
         ));
     }
 

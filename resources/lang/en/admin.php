@@ -805,6 +805,15 @@ return [
     ],
     // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
     // the name of the site pages' storage and its content fields (Larena\Storage\FirstRun\SitePagesStorage).
+    'site_pages' => [
+        'redirect_note' => 'The page\'s address changed.',
+        'refusals' => [
+            'site_page_address_taken' => 'This address is already taken by another page in this section',
+            'site_page_slug_reserved' => 'The system itself uses this address (admin or api, for example). Choose another.',
+            'site_page_slug_invalid' => 'An address is latin letters, digits, «-» and «_», starting with a letter or a digit.',
+            'site_page_home_fixed' => 'The home page is always at «/»: while it is published, its address and place do not change.',
+        ],
+    ],
     'first_run' => [
         'site_pages' => 'Site pages',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.

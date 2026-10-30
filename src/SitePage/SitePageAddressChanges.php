@@ -1,0 +1,214 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Larena\Storage\SitePage;
+
+use Closure;
+use Illuminate\Contracts\Translation\Translator;
+use Larena\Storage\Contracts\LocalizedValueObserver;
+use Larena\Storage\Contracts\PublicationGuard;
+use Larena\Storage\Contracts\PublicationObserver;
+use Larena\Storage\Contracts\PublicationState;
+use Larena\Storage\Contracts\RecordTreeListener;
+use Larena\Storage\Contracts\SitePageAddressObserver;
+use Larena\Storage\Exceptions\PublicationRejected;
+use Larena\Storage\Exceptions\RelationRejected;
+use Larena\Storage\Runtime\DatabasePublicationLifecycle;
+use Larena\Storage\SiteRedirect\SiteRedirectPath;
+use Larena\Storage\SiteRedirect\SiteRedirects;
+use Psr\Log\LoggerInterface;
+use Throwable;
+
+/**
+ * A site page's address changes where the public sees it change: when a revision with another slug is published, or
+ * when the page is moved (a move takes effect at once; a tree has no drafts). This class sees both and does what follows
+ * (owner decision 35, sites pages §5):
+ *
+ * - the checks of SitePageRules before the change;
+ * - the addresses' cache forgotten, once the transaction around the change commits;
+ * - where the page was published at the old address and is reachable at the new one, one prefix redirect 301 old → new
+ *   through SiteRedirects::ensure: it answers the old address and every address below it. The address taken up frees it
+ *   from an automatic rule pointing away from it (a rename back). ensure() writes as the person, who must have the site
+ *   as their current one and may write its rules; when they may not (or a schedule publishes, with no person), the
+ *   change stands and the missing rule is logged: a page must not stay unpublished for a rule's sake;
+ * - the pages below hear of it (SitePageAddressObserver), and so does a moved page.
+ *
+ * A page published at no address before gets no rule; nor does one that is no longer reachable.
+ */
+final class SitePageAddressChanges implements PublicationGuard, PublicationObserver, RecordTreeListener, LocalizedValueObserver
+{
+    public const NOTIFY_LIMIT = 1000;
+
+    /** @var array<string, ?string> a page's address before its publication, by publication */
+    private array $beforePublication = [];
+
+    /** @var array<string, list<array{site: string, locale: string, address: ?string}>> a page's addresses before a move, by record */
+    private array $beforeMove = [];
+
+    /**
+     * @param Closure(): SitePageAddressCache $cache the request's
+     * @param Closure(): SiteRedirects $redirects
+     * @param Closure(): ?SitePageAddressObserver $observer
+     */
+    public function __construct(
+        private readonly SitePageTree $tree,
+        private readonly SitePageAddresses $addresses,
+        private readonly SitePageRules $rules,
+        private readonly Closure $cache,
+        private readonly Closure $redirects,
+        private readonly Closure $observer,
+        private readonly ?LoggerInterface $log = null,
+        private readonly ?Translator $translator = null,
+    ) {
+    }
+
+    public function assertMayPublish(string $schemaId, string $recordId, string $scopeRef, string $locale, int $revision): void
+    {
+        $why = $this->rules->whyNotPublish($schemaId, $recordId, $scopeRef, $locale, $revision);
+        if ($why !== null) {
+            throw new PublicationRejected($why);
+        }
+        if (!$this->tree->isPageOf($schemaId, $scopeRef)) {
+            return;
+        }
+        $this->beforePublication[self::key($schemaId, $recordId, $scopeRef, $locale)] = $this->addresses->addressOf($schemaId, $scopeRef, $locale, $recordId);
+    }
+
+    public function publicationChanged(PublicationState $state, int $projectionVersion): void
+    {
+        if (!$this->tree->isPageOf($state->schemaId, $state->scopeRef)) {
+            return;
+        }
+        $this->forget($state->scopeRef);
+        $key = self::key($state->schemaId, $state->recordId, $state->scopeRef, $state->locale);
+        $published = array_key_exists($key, $this->beforePublication);
+        $before = $this->beforePublication[$key] ?? null;
+        unset($this->beforePublication[$key]);
+        $after = $state->isPublished() ? $this->addresses->addressOf($state->schemaId, $state->scopeRef, $state->locale, $state->recordId) : null;
+        if ($published && $after !== null && $after !== $before) {
+            [$actor, $correlationId] = $this->lastWriter($state);
+            $this->follow($state->scopeRef, $before, $after, $actor, $correlationId);
+        }
+        // What stands below moved with it, or went with it, whichever transition this was.
+        $this->notify($state->schemaId, $state->scopeRef, $state->locale, $this->tree->descendants($state->schemaId, $state->recordId, self::NOTIFY_LIMIT));
+    }
+
+    public function placing(string $relationKey, string $schemaId, string $recordId, ?string $newParentRecordId): void
+    {
+        if ($relationKey !== SitePagePath::RELATION || $this->tree->sitesOf($schemaId) === []) {
+            return;
+        }
+        $why = $this->rules->whyNotMove($schemaId, $recordId, $newParentRecordId);
+        if ($why !== null) {
+            throw new RelationRejected($why);
+        }
+        $before = [];
+        foreach ($this->tree->publishedPlaces($schemaId, $recordId) as $place) {
+            $before[] = $place + ['address' => $this->addresses->addressOf($schemaId, $place['site'], $place['locale'], $recordId)];
+        }
+        $this->beforeMove[$schemaId . "\n" . $recordId] = $before;
+    }
+
+    public function placed(string $relationKey, string $schemaId, string $recordId, ?string $newParentRecordId, string $actor, ?string $correlationId): void
+    {
+        if ($relationKey !== SitePagePath::RELATION) {
+            return;
+        }
+        $sites = $this->tree->sitesOf($schemaId);
+        foreach ($sites as $site) {
+            $this->forget($site);
+        }
+        $key = $schemaId . "\n" . $recordId;
+        $before = $this->beforeMove[$key] ?? [];
+        unset($this->beforeMove[$key]);
+        $moved = [$recordId, ...$this->tree->descendants($schemaId, $recordId, self::NOTIFY_LIMIT - 1)];
+        foreach ($before as $place) {
+            $after = $this->addresses->addressOf($schemaId, $place['site'], $place['locale'], $recordId);
+            if ($place['address'] !== null && $after !== null && $after !== $place['address']) {
+                $this->follow($place['site'], $place['address'], $after, $actor, $correlationId);
+            }
+            $this->notify($schemaId, $place['site'], $place['locale'], $moved);
+        }
+    }
+
+    public function removed(string $relationKey, string $schemaId): void
+    {
+        if ($relationKey === SitePagePath::RELATION) {
+            foreach ($this->tree->sitesOf($schemaId) as $site) {
+                $this->forget($site);
+            }
+        }
+    }
+
+    public function localizedValuesWritten(string $schemaId, string $recordId, int $revision, string $locale): void
+    {
+        foreach ($this->tree->sitesOf($schemaId) as $site) {
+            $this->forget($site);
+        }
+    }
+
+    /** Now, for this process's own next read, and again for every other once the change is visible to it. */
+    private function forget(string $site): void
+    {
+        $forget = function () use ($site): void {
+            ($this->cache)()->forget($site);
+        };
+        $forget();
+        $database = $this->tree->connection();
+        if ($database->transactionLevel() > 0) {
+            $database->afterCommit($forget);
+        }
+    }
+
+    private function follow(string $site, ?string $from, string $to, string $actor, ?string $correlationId): void
+    {
+        try {
+            $redirects = ($this->redirects)();
+            $redirects->release($site, $to, $actor, $correlationId);
+            if ($from !== null && $from !== SitePagePath::HOME_ADDRESS) {
+                $redirects->ensure($site, $from, $to, 301, SiteRedirectPath::MATCH_PREFIX, $this->note(), $actor, $correlationId);
+            }
+        } catch (Throwable $failure) {
+            $this->log?->warning('site_page_redirect_not_written', ['site' => $site, 'from' => $from, 'to' => $to, 'reason' => $failure->getMessage()]);
+        }
+    }
+
+    /** @param list<string> $recordIds */
+    private function notify(string $schemaId, string $site, string $locale, array $recordIds): void
+    {
+        if ($recordIds === []) {
+            return;
+        }
+        try {
+            $observer = ($this->observer)();
+            if ($observer !== null) {
+                $this->tree->nextAddressEpoch($site);
+                $observer->addressesChanged($site, $locale, $recordIds);
+            }
+        } catch (Throwable $failure) {
+            $this->log?->warning('site_page_address_observer_failed', ['schema' => $schemaId, 'site' => $site, 'reason' => $failure->getMessage()]);
+        }
+    }
+
+    /** @return array{0: string, 1: ?string} who made the transition just logged, and its correlation */
+    private function lastWriter(PublicationState $state): array
+    {
+        $row = $this->tree->connection()->table(DatabasePublicationLifecycle::LOG_TABLE)
+            ->where('publication_id', $state->publicationId)->orderByDesc('id')->first(['actor_id', 'correlation_id']);
+
+        return [is_object($row) ? (string) $row->actor_id : '', is_object($row) && is_string($row->correlation_id) ? $row->correlation_id : null];
+    }
+
+    private function note(): string
+    {
+        $note = $this->translator?->get('larena-storage::admin.site_pages.redirect_note');
+
+        return is_string($note) && !str_starts_with($note, 'larena-storage::') ? $note : 'The page\'s address changed.';
+    }
+
+    private static function key(string $schemaId, string $recordId, string $site, string $locale): string
+    {
+        return $schemaId . "\n" . $recordId . "\n" . $site . "\n" . $locale;
+    }
+}

@@ -3953,14 +3953,12 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     {
         $prefix = $structure->recordOwnerPrefix ?? self::OWNER_PREFIX;
         $ownerRef = self::fieldOwnerRef($prefix, $structure->recordOwnerField, $values);
-        if ($ownerRef !== null) {
-            if ($this->database->table('larena_storage_records')
-                ->where('schema_id', $structure->schema->schemaId)
-                ->where('owner_ref', $ownerRef)
-                ->exists()) {
-                throw new StorageConflict('storage_workbench_record_owner_taken');
-            }
-
+        // The field's value may repeat (a slug under another parent), and the owner ref may not: such a record gets a
+        // generated one, as a SitePack import gives it. It only names the record; the role's checks decide the value.
+        if ($ownerRef !== null && !$this->database->table('larena_storage_records')
+            ->where('schema_id', $structure->schema->schemaId)
+            ->where('owner_ref', $ownerRef)
+            ->exists()) {
             return $ownerRef;
         }
 

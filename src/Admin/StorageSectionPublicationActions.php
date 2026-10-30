@@ -6,6 +6,7 @@ namespace Larena\Storage\Admin;
 
 use Larena\Admin\Runtime\StructureEditorOperations;
 use Larena\Storage\Contracts\StorageWorkbench;
+use Larena\Storage\SitePage\SitePageRules;
 use Throwable;
 
 /**
@@ -23,6 +24,7 @@ final readonly class StorageSectionPublicationActions
         private StorageSectionPublication $publication,
         private StorageWorkbench $workbench,
         private StructureEditorOperations $operations,
+        private ?SitePageRules $pages = null,
     ) {
     }
 
@@ -76,6 +78,13 @@ final readonly class StorageSectionPublicationActions
         }
         if ($record->revision !== $seenRevision) {
             return self::CHANGED;
+        }
+        // The operation would keep a page's refusal to itself: asked first, so the person is told why.
+        if ($verb === StorageSectionPublication::PUBLISH) {
+            $why = $this->pages?->whyNotPublish($binding['schema'], $recordId, $binding['site'], $locale, $record->revision);
+            if ($why !== null) {
+                return $why;
+            }
         }
         $result = $this->operations->execute($actor, 'storage.publication.'.$verb, ['schema_id' => $binding['schema'], 'record_id' => $recordId,
             'scope_ref' => $binding['site'], 'locale' => $locale] + ($verb === StorageSectionPublication::PUBLISH ? ['revision' => $record->revision] : []));

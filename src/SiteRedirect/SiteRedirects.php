@@ -115,6 +115,37 @@ final readonly class SiteRedirects
     }
 
     /**
+     * Frees an address a page has taken up again (a rename back): the automatic rules from it are taken off the site and
+     * sent to the archive, so the page answers and a rule back to it is no cycle. A person's own rule stays: it is theirs
+     * to change. Returns how many rules went.
+     */
+    public function release(string $siteRef, string $from, string $actor, ?string $correlationId = null): int
+    {
+        $from = SiteRedirectPath::from($from);
+        $storages = [];
+        foreach ($this->rules->storages($siteRef) as $storage) {
+            $storages[$storage['schema_id']] = $storage;
+        }
+        $released = 0;
+        foreach ($this->rules->current($siteRef) as $rule) {
+            $storage = $storages[$rule->schemaId] ?? null;
+            if ($rule->from !== $from || $rule->origin !== SiteRedirectRule::ORIGIN_AUTO || $storage === null) {
+                continue;
+            }
+            $this->database->transaction(function () use ($rule, $storage, $siteRef, $actor, $correlationId): void {
+                foreach ($this->rules->publishedLocales($rule->schemaId, $rule->recordId, $siteRef) as $locale) {
+                    $this->publication->unpublish($rule->schemaId, $rule->recordId, $siteRef, $locale, $actor, $correlationId);
+                }
+                $read = $this->workbench->readRecord($storage['scope_ref'], $storage['structure_id'], $rule->recordId, $actor);
+                $this->workbench->archiveRecord($storage['scope_ref'], $storage['structure_id'], $rule->recordId, $read->revision, $actor, $correlationId);
+            });
+            ++$released;
+        }
+
+        return $released;
+    }
+
+    /**
      * @param array<string, mixed> $values
      * @param list<string> $locales
      * @return array{state: string, schema_id: string, record_id: string, revision: int, from_address: string, to_address: string, locales: list<string>}
