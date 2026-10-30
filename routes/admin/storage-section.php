@@ -10,6 +10,7 @@ use Larena\Storage\Admin\Http\Controllers\StorageFieldRevealController;
 use Larena\Storage\Admin\Http\Controllers\StorageJobsController;
 use Larena\Storage\Admin\Http\Controllers\StorageSectionController;
 use Larena\Storage\Admin\Http\Controllers\StorageSitePackController;
+use Larena\Storage\Admin\Http\Controllers\StorageSectionPublicationPortController;
 use Larena\Storage\Admin\Http\Controllers\StorageSitePackImportController;
 use Larena\Storage\Admin\Http\Controllers\StoragePropertyViewPortController;
 
@@ -68,6 +69,8 @@ if ((bool) config('larena-admin.storage_section.enabled', false)) {
             Route::post('/{structure}/jobs/{job}/retry', [StorageJobsController::class, 'retry'])->where(['structure' => $structure, 'job' => $job])->name('jobs.retry');
             Route::post('/{structure}/jobs/{job}/cancel', [StorageJobsController::class, 'cancel'])->where(['structure' => $structure, 'job' => $job])->name('jobs.cancel');
             Route::get('/{structure}/jobs/{job}/download', [StorageJobsController::class, 'download'])->where(['structure' => $structure, 'job' => $job])->name('jobs.download');
+            // The records list of a storage bound to a publishable role: the badges and «Опубликовать» beside the list's own port.
+            Route::post('/{structure}/publication-port', StorageSectionPublicationPortController::class)->where('structure', $structure)->name('publication-port');
             // The storage's settings as lists (owner decision 2026-10-16): its fields as records of a host port.
             Route::post('/{structure}/schema-port', [StorageSectionController::class, 'schemaPort'])->where('structure', $structure)->name('schema-port');
         });

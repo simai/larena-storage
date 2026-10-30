@@ -21,7 +21,10 @@ use Larena\Storage\Admin\StorageEncryptedFields;
 use Larena\Storage\Admin\StorageEncryptionKeyStatus;
 use Larena\Storage\Admin\StorageEncryptionRunState;
 use Larena\Storage\Admin\StorageFieldChangeState;
+use Larena\Storage\Admin\StorageSectionBindings;
 use Larena\Storage\Admin\StorageSectionGateway;
+use Larena\Storage\Admin\StorageSectionPublication;
+use Larena\Storage\Admin\StorageSectionPublicationActions;
 use Larena\Storage\Admin\StorageSitePackExports;
 use Larena\Storage\Admin\StorageSortHint;
 use Larena\Admin\Assets\AdminProductAssetManifest;
@@ -290,8 +293,13 @@ final readonly class StorageSectionController
             ($permissions['dataview.preferences.save_shared'] ?? false) === true ? 'shared-column-settings' : null,
             ($permissions['record.bulk_archive'] ?? false) === true && ($selected['archived'] ?? false) !== true && !$archiveView ? 'bulk-under-filter' : null,
         ]));
+        // A storage bound to a publishable role: its list gets the badges and «Опубликовать» from its own host port.
+        $publishable = $selected !== null && !$archiveView && !$structureArchived && !$listNotReady && is_string($state['scope_ref'] ?? null)
+            ? $this->publishable($request, $state['scope_ref'], $structure) : null;
         $dataview = null;
-        if ($selected !== null && $columns !== [] && !$listNotReady) {
+        if ($selected !== null && $columns !== [] && !$listNotReady && $publishable !== null) {
+            $dataview = $this->dataview($this->publicationList($structure, $recordsPath, $records, $columns, $permissions, $headerActions, $publishable));
+        } elseif ($selected !== null && $columns !== [] && !$listNotReady) {
             $bulk = ($permissions['record.bulk_archive'] ?? false) === true && !$structureArchived;
             $canCreate = ($permissions['record.create'] ?? false) === true && !$structureArchived;
             // «Create» offers this storage's record and, for each «Storage record» field, a record of the
@@ -368,7 +376,8 @@ final readonly class StorageSectionController
         $panel = null;
         if ($selected !== null) {
             $panel = $this->recordPanel($request, $selected, $structure, $permissions, $mode, $current, $history, $listPath, $archiveView,
-                is_string($state['scope_ref'] ?? null) ? $state['scope_ref'] : null, $recordPage);
+                is_string($state['scope_ref'] ?? null) ? $state['scope_ref'] : null, $recordPage,
+                $mode === 'view' && !$structureArchived && is_string($state['scope_ref'] ?? null) ? $publishable ?? $this->publishable($request, $state['scope_ref'], $structure) : null);
         }
         // The list asks for the record panel alone when a record opens over it (X-Larena-Fragment: record-panel).
         if ($request->headers->get('X-Larena-Fragment') === 'record-panel') {
@@ -423,12 +432,63 @@ final readonly class StorageSectionController
             // A field change running in the background (its progress), or the last one that failed or was cancelled.
             'fieldChangeRegion' => $selected === null || $archiveView ? '' : $this->fieldChangeRegion(
                 $this->fieldChangeNotice($request, $selected, $structure, $permissions, 'records'), $recordsPath),
-            'portUrl' => $this->sectionPath().'/port',
-            'portCapabilities' => $capabilities,
-            'bulkAll' => !$archiveView && $selected !== null && ($permissions['record.bulk_archive'] ?? false) === true
+            // A host port list connects itself; the records port's bridge asks for a port address on the form.
+            'portUrl' => $publishable !== null ? null : $this->sectionPath().'/port',
+            'portCapabilities' => $publishable !== null ? StorageSectionPublicationPortController::CAPABILITIES : $capabilities,
+            'bulkAll' => $publishable === null && !$archiveView && $selected !== null && ($permissions['record.bulk_archive'] ?? false) === true
                 && ($selected['archived'] ?? false) !== true,
             'addressQuery' => $archiveView ? [] : $this->addressQuery($request),
         ]);
+    }
+
+    /**
+     * The publication this person sees of a storage: its binding and what they may do, or null for a storage without
+     * a publishable role.
+     *
+     * @return array{binding: array{schema: string, site: string}, can: array<string, bool>, actions: StorageSectionPublicationActions}|null
+     */
+    private function publishable(Request $request, string $scope, string $structure): ?array
+    {
+        $actions = StorageSectionBindings::publicationActions($this->container);
+        $binding = $actions?->binding($this->actor($request), $scope, $structure);
+
+        return $actions === null || $binding === null ? null : ['binding' => $binding, 'can' => $actions->can($this->actor($request)), 'actions' => $actions];
+    }
+
+    /**
+     * The records list of a publishable storage: the same columns with the badges, and the actions for checked rows.
+     *
+     * @param array<string, mixed> $records @param list<array<string, mixed>> $columns
+     * @param array<string, mixed> $permissions @param list<array<string, mixed>> $headerActions
+     * @param array{binding: array{schema: string, site: string}, can: array<string, bool>, actions: StorageSectionPublicationActions} $publishable
+     */
+    private function publicationList(string $structure, string $recordsPath, array $records, array $columns, array $permissions, array $headerActions, array $publishable): AdminDataviewPage
+    {
+        $publication = $publishable['actions']->publication();
+        $bulk = ($permissions['record.bulk_archive'] ?? false) === true ? ['bulk_delete' => $this->copy('bulk_archive')] : [];
+        $bulk += $publication->bulkActions($publishable['can']);
+        $canCreate = ($permissions['record.create'] ?? false) === true;
+
+        return new AdminDataviewPage(
+            instanceId: 'storage-section-'.substr(hash('sha256', $structure), 0, 12),
+            title: $this->copy('records'),
+            columns: [...$columns, ['key' => StorageSectionPublication::COLUMN, 'label' => $publication->word('larena-admin::structure_editors.publication'), 'sortable' => false]],
+            total: max(0, (int) ($records['matched_count'] ?? 0)),
+            pageId: 'page.admin.storage-records',
+            portUrl: $recordsPath.'/publication-port',
+            selectable: $bulk !== [],
+            settings: true,
+            actions: $canCreate,
+            bulkActions: $bulk,
+            applyText: $this->copy('apply'),
+            countLabel: $this->translated('minimal_cms.record_count'),
+            tableViewLabel: $this->translated('minimal_cms.table_view'),
+            headerActions: $headerActions,
+            portKind: 'host',
+            portCapabilities: $canCreate ? StorageSectionPublicationPortController::CAPABILITIES : array_values(array_diff(StorageSectionPublicationPortController::CAPABILITIES, ['create-record'])),
+            hostPanels: ['view' => '?record_id=__ID__&record_mode=view#minimal-cms-record-view', 'edit' => '?record_id=__ID__&record_mode=edit#minimal-cms-record-editor']
+                + ($canCreate ? ['create' => '?record_mode=create#minimal-cms-record-editor'] : []),
+        );
     }
 
     /**
@@ -563,7 +623,7 @@ final readonly class StorageSectionController
      * @param list<mixed> $history
      * @return array{html:string,asset_tags:list<string>}|null
      */
-    private function recordPanel(Request $request, array $selected, string $structure, array $permissions, ?string $mode, ?array $current, array $history, string $listPath, bool $archiveView, ?string $scopeRef = null, bool $recordPage = false): ?array
+    private function recordPanel(Request $request, array $selected, string $structure, array $permissions, ?string $mode, ?array $current, array $history, string $listPath, bool $archiveView, ?string $scopeRef = null, bool $recordPage = false, ?array $publishable = null): ?array
     {
         $structureArchived = ($selected['archived'] ?? false) === true;
         $recordsPath = $this->sectionPath().'/'.rawurlencode($structure);
@@ -623,6 +683,10 @@ final readonly class StorageSectionController
             $canEdit = $active && !$structureArchived && ($permissions['record.update'] ?? false) === true;
             $lifecycle = [];
             $identity = ['_token' => $token, 'payload[record_id]' => $recordId, 'payload[expected_revision]' => $revision];
+            // «Опубликовать» and «Снять с публикации» per language, for a storage bound to a publishable role.
+            if ($active && $publishable !== null) {
+                $lifecycle = $this->publicationLifecycle($publishable, $recordId, $revision, $identity);
+            }
             if ($active && !$structureArchived && ($permissions['record.archive'] ?? false) === true) {
                 $lifecycle[] = ['label' => $this->copy('archive'), 'write_fields' => ['action' => 'record.archive'] + $identity,
                     'confirm' => $this->copy('confirm_archive'), 'danger' => true];
@@ -684,7 +748,11 @@ final readonly class StorageSectionController
                 'versionsLabel' => $this->copy('versions'),
                 'restoreLabel' => $this->copy('restore_version'),
                 'restoreHint' => $this->copy('restore_version_hint'),
-                'notice' => $active ? null : $this->copy('archived'),
+                // Where the property view reads records, it names the publication among the record's fields (StoragePropertyViewPort).
+                'notice' => !$active ? $this->copy('archived')
+                    : ($publishable !== null && $this->config->get('larena-admin.property_view.enabled', false) !== true
+                        ? $this->publicationWord($publishable, 'larena-admin::structure_editors.publication').': '.$publishable['actions']->publication()->line($publishable['binding']['schema'], $recordId, $publishable['binding']['site'])
+                        : null),
             ]);
         } else {
             return null;
@@ -694,6 +762,61 @@ final readonly class StorageSectionController
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /**
+     * The record card's «Опубликовать · ru» and «Снять с публикации · ru»: the actions the row menu offers this record.
+     *
+     * @param array{binding: array{schema: string, site: string}, can: array<string, bool>, actions: StorageSectionPublicationActions} $publishable
+     * @param array<string, int|string> $identity
+     * @return list<array<string, mixed>>
+     */
+    private function publicationLifecycle(array $publishable, string $recordId, int $revision, array $identity): array
+    {
+        $publication = $publishable['actions']->publication();
+        $lifecycle = [];
+        foreach ($publication->actions($publishable['binding']['schema'], $recordId, $publishable['binding']['site'], $revision, $publishable['can']) as $action) {
+            [$verb, $locale] = explode(':', $action, 2);
+            $lifecycle[] = ['label' => $publication->word('larena-admin::structure_editors.actions.'.$verb).' · '.$locale,
+                'write_fields' => ['action' => 'record.'.$verb, 'payload[locale]' => $locale] + $identity];
+        }
+
+        return $lifecycle;
+    }
+
+    /** @param array{actions: StorageSectionPublicationActions} $publishable */
+    private function publicationWord(array $publishable, string $key): string
+    {
+        return $publishable['actions']->publication()->word($key);
+    }
+
+    /**
+     * «Опубликовать» or «Снять с публикации» from the record card: back to the card, saying what happened.
+     *
+     * @param array<mixed> $payload
+     */
+    private function publicationWrite(Request $request, string $structure, string $verb, array $payload): RedirectResponse
+    {
+        $recordId = $this->recordId($payload['record_id'] ?? null);
+        $locale = $payload['locale'] ?? null;
+        $revision = filter_var($payload['expected_revision'] ?? null, FILTER_VALIDATE_INT);
+        $back = $recordId === null ? $this->redirector->route('larena.admin.storage.records', ['structure' => $structure])
+            : $this->redirector->route('larena.admin.storage.records', ['structure' => $structure, 'record_id' => $recordId, 'record_mode' => 'view']);
+        $refused = fn (): RedirectResponse => $back->withErrors(['storage' => (string) $this->translator->get('larena-storage::admin.section.notice_rejected')]);
+        $state = $this->snapshot($request, ['structure_id' => $structure, 'records' => 'skip']);
+        $publishable = is_string($state['scope_ref'] ?? null) ? $this->publishable($request, $state['scope_ref'], $structure) : null;
+        if ($recordId === null || !is_string($locale) || !is_int($revision) || $publishable === null
+            || !in_array($locale, $publishable['actions']->publication()->locales(), true) || !is_string($state['scope_ref'] ?? null)) {
+            return $refused();
+        }
+        $refusal = $publishable['actions']->write($this->actor($request), $state['scope_ref'], $structure, $publishable['binding'], $recordId, $verb, $locale, $revision);
+        if ($refusal === StorageSectionPublicationActions::CHANGED) {
+            return $back->withErrors(['storage' => (string) $this->translator->get('larena-storage::admin.section.notice_conflict')]);
+        }
+
+        return $refusal === null
+            ? $back->with('status', (string) $this->translator->get('larena-storage::admin.section.notice_record_'.$verb, ['locale' => $locale]))
+            : $refused();
     }
 
     /**
@@ -1183,6 +1306,10 @@ final readonly class StorageSectionController
         }
         // The record panel sends its fields as field_N with their key list: record values go to
         // payload[values], a new storage's label and ID to the payload itself.
+        // The record card's «Опубликовать» and «Снять с публикации» go to the publication operations, not the workbench.
+        if ($structure !== null && is_array($payload) && in_array($action, ['record.publish', 'record.unpublish'], true)) {
+            return $this->publicationWrite($request, $structure, substr((string) $action, strlen('record.')), $payload);
+        }
         $panelValues = AdminRecordPanel::submittedValues(static fn (string $name): mixed => $request->input($name));
         if (is_array($payload) && $panelValues !== null) {
             if ($action === 'structure.create') {

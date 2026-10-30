@@ -41,6 +41,16 @@ use Larena\Storage\Contracts\StorageWorkbench;
  */
 final class StorageSectionBindings
 {
+    /** «Опубликовать» of the section, or null where the composition has no publication or registry. */
+    public static function publicationActions(\Illuminate\Contracts\Container\Container $app): ?StorageSectionPublicationActions
+    {
+        try {
+            return $app->make(StorageSectionPublicationActions::class);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     /** larena/admin is installed: the classes the section is built on can be loaded. */
     public static function adminInstalled(): bool
     {
@@ -77,6 +87,7 @@ final class StorageSectionBindings
                 $app->make(StorageReferenceLabelResolver::class),
                 $app->make(\Larena\Admin\Contracts\RecordFilterOptionsGateway::class),
                 $app->make(StoragePropertyViewFileStore::class),
+                self::publicationActions($app),
             ));
         // «Показать» of an encrypted field: Storage's own reveal (it checks storage.workbench.record.decrypt and audits
         // each reveal), within the person's scope.
@@ -90,6 +101,15 @@ final class StorageSectionBindings
                     : null,
                 $app->bound(\Larena\Access\Contracts\ActorOperationAuthorizer::class) ? $app->make(\Larena\Access\Contracts\ActorOperationAuthorizer::class) : null,
             ));
+        // «Опубликовать» in the section, for a storage bound to a publishable role.
+        $app->scopedIf(StorageSectionPublication::class, static fn (Application $app): StorageSectionPublication => new StorageSectionPublication(
+            $app->make(\Illuminate\Database\DatabaseManager::class)->connection(),
+            $app->make(\Larena\Storage\Contracts\StructureRoleRegistry::class),
+            $app->make(\Larena\Storage\Contracts\PublicationLifecycle::class),
+            $app->make(ConfigRepository::class),
+            $app->make(\Illuminate\Contracts\Translation\Translator::class),
+        ));
+        $app->scopedIf(StorageSectionPublicationActions::class);
         // «Шифрование» on a storage's settings page: the key's state from Storage's health and explain, never key material.
         $app->scopedIf(StorageEncryptionKeyStatus::class, static fn (Application $app): StorageEncryptionKeyStatus
             => new StorageEncryptionKeyStatus(

@@ -6,6 +6,10 @@ declare(strict_types=1);
 // larena/storage's admin UI, shown only where larena/admin is installed.
 return [
     'section' => [
+        'confirm_bulk_publish' => 'Publish the selected records (:count) in :locale?',
+        'confirm_bulk_unpublish' => 'Unpublish the selected records (:count) in :locale?',
+        'notice_record_publish' => 'The record is published (:locale).',
+        'notice_record_unpublish' => 'The record is unpublished (:locale).',
         'import_csv' => 'Import CSV',
         'import' => [
             'title' => 'Import from CSV',

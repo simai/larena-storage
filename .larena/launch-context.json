@@ -337,7 +337,11 @@
     "src/FirstRun/SiteFirstRunContributor.php",
     "src/Admin/Http/Controllers/FormerCmsAddressController.php",
     "src/Console/Commands/StorageDemoCommand.php",
-    "src/Demo/StorageDemoData.php"
+    "src/Demo/StorageDemoData.php",
+    "src/Admin/Http/Controllers/StorageSectionPublicationPortController.php",
+    "src/Admin/StorageSectionPublication.php",
+    "src/Admin/StorageSectionPublicationActions.php",
+    "tests/Admin/StorageSectionPublicationTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

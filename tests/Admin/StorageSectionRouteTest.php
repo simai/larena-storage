@@ -123,7 +123,7 @@ foreach (['ru', 'en'] as $locale) {
 // create records in a storage that is not archived, never in the archive view.
 assert(str_contains($controllerSource, "            'personal-column-settings',\n"));
 assert(str_contains($controllerSource, "(\$permissions['record.create'] ?? false) === true && !\$structureArchived && !\$archiveView ? 'create-record' : null,"));
-assert(str_contains($controllerSource, "'portCapabilities' => \$capabilities,"));
+assert(str_contains($controllerSource, "'portCapabilities' => \$publishable !== null ? StorageSectionPublicationPortController::CAPABILITIES : \$capabilities,"));
 
 // Times of the section (a record's versions, jobs, SitePack runs) are the site's (QA 2026-10-22: 01:44 shown for a local
 // 04:44 without a word): in its time zone, «UTC» named while the site keeps UTC, as monitoring shows them.
@@ -159,10 +159,10 @@ foreach (['ru' => ['видимые колонки', 'все поля', 'кром
         && str_contains($copy['larena_storage']['section']['jobs']['export_text_all'], $which) && str_contains($copy['larena_storage']['section']['jobs']['export_text_query'], $which), $locale);
 }
 
-// The section's write routes, each through the owner gateway or the section's own jobs: 22 here and the workbench
+// The section's write routes, each through the owner gateway or the section's own jobs: 23 here and the workbench
 // stand's one (they were the admin's until the section moved to Storage, owner decision 2026-10-29).
 $workbenchRoutes = (string) file_get_contents(__DIR__ . '/../../routes/admin/workbench.php');
-assert(substr_count($routeSource, 'Route::post(') === 22 && substr_count($workbenchRoutes, 'Route::post(') === 1);
+assert(substr_count($routeSource, 'Route::post(') === 23 && substr_count($workbenchRoutes, 'Route::post(') === 1);
 assert(str_contains($routeSource, "Route::post('/{structure}/import/apply', [StorageSectionController::class, 'importApply'])"));
 assert(str_contains($routeSource, "Route::post('/{structure}/jobs/{job}/apply', [StorageJobsController::class, 'apply'])"));
 assert(str_contains($routeSource, "Route::post('/', [StorageSectionController::class, 'dispatch'])->name('dispatch')"));

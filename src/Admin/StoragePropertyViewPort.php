@@ -31,6 +31,7 @@ final class StoragePropertyViewPort extends PropertyViewPort
         ?PropertyReferenceLabelResolver $labels = null,
         ?RecordFilterOptionsGateway $options = null,
         private ?StoragePropertyViewFileStore $fileStore = null,
+        private ?StorageSectionPublicationActions $publication = null,
     ) {
         parent::__construct($layouts, $projector, $labels, $options);
     }
@@ -57,10 +58,17 @@ final class StoragePropertyViewPort extends PropertyViewPort
             return ['answer' => 'refused', 'reason' => 'record_unknown'];
         }
         $permissions = is_array($base['permissions'] ?? null) ? $base['permissions'] : [];
+        // A record of a publishable storage says where it is out; «Опубликовать» stands in the panel's foot.
+        $binding = $this->publication?->binding($actor, $scope, $collection);
+        $publication = $this->publication?->publication();
 
         return [
-            ['structure_id' => $collection, 'label' => $base['selected_structure']['label'] ?? $collection, 'fields' => $structure->fields],
-            ['record_id' => $record->recordId, 'revision' => $record->revision, 'values' => $record->values,
+            ['structure_id' => $collection, 'label' => $base['selected_structure']['label'] ?? $collection, 'fields' => $binding === null || $publication === null ? $structure->fields
+                : [...$structure->fields, (new \Larena\Property\Contracts\PropertyField(StorageSectionPublication::COLUMN, 'string', 1,
+                    $publication->word('larena-admin::structure_editors.publication'), readonly: true))->toArray()]],
+            ['record_id' => $record->recordId, 'revision' => $record->revision,
+                'values' => $binding === null || $publication === null ? $record->values
+                    : $record->values + [StorageSectionPublication::COLUMN => $publication->line($binding['schema'], $record->recordId, $binding['site'])],
                 'editable' => $record->state === 'active' && ($base['selected_structure']['archived'] ?? false) !== true
                     && ($permissions['record.update'] ?? false) === true,
                 // Deleting here moves the record to the archive, as the section's own lifecycle does.

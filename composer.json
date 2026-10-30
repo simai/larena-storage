@@ -229,7 +229,8 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSortHintTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageBackgroundJobsTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackExportTest.php",
-            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackImportTest.php"
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackImportTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSectionPublicationTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-publication": "LARENA_STORAGE_PUBLICATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationMySqlRestartTest.php",
