@@ -44,7 +44,7 @@ final readonly class SiteRedirects
      * published at its current revision is left as it is. Refused like a person's write of the rule, or with
      * `site_redirect_code_invalid`, `site_redirect_match_invalid` or `site_redirects_storage_missing`.
      *
-     * @return array{state: string, schema_id: string, record_id: string, revision: int, from_path: string, to_path: string, locales: list<string>}
+     * @return array{state: string, schema_id: string, record_id: string, revision: int, from_address: string, to_address: string, locales: list<string>}
      */
     public function ensure(string $siteRef, string $from, string $to, int $code, string $match, string $reason, string $actor, ?string $correlationId = null): array
     {
@@ -71,7 +71,7 @@ final readonly class SiteRedirects
                 break;
             }
         }
-        $values = ['from_path' => $from, 'to_path' => $to, 'status_code' => (string) $code, 'match' => $match,
+        $values = ['from_address' => $from, 'to_address' => $to, 'status_code' => (string) $code, 'match' => $match,
             'origin' => SiteRedirectRule::ORIGIN_AUTO] + ($note === '' ? [] : ['note' => $note]);
 
         return $this->database->transaction(function () use ($siteRef, $storages, $existing, $values, $actor, $correlationId): array {
@@ -84,7 +84,7 @@ final readonly class SiteRedirects
                 $storage = $storages[$existing->schemaId];
                 $read = $this->workbench->readRecord($storage['scope_ref'], $storage['structure_id'], $existing->recordId, $actor);
                 $current = array_filter($read->values, static fn (string|int $key): bool => !str_starts_with((string) $key, 'larena_'), ARRAY_FILTER_USE_KEY);
-                $wanted = ['to_path' => $this->validator->target($siteRef, $values['to_path'], $existing->schemaId, $existing->recordId)] + $values;
+                $wanted = ['to_address' => $this->validator->target($siteRef, $values['to_address'], $existing->schemaId, $existing->recordId)] + $values;
                 ksort($current);
                 ksort($wanted);
                 $locales = $this->rules->publishedLocales($existing->schemaId, $existing->recordId, $siteRef);
@@ -117,7 +117,7 @@ final readonly class SiteRedirects
     /**
      * @param array<string, mixed> $values
      * @param list<string> $locales
-     * @return array{state: string, schema_id: string, record_id: string, revision: int, from_path: string, to_path: string, locales: list<string>}
+     * @return array{state: string, schema_id: string, record_id: string, revision: int, from_address: string, to_address: string, locales: list<string>}
      */
     private static function receipt(string $state, string $schemaId, string $recordId, int $revision, array $values, array $locales): array
     {
@@ -126,8 +126,8 @@ final readonly class SiteRedirects
             'schema_id' => $schemaId,
             'record_id' => $recordId,
             'revision' => $revision,
-            'from_path' => is_string($values['from_path'] ?? null) ? $values['from_path'] : '',
-            'to_path' => is_string($values['to_path'] ?? null) ? $values['to_path'] : '',
+            'from_address' => is_string($values['from_address'] ?? null) ? $values['from_address'] : '',
+            'to_address' => is_string($values['to_address'] ?? null) ? $values['to_address'] : '',
             'locales' => $locales,
         ];
     }

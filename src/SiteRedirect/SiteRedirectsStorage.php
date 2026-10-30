@@ -26,7 +26,7 @@ use Larena\Storage\Runtime\StarterStructureRoles;
  * (`created`). A site that cannot get one is `refused` with the reason, and the other sites go on. plan() is the dry
  * run: what create() would do, nothing written.
  *
- * The fields, in the run's language: from_path and to_path (string, required), status_code (choice 301 | 302),
+ * The fields, in the run's language: from_address and to_address (string, required), status_code (choice 301 | 302),
  * match (choice exact | prefix), origin (choice manual | auto), all required, and note (text, optional).
  */
 final readonly class SiteRedirectsStorage
@@ -51,7 +51,7 @@ final readonly class SiteRedirectsStorage
 
     /** The words when no translator answers, by key. */
     private const DEFAULT_WORDS = [
-        'from_path' => 'From', 'to_path' => 'To', 'status_code' => 'Code', 'match' => 'Match', 'origin' => 'Origin', 'note' => 'Note',
+        'from_address' => 'From', 'to_address' => 'To', 'status_code' => 'Code', 'match' => 'Match', 'origin' => 'Origin', 'note' => 'Note',
         'status_code_301' => '301 — moved permanently', 'status_code_302' => '302 — moved temporarily',
         'match_exact' => 'This address', 'match_prefix' => 'Addresses starting with it',
         'origin_manual' => 'Manual', 'origin_auto' => 'Automatic',
@@ -102,6 +102,10 @@ final readonly class SiteRedirectsStorage
             $structure = $present === null
                 ? $this->workbench->createStructure($scope, $this->descriptor($locale), $actor, $correlationId)
                 : $this->workbench->readStructure($scope, self::STRUCTURE_ID, $actor);
+            // An archived «Переадресации» is not bound again: its rules stay out of the site until it is restored.
+            if ($structure->isArchived()) {
+                throw new StorageRejected('site_redirects_storage_archived');
+            }
             $this->roles->bindStructure(StarterStructureRoles::SITE_REDIRECT_REF, $structure->schema->schemaId, $site,
                 array_map(static fn (array $field): array => ['key' => (string) $field['key'], 'type' => (string) $field['type']], $structure->fields),
                 $actor, [], RoleLifecycle::Publishable->value, $correlationId);
@@ -125,8 +129,8 @@ final readonly class SiteRedirectsStorage
             fn (string $value): array => ['value' => $value, 'label' => $this->word($key . '_' . $value, $locale)], $values)];
 
         return ['structure_id' => self::STRUCTURE_ID, 'label' => $this->label($locale), 'fields' => [
-            $field('from_path', 10, 'string', 2, true, ['min_length' => 1, 'max_length' => SiteRedirectPath::MAX_LENGTH]),
-            $field('to_path', 20, 'string', 2, true, ['min_length' => 1, 'max_length' => SiteRedirectPath::MAX_LENGTH]),
+            $field('from_address', 10, 'string', 2, true, ['min_length' => 1, 'max_length' => SiteRedirectPath::MAX_LENGTH]),
+            $field('to_address', 20, 'string', 2, true, ['min_length' => 1, 'max_length' => SiteRedirectPath::MAX_LENGTH]),
             $field('status_code', 30, 'choice', 1, true, $options('status_code', ['301', '302'])),
             $field('match', 40, 'choice', 1, true, $options('match', [SiteRedirectPath::MATCH_EXACT, SiteRedirectPath::MATCH_PREFIX])),
             $field('origin', 50, 'choice', 1, true, $options('origin', [SiteRedirectRule::ORIGIN_MANUAL, SiteRedirectRule::ORIGIN_AUTO])),

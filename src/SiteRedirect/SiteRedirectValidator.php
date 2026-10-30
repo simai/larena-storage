@@ -18,7 +18,7 @@ use Larena\Storage\Runtime\StarterStructureRoles;
  * The rules of a site redirect (site_redirect@v1, larena-specs docs/architecture/2026-10-29-sites-pages-languages.md
  * §5), checked on every write of a rule against the site's other current rules (drafts included, archived aside):
  *
- * - `from_path` a site path without a query or fragment, `to_path` a site path or an absolute https URL, both
+ * - `from_address` a site path without a query or fragment, `to_address` a site path or an absolute https URL, both
  *   normalized (SiteRedirectPath): `site_redirect_from_invalid`, `site_redirect_to_invalid`;
  * - not to itself (`site_redirect_same_path`), one rule per path and match (`site_redirect_duplicate`);
  * - no cycle (`site_redirect_cycle`): following the target through the other rules never comes back to a path the
@@ -51,8 +51,8 @@ final readonly class SiteRedirectValidator implements StructureRoleRecordValidat
     public function validate(StructureRoleRecordWrite $write): array
     {
         $values = $write->values;
-        $from = $values['from_path'] ?? null;
-        $to = $values['to_path'] ?? null;
+        $from = $values['from_address'] ?? null;
+        $to = $values['to_address'] ?? null;
         $match = $values['match'] ?? null;
         // A value of the wrong kind is the field types' to refuse, with their own reason.
         if (!is_string($from) || !is_string($to) || !in_array($match, [SiteRedirectPath::MATCH_EXACT, SiteRedirectPath::MATCH_PREFIX], true)) {
@@ -84,7 +84,7 @@ final readonly class SiteRedirectValidator implements StructureRoleRecordValidat
             }
         }
 
-        return ['from_path' => $from, 'to_path' => $final] + $values;
+        return ['from_address' => $from, 'to_address' => $final] + $values;
     }
 
     public function written(StructureRoleRecordWrite $write, StorageWorkbenchRecord $record, StorageWorkbench $workbench): void
@@ -112,7 +112,7 @@ final readonly class SiteRedirectValidator implements StructureRoleRecordValidat
             }
             $read = $workbench->readRecord($storage['scope_ref'], $storage['structure_id'], $other->recordId, $write->actor);
             $values = array_filter($read->values, static fn (string|int $key): bool => !str_starts_with((string) $key, 'larena_'), ARRAY_FILTER_USE_KEY);
-            $values['to_path'] = $target;
+            $values['to_address'] = $target;
             $rewritten = $workbench->updateRecord($storage['scope_ref'], $storage['structure_id'], $other->recordId, $read->revision, $values,
                 $write->actor, $write->correlationId);
             foreach ($this->rules->publishedLocales($other->schemaId, $other->recordId, $siteRef) as $locale) {

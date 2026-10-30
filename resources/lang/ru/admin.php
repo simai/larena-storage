@@ -801,7 +801,7 @@ return [
         'site_redirects' => 'Переадресации',
         // The fields of each site's redirects storage (SiteRedirectsStorage) and their options.
         'site_redirect_fields' => [
-            'from_path' => 'Откуда', 'to_path' => 'Куда', 'status_code' => 'Код', 'match' => 'Совпадение', 'origin' => 'Источник', 'note' => 'Примечание',
+            'from_address' => 'Откуда', 'to_address' => 'Куда', 'status_code' => 'Код', 'match' => 'Совпадение', 'origin' => 'Источник', 'note' => 'Примечание',
             'status_code_301' => '301 — навсегда', 'status_code_302' => '302 — временно',
             'match_exact' => 'Этот адрес', 'match_prefix' => 'Адреса, которые с него начинаются',
             'origin_manual' => 'Вручную', 'origin_auto' => 'Автоматически',

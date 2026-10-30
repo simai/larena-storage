@@ -30,8 +30,8 @@ final readonly class SiteRedirectRule
      */
     public static function fromValues(string $schemaId, string $recordId, array $values): ?self
     {
-        $from = $values['from_path'] ?? null;
-        $to = $values['to_path'] ?? null;
+        $from = $values['from_address'] ?? null;
+        $to = $values['to_address'] ?? null;
         $code = $values['status_code'] ?? null;
         $match = $values['match'] ?? null;
         if (!is_string($from) || !is_string($to) || !in_array($code, ['301', '302'], true)

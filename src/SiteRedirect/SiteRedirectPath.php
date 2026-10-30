@@ -11,7 +11,7 @@ use Larena\Storage\Exceptions\StorageRejected;
  *
  * A site path starts with `/`, has no empty segment (`//`), no `.` or `..` segment and no control character; it is
  * kept decoded (`/%D0%BE` and `/о` are one path) and without a trailing slash (`/about/` is `/about`; `/` stays). The
- * rule's `from_path` is such a path, without a query or fragment. Its `to_path` is a site path that may end with a
+ * rule's `from_address` is such a path, without a query or fragment. Its `to_address` is a site path that may end with a
  * query and a fragment (only on an exact rule: a prefix swap appends the rest of the path), or an absolute https URL.
  */
 final class SiteRedirectPath
@@ -22,7 +22,7 @@ final class SiteRedirectPath
 
     public const MAX_LENGTH = 512;
 
-    /** The rule's `from_path`, normalized; refused with `site_redirect_from_invalid`. */
+    /** The rule's `from_address`, normalized; refused with `site_redirect_from_invalid`. */
     public static function from(string $path): string
     {
         $path = trim($path);
@@ -33,7 +33,7 @@ final class SiteRedirectPath
         return self::path($path) ?? throw new StorageRejected('site_redirect_from_invalid');
     }
 
-    /** The rule's `to_path`, normalized; refused with `site_redirect_to_invalid`. */
+    /** The rule's `to_address`, normalized; refused with `site_redirect_to_invalid`. */
     public static function to(string $target, string $match): string
     {
         $target = trim($target);

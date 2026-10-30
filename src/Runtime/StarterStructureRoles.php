@@ -87,11 +87,11 @@ final class StarterStructureRoles
                 roleCode: self::SITE_REDIRECT,
                 roleVersion: 1,
                 title: 'Site redirect',
-                // from_path: a site path; to_path: a site path or an absolute https URL; status_code: 301 or 302;
+                // from_address: a site path; to_address: a site path or an absolute https URL; status_code: 301 or 302;
                 // match: exact or prefix; origin: manual or auto (written by a page move, a language switch).
                 requiredFields: [
-                    ['key' => 'from_path', 'type' => 'string'],
-                    ['key' => 'to_path', 'type' => 'string'],
+                    ['key' => 'from_address', 'type' => 'string'],
+                    ['key' => 'to_address', 'type' => 'string'],
                     ['key' => 'status_code', 'type' => 'choice'],
                     ['key' => 'match', 'type' => 'choice'],
                     ['key' => 'origin', 'type' => 'choice'],
