@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "fb330bf9bf41d69e3ed2e6d25f2f7c31",
+    "content-hash": "fd9241e16a2e642fbef1d3e137741adf",
     "packages": [
         {
             "name": "brick/math",
@@ -2163,11 +2163,12 @@
             "dist": {
                 "type": "path",
                 "url": "../core",
-                "reference": "88c42afa53ae14993ffe77c5ba812bb5c6726df1"
+                "reference": "55efce85a7579b582f1e01666d0fd866895b04bd"
             },
             "require": {
                 "illuminate/console": "^13.0",
                 "illuminate/database": "^13.0",
+                "illuminate/http": "^13.0",
                 "illuminate/support": "^13.0",
                 "php": "^8.3",
                 "symfony/yaml": "^7.4|^8.0"
@@ -2262,7 +2263,11 @@
                     "@php tests/Unit/SitePackArchiveSafetyTest.php",
                     "@php tests/Unit/SitePackStreamingTest.php",
                     "@php tests/Unit/ProcessExecutorTest.php",
-                    "@php tests/Unit/GatewayRunnerTest.php"
+                    "@php tests/Unit/GatewayRunnerTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SiteBindingsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SiteCreationAndAddedDomainsTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SiteResolverTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ResolveSiteMiddlewareTest.php"
                 ],
                 "test:unit": [
                     "@php tests/Unit/OperationRuntimeContractTest.php",
@@ -2344,7 +2349,7 @@
             "dist": {
                 "type": "path",
                 "url": "../property",
-                "reference": "ac0222aaec5af3859d68c0196c2f2d9c689c2467"
+                "reference": "70436cd8e7ef587b7938b3fb7b4132f7d7548991"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -2388,6 +2393,7 @@
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyFieldTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyLookupTypeTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyCommonTypesTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyPageContentTypesTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyDisplayProjectorTest.php",
                     "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyPresentationRegistryTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsPropertyStorageContractTest.php",
@@ -5684,7 +5690,7 @@
             "dist": {
                 "type": "path",
                 "url": "../admin",
-                "reference": "fba2be790e723a15ab63e27bc7fb7b7d0e92a02c"
+                "reference": "f394518a1c0b65ac397e0777d4ddefc859533ace"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -5716,6 +5722,7 @@
                 "phpstan/phpstan": "^2.0"
             },
             "suggest": {
+                "larena/lang": "Names the languages a site may choose from (setting site.languages). Without it the choice is the configured languages, by code.",
                 "larena/monitoring": "Runtime metrics of the packages: /admin/monitoring lists each declared metric with its verdict.",
                 "larena/notification": "Keeps the person's notifications: the menu counts the unread ones and /admin/notifications lists them.",
                 "larena/storage": "The Site pages screen (/admin/site/pages) reads the site's pages from Storage, and Storage brings its own Storage section (/admin/storage) into the admin. Without it the admin runs without them."
@@ -5760,18 +5767,10 @@
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminWithoutStorageBootTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SitePageListQueryTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StructureTreePublicationBadgeTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSectionGatewayTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldOptionsPropertyViewTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldEditorSchemaTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SitePagesStructureTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SitePageContentPortsTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminOptionSourcesTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldEncryptionAdminTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldEncryptionRunAdminTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFieldChangeStateTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSortHintTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageBackgroundJobsTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminLiveRegionTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSitePackExportTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSitePackImportTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminUsersRecordSourceProviderTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PersistentAdminIdentityLabelResolverTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminAccountSecuritySurfaceTest.php",
@@ -5779,7 +5778,6 @@
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminContractTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/FrameworkFormNamesTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminNativeControlsTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsSmartPagePresenterTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RecordFilterFieldsTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertyViewFieldParityTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingCatalogPropertyValidationTest.php",
@@ -5792,10 +5790,7 @@
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminDataviewPageArchitectureGuardTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/JsonCollectionPageAssemblyDescriptorTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DeclarativeAuthLoginPageRendererTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsStructuresPresenterTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsRepresentativeFixtureCommandTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsRecordEditorPresenterTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsWorkbenchPresenterTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFormPagesTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminInstallerScreensTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminFailsClosedTest.php",
@@ -5818,7 +5813,6 @@
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminLocaleDirectionContractTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminProductShellArchitectureGuardTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminCollectionPresentationArchitectureGuardTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminStructuresReuseArchitectureGuardTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminShellIdentityLabelContractTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminUiLabContractTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminNavigationLabContractTest.php",
@@ -5844,22 +5838,18 @@
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PreviewRenderArtifactPresenterTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/RenderArtifactHtmlBuilderTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/DeveloperPreviewProductFacingAdminRecoveryTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageWorkbenchGatewayTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PackageOwnedAdminSettingsReadOnlyTableTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminServiceProviderRegistrationTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminRouteRegistrationBoundaryTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/AdminRouteInventoryTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminBladeThinHostRatchetTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/MinimalCmsRouteTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/StorageWorkbenchRouteTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/StorageSectionRouteTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/StorageWorkbenchAccessibilityTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/FrontendConveyorDemoPackageOwnedPresentationTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/LayoutPageBuilderDemoPackageOwnedPresentationTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SmartComponentBlockWidgetDemoPackageOwnedPresentationTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/DeveloperPreviewProductFacingAdminRecoveryRoutePresentationTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PropertySmartFieldPresenterTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/CompositionEditorFieldPresenterTest.php"
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/CompositionEditorFieldPresenterTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/AdminSiteDomainsTest.php"
                 ],
                 "test:unit": [
                     "@test"
@@ -5871,8 +5861,7 @@
                     "@php tests/Unit/MinimalCmsDependencyContractTest.php"
                 ],
                 "test:minimal-cms-admin": [
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsGatewayTest.php",
-                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/MinimalCmsRouteTest.php"
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/MinimalCmsGatewayTest.php"
                 ],
                 "lint": [
                     "@php scripts/lint.php"
@@ -6239,7 +6228,7 @@
             "dist": {
                 "type": "path",
                 "url": "../layout",
-                "reference": "60cb676bcbf2f7660faaade09c79736a7a49cd7f"
+                "reference": "182a125bbc95971cc5e3911bebd11191b122c200"
             },
             "require": {
                 "illuminate/database": "^13.0",
@@ -6248,7 +6237,13 @@
                 "php": "^8.3"
             },
             "require-dev": {
+                "larena/property": "dev-main",
+                "larena/setting": "dev-main",
                 "phpstan/phpstan": "^2.0"
+            },
+            "suggest": {
+                "larena/property": "The blocks of a Property content@1 value (a site page's blocks): Layout checks them against its block components (PageContentBlockValidator) and registers the check into the Property type registry. Only where Property is installed; without it Layout runs as before.",
+                "larena/setting": "A site's template and areas as settings (LayoutSettingDefinitions), registered only where Setting is installed."
             },
             "type": "library",
             "extra": {
@@ -6321,12 +6316,132 @@
             }
         },
         {
+            "name": "larena/rest",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../rest",
+                "reference": "2e3cc952118d522f8a85bfdbed413250df51aa40"
+            },
+            "require": {
+                "illuminate/contracts": "^13.0",
+                "illuminate/database": "^13.0",
+                "illuminate/http": "^13.0",
+                "illuminate/routing": "^13.0",
+                "illuminate/session": "^13.0",
+                "illuminate/support": "^13.0",
+                "larena/access": "dev-main",
+                "larena/audit": "dev-main",
+                "larena/core": "dev-main",
+                "php": "^8.3",
+                "symfony/yaml": "^7.4|^8.0"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Larena\\Rest\\Providers\\RestServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Larena\\Rest\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Larena\\Rest\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "@php tests/Unit/TokenApiBoundaryTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/RestContractTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/RestFailsClosedTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsPublicContentLinkOperationTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsPublicContentLinkHandlerTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsReadOnlyEndpointRegistryTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsReadOnlyEndpointRegistryFailsClosedTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsReadOnlyRuntimeBridgeTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsReadOnlyRuntimeBridgeFailsClosedTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsReadOnlyOpenApiSeedTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsPackageOwnedReadModelProviderTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsAdminTableReadOnlyEndpointTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CmsHttpRouteActivationContractTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/PackageApiContractLoaderTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/BrowserAuthContractLoaderTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CompiledApiOperationRegistryTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/RequestSchemaValidatorTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/IdempotencyRequestHasherTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/PersistentRuntimeStoresTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/SensitiveIdempotencyPolicyTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/PersistentIdempotencyConcurrencyTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/DatabaseOperationTransactionBoundaryTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/AdminApiRuntimeTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/AdminApiHttpMiddlewareTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/BrowserAuthHttpTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/StatefulSessionContextTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/OpenApiGeneratorTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/RestConfigurationTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/RestRuntimeMigrationTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CoreOperationParityCheckerTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/CoreOperationParityFailsClosedTest.php",
+                    "php -d zend.assertions=1 -d assert.exception=1 -d auto_prepend_file=vendor/autoload.php tests/Unit/PublicSiteBoundaryTest.php"
+                ],
+                "test:unit": [
+                    "@test"
+                ],
+                "lint": [
+                    "php scripts/lint.php"
+                ],
+                "analyse": [
+                    "php scripts/analyse.php"
+                ],
+                "validate:larena": [
+                    "php scripts/validate-larena-package.php"
+                ],
+                "evidence:check": [
+                    "php scripts/check-evidence.php"
+                ],
+                "scope:check": [
+                    "php tools/larena-scope-check.php"
+                ],
+                "quality:gate": [
+                    "@validate:larena",
+                    "@lint",
+                    "@analyse",
+                    "@test",
+                    "@evidence:check",
+                    "@scope:check"
+                ]
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Rim Zabarov",
+                    "homepage": "https://github.com/zabarov",
+                    "role": "Author"
+                }
+            ],
+            "description": "Larena REST: Safe REST/API execution gateway that exposes declared package operations through api.yaml contracts, request/response validation, operation lifecycle rules and the common Core Operation Runtime without arbitrary PHP method execution.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
             "name": "larena/setting",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "../setting",
-                "reference": "7aca2e049944f417a419c3300361166e77255d25"
+                "reference": "ad04670c124bd1451c09f36f0e1dab10e253953d"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -6369,6 +6484,8 @@
             "scripts": {
                 "test": [
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingContractTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ViewLayoutCodecTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/ViewProfilesStandardFixturesTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SettingFailsClosedTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemorySettingRuntimeTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Unit/InMemorySettingRuntimeFailsClosedTest.php",
@@ -6394,6 +6511,8 @@
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/SettingCommonPackRuntimeTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/SettingCatalogSnapshotCostTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/ViewSettingsRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/ViewsTransferFixturesRuntimeTest.php",
+                    "@php -d zend.assertions=1 -d assert.exception=1 tests/Feature/ViewsTransferRuntimeTest.php",
                     "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/ViewSettingsReadCostTest.php",
                     "@php tests/Unit/MinimalCmsDependencyContractTest.php"
                 ],
@@ -6450,7 +6569,7 @@
             "dist": {
                 "type": "path",
                 "url": "../ui",
-                "reference": "fbb951354f1ce6cf1feab10a444736ae1917c79b"
+                "reference": "001531a4c18857111426a6669309a388725b9ca0"
             },
             "require": {
                 "illuminate/console": "^13.0",
@@ -6816,7 +6935,8 @@
         "larena/queue": 20,
         "larena/secret": 20,
         "larena/admin": 20,
-        "larena/audit": 20
+        "larena/audit": 20,
+        "larena/rest": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

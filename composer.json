@@ -34,10 +34,12 @@
     "require-dev": {
         "larena/admin": "dev-main",
         "larena/audit": "dev-main",
+        "larena/rest": "dev-main",
         "phpstan/phpstan": "^2.0"
     },
     "suggest": {
-        "larena/admin": "The admin's Storage section (/admin/storage: storages, their records and settings, CSV import and export, SitePack, encryption) and the storage workbench stand. Storage contributes them only where the admin is installed; without it Storage runs headless."
+        "larena/admin": "The admin's Storage section (/admin/storage: storages, their records and settings, CSV import and export, SitePack, encryption) and the storage workbench stand. Storage contributes them only where the admin is installed; without it Storage runs headless.",
+        "larena/rest": "The public site reads over REST: an application that composes both registers Compatibility\\Rest\\SiteReadApiHandlers."
     },
     "repositories": [
         {
@@ -97,6 +99,13 @@
         {
             "type": "path",
             "url": "../*",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "path",
+            "url": "../rest",
             "options": {
                 "symlink": true
             }
