@@ -176,9 +176,9 @@ final readonly class StarterSite
             'schema_id' => self::SCHEMA_ID,
             'owner_package' => self::OWNER_PACKAGE,
             'fields' => [
-                $string('slug', true, 120),
-                // Title and description are translated; the slug and target are one
-                // address for every language.
+                // The slug, title and description are translated (a language's own address, sites plan
+                // step 4.3); the shared slug answers where no translation does. `target` is the shared values' note.
+                $string('slug', true, 120) + ['localized' => true],
                 $string('title', true, 191) + ['localized' => true],
                 ['key' => 'order_index', 'type' => 'integer', 'type_version' => 1, 'required' => true, 'visibility' => 'public', 'constraints' => []],
                 $string('target', true, 512),

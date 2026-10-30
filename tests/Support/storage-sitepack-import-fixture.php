@@ -223,7 +223,7 @@ function sitePackImportInstall(Connection $connection): void
  * @param list<string> $users
  * @return array{workbench: DatabaseStorageWorkbench, storage: VersionedStorage, views: StorageViewSync, localized: DatabaseLocalizedValues, publication: DatabasePublicationLifecycle, roles: DatabaseStructureRoleRegistry, sitePack: Closure(array<string, mixed>=): DatabaseStorageSitePack, events: SitePackCapturedEvents, files: SitePackImportFiles, directory: string, rebuilds: ArrayObject<int, string>}
  */
-function sitePackImportRuntime(Connection $connection, StorageViewDdl $ddl, array $denied, array $users, string $site = 'site:main'): array
+function sitePackImportRuntime(Connection $connection, StorageViewDdl $ddl, array $denied, array $users, string $site = 'site:main', ?Closure $recordValidators = null, bool $carryTranslations = false): array
 {
     $properties = PropertyTypeRegistry::builtIns();
     $access = new SitePackImportAccess($denied);
@@ -242,8 +242,9 @@ function sitePackImportRuntime(Connection $connection, StorageViewDdl $ddl, arra
         'workbench.',
     );
     $policies->seal();
-    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $policies, $cursorKey, null, $views);
     $localized = new DatabaseLocalizedValues($connection);
+    $workbench = new DatabaseStorageWorkbench($connection, $properties, $access, $access, $storage, $policies, $cursorKey, null, $views,
+        recordValidators: $recordValidators, translations: $carryTranslations ? static fn (): DatabaseLocalizedValues => $localized : null);
     $publication = new DatabasePublicationLifecycle(
         $connection,
         static fn (string $schemaId, string $recordId, int $revision): bool => $connection->table('larena_storage_record_versions')

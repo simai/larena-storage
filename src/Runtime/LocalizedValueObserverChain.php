@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\Runtime;
 
 use InvalidArgumentException;
+use Larena\Storage\Contracts\LocalizedValueGuard;
 use Larena\Storage\Contracts\LocalizedValueObserver;
 
 /**
@@ -34,6 +35,21 @@ final readonly class LocalizedValueObserverChain implements LocalizedValueObserv
     {
         foreach ($this->observers as $observer) {
             $observer->localizedValuesWritten($schemaId, $recordId, $revision, $locale);
+        }
+    }
+
+    /**
+     * Asks the observers that guard the writes.
+     *
+     * @param array<string, mixed> $values
+     * @phpstan-impure
+     */
+    public function assertMayWrite(string $schemaId, string $recordId, int $revision, string $locale, #[\SensitiveParameter] array $values): void
+    {
+        foreach ($this->observers as $observer) {
+            if ($observer instanceof LocalizedValueGuard) {
+                $observer->assertMayWriteLocalized($schemaId, $recordId, $revision, $locale, $values);
+            }
         }
     }
 

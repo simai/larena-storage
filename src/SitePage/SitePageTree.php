@@ -18,7 +18,8 @@ use Larena\Storage\Runtime\RelationPath;
 /**
  * Where a site's pages stand: the storage that plays the pages' role, the tree's edges (the relation's materialized
  * path, so no walk) and the current values a page's section compares. A page with no edge, or with an edge to itself (a
- * detached one), is at the top level.
+ * detached one), is at the top level. A slug may be translated (sites plan, step 4.3): with a language named it reads
+ * as that language shows it, along the fallback chain to the shared value; with none, the shared value.
  */
 final readonly class SitePageTree
 {
@@ -31,6 +32,8 @@ final readonly class SitePageTree
     private const ARCHIVED = 'archived';
 
     private const EPOCHS = 'larena_storage_site_address_epochs';
+
+    private const LOCALIZED = 'larena_storage_localized_values';
 
     private const BATCH = 500;
 
@@ -158,8 +161,14 @@ final readonly class SitePageTree
         return array_values(array_unique(array_diff($ids, $except === null ? [] : [$except])));
     }
 
-    public function currentSlug(string $schemaId, string $recordId): ?string
+    public function currentSlug(string $schemaId, string $recordId, ?string $locale = null): ?string
     {
+        if ($locale !== null) {
+            $revision = $this->database->table(self::RECORDS)->where('schema_id', $schemaId)->where('record_id', $recordId)->value('current_revision');
+
+            return $revision === null ? null
+                : ($this->read->keyValuesAt($schemaId, [['record_id' => $recordId, 'revision' => (int) $revision]], $locale, SitePagePath::SLUG_FIELD)[$recordId] ?? null);
+        }
         $values = $this->database->table(self::RECORDS . ' as r')
             ->join(self::VERSIONS . ' as v', static function ($join): void {
                 $join->on('v.schema_id', '=', 'r.schema_id')->on('v.record_id', '=', 'r.record_id')->on('v.revision', '=', 'r.current_revision');
@@ -191,19 +200,75 @@ final readonly class SitePageTree
     }
 
     /**
-     * Whether a page of $ids has this current slug, archived ones aside.
+     * The translated slugs of a page's current revision, by language.
+     *
+     * @return array<string, string>
+     */
+    public function translatedSlugs(string $schemaId, string $recordId): array
+    {
+        return $this->translatedSlugsOf($schemaId, [$recordId])[$recordId] ?? [];
+    }
+
+    /**
+     * Whether a page of $ids stands at this slug, archived ones aside. In a language: as each shows it there. With none
+     * (a shared slug, written for $writer, null for a new page): a page with that shared slug, or a page with that
+     * translation in a language where the writer would show the shared slug.
      *
      * @param list<string> $ids
      */
-    public function slugTaken(string $schemaId, array $ids, string $slug): bool
+    public function slugTaken(string $schemaId, array $ids, string $slug, ?string $locale = null, ?string $writer = null): bool
     {
         foreach (array_chunk($ids, self::BATCH) as $chunk) {
+            if ($locale !== null) {
+                if (in_array($slug, $this->read->keyValuesAt($schemaId, $this->activeHeads($schemaId, $chunk), $locale, SitePagePath::SLUG_FIELD), true)) {
+                    return true;
+                }
+                continue;
+            }
             if ($this->holders($schemaId, $chunk, $slug) !== []) {
                 return true;
+            }
+            $own = $writer === null ? [] : $this->translatedSlugs($schemaId, $writer);
+            foreach ($this->translatedSlugsOf($schemaId, $chunk) as $translated) {
+                foreach ($translated as $language => $value) {
+                    if ($value === $slug && array_intersect($this->read->localeChain((string) $language)->locales, array_map('strval', array_keys($own))) === []) {
+                        return true;
+                    }
+                }
             }
         }
 
         return false;
+    }
+
+    /**
+     * Whether a revision of a page is out, in a language: what a change to its translations changes for the public.
+     *
+     * @return list<array{site: string, locale: string}> where it is the published head
+     */
+    public function placesOfRevision(string $schemaId, string $recordId, int $revision): array
+    {
+        $places = [];
+        foreach ($this->database->table(DatabasePublicationLifecycle::STATES_TABLE)
+            ->where('schema_id', $schemaId)->where('record_id', $recordId)
+            ->where('state', PublicationStateValue::Published->value)->where('published_revision', $revision)
+            ->get(['scope_ref', 'locale']) as $row) {
+            $places[] = ['site' => (string) $row->scope_ref, 'locale' => (string) $row->locale];
+        }
+
+        return $places;
+    }
+
+    /**
+     * The shared slug of a revision, whatever the languages show: what names a page's assembly (`site.{key}`).
+     */
+    public function sharedSlugAt(string $schemaId, string $recordId, int $revision): ?string
+    {
+        $values = $this->database->table(self::VERSIONS)->where('schema_id', $schemaId)->where('record_id', $recordId)->where('revision', $revision)->value('values_json');
+        $decoded = is_string($values) ? json_decode($values, true) : null;
+        $slug = is_array($decoded) ? ($decoded[SitePagePath::SLUG_FIELD] ?? null) : null;
+
+        return is_string($slug) ? $slug : null;
     }
 
     /**
@@ -280,8 +345,62 @@ final readonly class SitePageTree
     }
 
     /**
+     * The current revisions of the pages of $ids, archived ones aside.
+     *
      * @param list<string> $ids
-     * @return list<string> the pages of $ids with this current slug, archived ones aside
+     * @return list<array{record_id: string, revision: int}>
+     */
+    private function activeHeads(string $schemaId, array $ids): array
+    {
+        $heads = [];
+        foreach ($this->database->table(self::RECORDS . ' as r')
+            ->join(self::VERSIONS . ' as v', static function ($join): void {
+                $join->on('v.schema_id', '=', 'r.schema_id')->on('v.record_id', '=', 'r.record_id')->on('v.revision', '=', 'r.current_revision');
+            })
+            ->where('r.schema_id', $schemaId)->whereIn('r.record_id', $ids)
+            ->orderBy('r.created_at')->orderBy('r.record_id')
+            ->get(['r.record_id', 'r.current_revision', 'v.values_json']) as $row) {
+            $values = json_decode((string) $row->values_json, true);
+            if (!is_array($values) || ($values[self::STATE_FIELD] ?? null) !== self::ARCHIVED) {
+                $heads[] = ['record_id' => (string) $row->record_id, 'revision' => (int) $row->current_revision];
+            }
+        }
+
+        return $heads;
+    }
+
+    /**
+     * The translated slugs of the current revisions of $ids, archived ones aside: record => language => slug.
+     *
+     * @param list<string> $ids
+     * @return array<string, array<string, string>>
+     */
+    private function translatedSlugsOf(string $schemaId, array $ids): array
+    {
+        if ($ids === [] || !$this->database->getSchemaBuilder()->hasTable(self::LOCALIZED)) {
+            return [];
+        }
+        $revisions = [];
+        foreach ($this->activeHeads($schemaId, $ids) as $head) {
+            $revisions[$head['record_id']] = $head['revision'];
+        }
+        $slugs = [];
+        foreach ($this->database->table(self::LOCALIZED)
+            ->where('schema_id', $schemaId)->whereIn('record_id', array_map('strval', array_keys($revisions)))
+            ->whereIn('revision', array_values(array_unique($revisions)))->where('field_key', SitePagePath::SLUG_FIELD)
+            ->get(['record_id', 'revision', 'locale', 'value_json']) as $row) {
+            $value = json_decode((string) $row->value_json, true);
+            if (($revisions[(string) $row->record_id] ?? null) === (int) $row->revision && is_string($value)) {
+                $slugs[(string) $row->record_id][(string) $row->locale] = $value;
+            }
+        }
+
+        return $slugs;
+    }
+
+    /**
+     * @param list<string> $ids
+     * @return list<string> the pages of $ids with this current shared slug, archived ones aside
      */
     private function holders(string $schemaId, array $ids, string $slug): array
     {

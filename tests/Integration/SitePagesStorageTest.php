@@ -245,7 +245,7 @@ try {
         'the Home page lost its owner ref');
     // The content fields came with the adoption, in the installer's language; the Home page kept its values.
     storageViewExpect(sitePagesContentFields($workbench) === [
-        'content_mode' => ['type' => 'choice', 'localized' => false, 'visibility' => 'public', 'required' => false, 'label' => 'Форма содержимого',
+        'content_mode' => ['type' => 'choice', 'localized' => true, 'visibility' => 'public', 'required' => false, 'label' => 'Форма содержимого',
             'options' => ['text:Текст', 'blocks:Блоки']],
         'body' => ['type' => 'html', 'localized' => true, 'visibility' => 'public', 'required' => false, 'label' => 'Текст', 'options' => []],
         'blocks' => ['type' => 'content', 'localized' => true, 'visibility' => 'public', 'required' => false, 'label' => 'Блоки', 'options' => []],

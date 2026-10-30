@@ -363,7 +363,11 @@
     "src/SitePack/StorageSitePackSource.php",
     "src/Contracts/StructureRoleChoice.php",
     "src/FirstRun/NewSiteStorages.php",
-    "tests/Integration/SeveralSitesStorageTest.php"
+    "tests/Integration/SeveralSitesStorageTest.php",
+    "src/Contracts/LocalizedValueGuard.php",
+    "src/Contracts/StorageWorkbenchLanguages.php",
+    "tests/Integration/SitePageLanguagesTest.php",
+    "src/Runtime/RecordOperationHandlers.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

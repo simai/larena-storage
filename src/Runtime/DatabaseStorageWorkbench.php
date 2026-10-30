@@ -23,9 +23,11 @@ use Larena\Storage\Contracts\StorageSchemaVersion;
 use Larena\Storage\Contracts\StorageSchemaVersionRef;
 use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
+use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChange;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
+use Larena\Storage\Contracts\StorageWorkbenchLanguages;
 use Larena\Storage\Contracts\StorageWorkbenchPurgeReceipt;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
 use Larena\Storage\Contracts\StorageWorkbenchRecordPage;
@@ -69,7 +71,7 @@ use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
-final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck
+final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages
 {
     private const STRUCTURE_RESOURCE = 'storage.workbench.structure';
     private const RECORD_RESOURCE = 'storage.workbench.record';
@@ -168,6 +170,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         // The roles' own record rules (Closure(): list<StructureRoleRecordValidator>), asked on every record create
         // and update of a storage bound to their role; read at the write, so a validator may use the workbench.
         private ?Closure $recordValidators = null,
+        // The translations a record's next revision keeps (Closure(): DatabaseLocalizedValues); without it, none.
+        private ?Closure $translations = null,
     ) {
         $this->normalizer = new SchemaDefinitionNormalizer($propertyTypes);
         $this->events = $events ?? new NullStorageSecurityEventSink();
@@ -1911,7 +1915,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
      * @param array<string, mixed> $values
      * @return list<array{0: StructureRoleRecordValidator, 1: StructureRoleRecordWrite}>
      */
-    private function roleRecordChecks(StorageWorkbenchStructure $structure, string $scopeRef, ?string $recordId, #[\SensitiveParameter] array $values, string $actor, ?string $correlationId): array
+    private function roleRecordChecks(StorageWorkbenchStructure $structure, string $scopeRef, ?string $recordId, #[\SensitiveParameter] array $values, string $actor, ?string $correlationId, ?string $locale = null): array
     {
         $validators = $this->recordValidators === null ? [] : ($this->recordValidators)();
         if (!is_array($validators) || $validators === []) {
@@ -1928,7 +1932,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             $validator = $byRole[$binding['role_ref']] ?? null;
             if ($validator !== null) {
                 $checks[] = [$validator, new StructureRoleRecordWrite($binding['role_ref'], $binding['scope_ref'], $scopeRef,
-                    $structure->structureId, $structure->schema->schemaId, $recordId, $values, $actor, $correlationId)];
+                    $structure->structureId, $structure->schema->schemaId, $recordId, $values, $actor, $correlationId, $locale)];
             }
         }
 
@@ -2012,12 +2016,103 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             )->version;
+            $this->carryTranslations($structure, $recordId, $expectedRevision, $version->ref->revision, $actor, $correlationId);
             $this->keepHistory($structure, [$recordId], $actor, $correlationId);
             $record = $this->workbenchRecord($structure, $version);
             $this->roleRecordWritten($checks, $record);
 
             return $record;
         });
+    }
+
+    public function updateRecordLanguage(
+        string $scopeRef,
+        string $structureId,
+        string $recordId,
+        int $expectedRevision,
+        string $locale,
+        bool $main,
+        #[\SensitiveParameter] array $values,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchRecord {
+        $this->assertRecordId($recordId);
+        if ($expectedRevision < 1) {
+            throw new InvalidArgumentException('storage_workbench_record_revision_invalid');
+        }
+        $this->assertStructureId($structureId);
+        LocaleFallbackChain::assertLocale($locale);
+        $this->assertScope($actor, 'storage.workbench.record.update', $scopeRef, self::RECORD_RESOURCE);
+        $this->assertUserValues($values);
+        if ($values === []) {
+            throw new StorageRejected('storage_workbench_record_language_empty');
+        }
+
+        return $this->database->transaction(function () use ($scopeRef, $structureId, $recordId, $expectedRevision, $locale, $main, $values, $actor, $correlationId): StorageWorkbenchRecord {
+            $structure = $this->readStructureInternal($scopeRef, $structureId, self::LOCK_SHARED, true);
+            $current = $this->readRecordInternal($structure, $scopeRef, $recordId, $actor, true);
+            if ($current->revision !== $expectedRevision) {
+                throw new StorageConflict('storage_workbench_record_revision_conflict');
+            }
+            if ($current->state !== self::STATE_ACTIVE) {
+                throw new StorageRejected('storage_workbench_record_archived');
+            }
+            $kept = array_filter($current->values, static fn (string|int $key): bool => !in_array((string) $key, [self::SCOPE_FIELD, self::STATE_FIELD], true), ARRAY_FILTER_USE_KEY);
+            if (!$main) {
+                $localized = [];
+                foreach ($structure->fields as $field) {
+                    if (($field['localized'] ?? false) === true) {
+                        $localized[] = (string) $field['key'];
+                    }
+                }
+                if (array_diff(array_map('strval', array_keys($values)), $localized) !== []) {
+                    throw new StorageRejected('storage_workbench_record_field_not_localized');
+                }
+            }
+            $checks = $this->roleRecordChecks($structure, $scopeRef, $recordId, $main ? $values + $kept : $values, $actor, $correlationId, $main ? null : $locale);
+            $checked = $checks !== [] ? $this->validateRoleRecord($checks) : ($main ? $values + $kept : $values);
+            $shared = $main ? $checked : $kept;
+            if ($main) {
+                $this->assertRecordReferences($structure, $scopeRef, $shared, $current, $actor);
+            }
+            $shared[self::SCOPE_FIELD] = $scopeRef;
+            $shared[self::STATE_FIELD] = self::STATE_ACTIVE;
+            $version = $this->storage->compareAndSwap(
+                $this->ownerRef($structure, $current->recordId),
+                new StorageRecordVersionRef($structure->schema->schemaId, $recordId, $expectedRevision),
+                $structure->schema,
+                $shared,
+                $actor,
+                $correlationId,
+            )->version;
+            $this->carryTranslations($structure, $recordId, $expectedRevision, $version->ref->revision, $actor, $correlationId,
+                [$locale => array_map('strval', array_keys($values))]);
+            if (!$main) {
+                $translations = $this->translations === null ? null : ($this->translations)();
+                if (!$translations instanceof DatabaseLocalizedValues) {
+                    throw new StorageRejected('storage_workbench_record_languages_unavailable');
+                }
+                $translations->write($structure->schema->schemaId, $recordId, $version->ref->revision, $locale, $checked, [], $actor, [], false, $correlationId);
+            }
+            $this->keepHistory($structure, [$recordId], $actor, $correlationId);
+            $record = $this->workbenchRecord($structure, $version);
+            $this->roleRecordWritten($checks, $record);
+
+            return $record;
+        });
+    }
+
+    /**
+     * The next revision of a record keeps its translations (sites plan, step 4.1); $except names what the write replaces.
+     *
+     * @param array<string, list<string>> $except by locale
+     */
+    private function carryTranslations(StorageWorkbenchStructure $structure, string $recordId, int $from, int $to, string $actor, ?string $correlationId, array $except = []): void
+    {
+        $translations = $this->translations === null ? null : ($this->translations)();
+        if ($translations instanceof DatabaseLocalizedValues) {
+            $translations->carryForward($structure->schema->schemaId, $recordId, $from, $to, $actor, $correlationId, $except);
+        }
     }
 
     public function archiveRecord(
@@ -2064,6 +2159,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             )->version;
+            $this->carryTranslations($structure, $recordId, $expectedRevision, $version->ref->revision, $actor, $correlationId);
             $this->keepHistory($structure, [$recordId], $actor, $correlationId);
 
             return $this->workbenchRecord($structure, $version);
@@ -2113,6 +2209,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $actor,
                 $correlationId,
             )->version;
+            $this->carryTranslations($structure, $recordId, $expectedRevision, $version->ref->revision, $actor, $correlationId);
             $this->keepHistory($structure, [$recordId], $actor, $correlationId);
 
             return $this->workbenchRecord($structure, $version);
@@ -2174,6 +2271,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     $actor,
                     $correlationId,
                 )->version;
+                $this->carryTranslations($structure, $recordId, $record->revision, $version->ref->revision, $actor, $correlationId);
                 $archived[] = $this->workbenchRecord($structure, $version);
             }
             $this->keepHistory($structure, array_map('strval', array_keys($preflight)), $actor, $correlationId);

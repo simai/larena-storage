@@ -6,12 +6,15 @@ namespace Larena\Storage\SitePage;
 
 use Closure;
 use Illuminate\Contracts\Translation\Translator;
+use Larena\Core\Site\SiteLanguageFolders;
+use Larena\Storage\Contracts\LocalizedValueGuard;
 use Larena\Storage\Contracts\LocalizedValueObserver;
 use Larena\Storage\Contracts\PublicationGuard;
 use Larena\Storage\Contracts\PublicationObserver;
 use Larena\Storage\Contracts\PublicationState;
 use Larena\Storage\Contracts\RecordTreeListener;
 use Larena\Storage\Contracts\SitePageAddressObserver;
+use Larena\Storage\Exceptions\LocalizedValueRejected;
 use Larena\Storage\Exceptions\PublicationRejected;
 use Larena\Storage\Exceptions\RelationRejected;
 use Larena\Storage\Runtime\DatabasePublicationLifecycle;
@@ -25,7 +28,7 @@ use Throwable;
  * when the page is moved (a move takes effect at once; a tree has no drafts). This class sees both and does what follows
  * (owner decision 35, sites pages §5):
  *
- * - the checks of SitePageRules before the change;
+ * - the checks of SitePageRules before the change (a translated slug that would move an address unpublished is refused);
  * - the addresses' cache forgotten, once the transaction around the change commits;
  * - where the page was published at the old address and is reachable at the new one, one prefix redirect 301 old → new
  *   through SiteRedirects::ensure: it answers the old address and every address below it. The address taken up frees it
@@ -36,7 +39,7 @@ use Throwable;
  *
  * A page published at no address before gets no rule; nor does one that is no longer reachable.
  */
-final class SitePageAddressChanges implements PublicationGuard, PublicationObserver, RecordTreeListener, LocalizedValueObserver
+final class SitePageAddressChanges implements PublicationGuard, PublicationObserver, RecordTreeListener, LocalizedValueObserver, LocalizedValueGuard
 {
     public const NOTIFY_LIMIT = 1000;
 
@@ -60,6 +63,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         private readonly Closure $observer,
         private readonly ?LoggerInterface $log = null,
         private readonly ?Translator $translator = null,
+        private readonly ?SiteLanguageFolders $folders = null,
     ) {
     }
 
@@ -88,7 +92,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         $after = $state->isPublished() ? $this->addresses->addressOf($state->schemaId, $state->scopeRef, $state->locale, $state->recordId) : null;
         if ($published && $after !== null && $after !== $before) {
             [$actor, $correlationId] = $this->lastWriter($state);
-            $this->follow($state->scopeRef, $before, $after, $actor, $correlationId);
+            $this->follow($state->scopeRef, $state->locale, $before, $after, $actor, $correlationId);
         }
         // What stands below moved with it, or went with it, whichever transition this was.
         $this->notify($state->schemaId, $state->scopeRef, $state->locale, $this->tree->descendants($state->schemaId, $state->recordId, self::NOTIFY_LIMIT));
@@ -126,7 +130,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         foreach ($before as $place) {
             $after = $this->addresses->addressOf($schemaId, $place['site'], $place['locale'], $recordId);
             if ($place['address'] !== null && $after !== null && $after !== $place['address']) {
-                $this->follow($place['site'], $place['address'], $after, $actor, $correlationId);
+                $this->follow($place['site'], $place['locale'], $place['address'], $after, $actor, $correlationId);
             }
             $this->notify($schemaId, $place['site'], $place['locale'], $moved);
         }
@@ -141,8 +145,24 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         }
     }
 
+    /** A translated slug is refused where it would move an address that is out; see SitePageRules::whyNotTranslate(). */
+    public function assertMayWriteLocalized(string $schemaId, string $recordId, int $revision, string $locale, array $values): void
+    {
+        if (!array_key_exists(SitePagePath::SLUG_FIELD, $values)) {
+            return;
+        }
+        $why = $this->rules->whyNotTranslate($schemaId, $recordId, $revision, $locale, $values[SitePagePath::SLUG_FIELD]);
+        if ($why !== null) {
+            throw new LocalizedValueRejected($why);
+        }
+    }
+
+    /** Only a revision that is out can change an address: a draft's translations, carried or new, leave the map as it is. */
     public function localizedValuesWritten(string $schemaId, string $recordId, int $revision, string $locale): void
     {
+        if ($this->tree->placesOfRevision($schemaId, $recordId, $revision) === []) {
+            return;
+        }
         foreach ($this->tree->sitesOf($schemaId) as $site) {
             $this->forget($site);
         }
@@ -161,17 +181,23 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         }
     }
 
-    private function follow(string $site, ?string $from, string $to, string $actor, ?string $correlationId): void
+    /** $from and $to are addresses in the language's site; a rule names them as a visitor opens them, its folder included. */
+    private function follow(string $site, string $locale, ?string $from, string $to, string $actor, ?string $correlationId): void
     {
         try {
             $redirects = ($this->redirects)();
-            $redirects->release($site, $to, $actor, $correlationId);
+            $redirects->release($site, $this->inFolder($site, $locale, $to), $actor, $correlationId);
             if ($from !== null && $from !== SitePagePath::HOME_ADDRESS) {
-                $redirects->ensure($site, $from, $to, 301, SiteRedirectPath::MATCH_PREFIX, $this->note(), $actor, $correlationId);
+                $redirects->ensure($site, $this->inFolder($site, $locale, $from), $this->inFolder($site, $locale, $to), 301, SiteRedirectPath::MATCH_PREFIX, $this->note(), $actor, $correlationId);
             }
         } catch (Throwable $failure) {
             $this->log?->warning('site_page_redirect_not_written', ['site' => $site, 'from' => $from, 'to' => $to, 'reason' => $failure->getMessage()]);
         }
+    }
+
+    private function inFolder(string $site, string $locale, string $address): string
+    {
+        return $this->folders === null ? $address : $this->folders->address($site, $locale, $address);
     }
 
     /** @param list<string> $recordIds */

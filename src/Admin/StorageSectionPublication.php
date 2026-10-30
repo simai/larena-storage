@@ -8,6 +8,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Database\Connection;
+use Larena\Core\Contracts\SiteLanguages;
 use Larena\Admin\Http\Controllers\Site\SitePagesTreePortController;
 use Larena\Admin\Settings\AdminSiteSettings;
 use Larena\Storage\Contracts\PublicationLifecycle;
@@ -37,6 +38,7 @@ final readonly class StorageSectionPublication
         private PublicationLifecycle $publication,
         private ConfigRepository $config,
         private Translator $translator,
+        private ?SiteLanguages $languages = null,
     ) {
     }
 
@@ -65,13 +67,14 @@ final readonly class StorageSectionPublication
     }
 
     /**
-     * @return list<string> the languages the site's records are published in, as on the site pages tree
+     * @return list<string> the languages the site's records are published in (sites plan, step 4.2), as on the site pages
+     *                      tree; with no site named, the application's
      *
      * @phpstan-impure
      */
-    public function locales(): array
+    public function locales(?string $site = null): array
     {
-        $locales = $this->config->get('larena-admin.structure_editors.locales', ['ru', 'en']);
+        $locales = $site !== null && $this->languages !== null ? $this->languages->languages($site) : $this->config->get('larena-admin.structure_editors.locales', ['ru', 'en']);
 
         return array_values(array_filter(is_array($locales) ? $locales : [],
             static fn (mixed $locale): bool => is_string($locale) && preg_match('/^[a-z]{2,3}$/', $locale) === 1));
@@ -87,7 +90,7 @@ final readonly class StorageSectionPublication
     public function badges(string $schemaId, string $recordId, string $site): array
     {
         $badges = [];
-        foreach ($this->locales() as $locale) {
+        foreach ($this->locales($site) as $locale) {
             $badges[] = SitePagesTreePortController::publicationBadge(
                 $locale,
                 $this->publication->head($schemaId, $recordId, $site, $locale),
@@ -121,7 +124,7 @@ final readonly class StorageSectionPublication
     public function actions(string $schemaId, string $recordId, string $site, int $revision, array $can): array
     {
         $actions = [];
-        foreach ($this->locales() as $locale) {
+        foreach ($this->locales($site) as $locale) {
             $head = $this->publication->head($schemaId, $recordId, $site, $locale);
             foreach ([self::PUBLISH, self::UNPUBLISH] as $verb) {
                 if (($can[$verb] ?? false) === true && self::allows($verb, $head, $revision)) {
@@ -157,10 +160,10 @@ final readonly class StorageSectionPublication
      *
      * @return array{0: string, 1: string}|null
      */
-    public function parse(mixed $action): ?array
+    public function parse(mixed $action, ?string $site = null): ?array
     {
         if (!is_string($action) || preg_match('/\A(publish|unpublish)[:_]([a-z]{2,3})\z/D', $action, $parts) !== 1
-            || !in_array($parts[2], $this->locales(), true)) {
+            || !in_array($parts[2], $this->locales($site), true)) {
             return null;
         }
 
@@ -183,10 +186,10 @@ final readonly class StorageSectionPublication
      *
      * @return list<array<string, string>>
      */
-    public function rowActions(): array
+    public function rowActions(?string $site = null): array
     {
         $actions = [];
-        foreach ($this->locales() as $locale) {
+        foreach ($this->locales($site) as $locale) {
             foreach ([self::PUBLISH, self::UNPUBLISH] as $verb) {
                 $actions[] = ['id' => $verb.':'.$locale, 'label' => $locale, 'group' => $verb,
                     'group_label' => $this->word('larena-admin::structure_editors.actions.'.$verb)];
@@ -202,10 +205,10 @@ final readonly class StorageSectionPublication
      * @param array<string, bool> $can by verb
      * @return array<string, string>
      */
-    public function bulkActions(array $can): array
+    public function bulkActions(array $can, ?string $site = null): array
     {
         $actions = [];
-        foreach ($this->locales() as $locale) {
+        foreach ($this->locales($site) as $locale) {
             foreach ([self::PUBLISH, self::UNPUBLISH] as $verb) {
                 if (($can[$verb] ?? false) === true) {
                     $actions[$verb.'_'.$locale] = $this->word('larena-admin::structure_editors.actions.'.$verb).' · '.$locale;

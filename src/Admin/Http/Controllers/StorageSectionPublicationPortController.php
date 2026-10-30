@@ -106,7 +106,7 @@ final readonly class StorageSectionPublicationPortController
         unset($data['saved_views']);
         $data['records'] = $records;
         $data['columns'][] = $publication->column();
-        $data['row_actions'] = $publication->rowActions();
+        $data['row_actions'] = $publication->rowActions($binding['site']);
         $data['capabilities'] = array_fill_keys(self::CAPABILITIES, true);
         $answer['data'] = $data;
 
@@ -120,7 +120,7 @@ final readonly class StorageSectionPublicationPortController
      */
     private function mutate(Request $request, string $actor, string $scope, string $structure, array $binding, array $payload): array
     {
-        $chosen = $this->actions->publication()->parse($payload['action_id'] ?? null);
+        $chosen = $this->actions->publication()->parse($payload['action_id'] ?? null, $binding['site']);
         if ($chosen === null) {
             return $this->listPort($request, $scope, $structure, 'record.mutate', $payload);
         }
@@ -148,7 +148,7 @@ final readonly class StorageSectionPublicationPortController
     {
         $publication = $this->actions->publication();
         $action = $payload['action_id'] ?? null;
-        $chosen = $publication->parse($action);
+        $chosen = $publication->parse($action, $binding['site']);
         $ids = $payload['record_ids'] ?? null;
         $revisions = $payload['revisions'] ?? null;
         if (($chosen === null && $action !== 'bulk_delete') || !is_array($ids) || !array_is_list($ids) || $ids === [] || count($ids) > 100

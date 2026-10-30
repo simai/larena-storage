@@ -7,7 +7,8 @@ namespace Larena\Storage\Contracts;
 /**
  * One record write a role checks (StructureRoleRecordValidator): the role and the scope it is played in (the binding's,
  * a site for a site role), the storage written (its workbench scope, structure and schema), the record (null while it
- * is created) and the person's values, reserved fields aside.
+ * is created) and the person's values, reserved fields aside. With a locale the values are that language's translations
+ * alone; without one they are the shared values.
  */
 final readonly class StructureRoleRecordWrite
 {
@@ -22,6 +23,7 @@ final readonly class StructureRoleRecordWrite
         public array $values,
         public string $actor,
         public ?string $correlationId = null,
+        public ?string $locale = null,
     ) {
     }
 
@@ -29,6 +31,6 @@ final readonly class StructureRoleRecordWrite
     public function withValues(array $values): self
     {
         return new self($this->roleRef, $this->roleScopeRef, $this->scopeRef, $this->structureId, $this->schemaId,
-            $this->recordId, $values, $this->actor, $this->correlationId);
+            $this->recordId, $values, $this->actor, $this->correlationId, $this->locale);
     }
 }

@@ -36,6 +36,18 @@ final class SitePageReservedSlugs
         return array_map('strval', array_keys($reserved));
     }
 
+    /**
+     * The reserved segments and a site's languages, whose codes are its folders (sites plan, step 4.3).
+     *
+     * @param list<string> $reserved
+     * @param list<string> $languages
+     * @return list<string>
+     */
+    public static function withLanguages(array $reserved, array $languages): array
+    {
+        return array_values(array_unique([...$reserved, ...array_map('strtolower', $languages)]));
+    }
+
     /** `sitemap-pages-{file}.xml` is `sitemap-pages`, `robots.txt` is `robots`, a segment all of a parameter is nothing. */
     private static function segment(string $segment): string
     {

@@ -9,6 +9,7 @@ use Larena\Storage\Audit\LocalizedValueAuditEventCatalog;
 use Larena\Storage\Contracts\LocaleCoverageReport;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\LocalizedValue;
+use Larena\Storage\Contracts\LocalizedValueGuard;
 use Larena\Storage\Contracts\LocalizedValueObserver;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\LocalizedValuesBatch;
@@ -42,6 +43,11 @@ use Throwable;
  * returns the envelope. An envelope sent back is kept when it opens for this record,
  * locale and field. Without a sealer such a write is refused
  * (storage_field_encryption_unavailable) before anything is written.
+ *
+ * A revision's rows are copied onto the revision that follows it (carryForward()), so an edit in one language does not
+ * take the others off the next publication; a draft's inherited row gives way to a translation written for it. The copy is of the stored bytes: an envelope's associated data names the
+ * storage, record, locale and field, never the revision, so it still opens; the encryption runs reach the new rows by
+ * their row id and their written-at time like any other.
  */
 final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesBatch
 {
@@ -54,6 +60,7 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
     private ?bool $publications = null;
     private ?PublishedKeyTable $keyTable = null;
     private ?PublishedSiteViewRegistry $siteViews = null;
+    private ?bool $table = null;
 
     /**
      * @param string|null $primaryLocale the language of the shared values, from the application
@@ -264,8 +271,10 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         }
 
         // A required localized field may be missing in a secondary locale only when
-        // the schema says partial locales are acceptable. Otherwise a half-translated
-        // record would be publishable, and nothing downstream could tell. The
+        // the schema says partial locales are acceptable, or when something answers for
+        // it: a shared value (the read falls back to it, owner decision 2026-10-30: no
+        // translation shows the source text) or a row this revision already has. Otherwise a
+        // half-translated record would show nothing, and nothing downstream could tell. The
         // primary locale is the language of the shared values themselves, so a
         // value written for it only overrides and may be partial.
         if (!$partialLocalesAllowed && $locale !== $this->primaryLocale) {
@@ -276,12 +285,21 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
                 }
             }
 
+            $missing = $this->withoutAnswered($schemaId, $recordId, $revision, $locale, $missing);
             if ($missing !== []) {
                 throw new LocalizedValueRejected(
                     'partial_locale_denied',
                     'Locale ' . $locale . ' is missing required field(s): ' . implode(', ', $missing) . '.',
                 );
             }
+        }
+
+        // A guard may refuse the translation for what it changes (a slug on a published revision).
+        $observer = $this->observer !== null ? ($this->observer)() : null;
+        if ($observer instanceof LocalizedValueObserverChain) {
+            $observer->assertMayWrite($schemaId, $recordId, $revision, $locale, $values);
+        } elseif ($observer instanceof LocalizedValueGuard) {
+            $observer->assertMayWriteLocalized($schemaId, $recordId, $revision, $locale, $values);
         }
 
         // A translation passes the same Property validation as the shared value: the
@@ -356,6 +374,10 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
             }
             foreach ($values as $fieldKey => $value) {
                 $encoded = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                if ($this->replaceCarried($schemaId, $recordId, $revision, $locale, (string) $fieldKey, $encoded, $actorId, $correlationId, $now)) {
+                    $written[] = (string) $fieldKey;
+                    continue;
+                }
 
                 try {
                     $this->connection->table(self::TABLE)->insert([
@@ -388,18 +410,8 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
                 $written[] = (string) $fieldKey;
             }
 
-            // A translation of a published revision changes what it shows; the
-            // derived indexes learn of it in the same transaction. An index they do not
-            // include cannot follow it: its sets or slots of the storage stop answering.
             if ($written !== []) {
-                $observer = $this->observer !== null ? ($this->observer)() : null;
-                $observer?->localizedValuesWritten($schemaId, $recordId, $revision, $locale);
-                if (!LocalizedValueObserverChain::maintains($observer, PublishedKeyIndex::class)) {
-                    ($this->keyTable ??= new PublishedKeyTable($this->connection))->silenceSchema($schemaId);
-                }
-                if (!LocalizedValueObserverChain::maintains($observer, PublishedSiteViewIndex::class)) {
-                    ($this->siteViews ??= new PublishedSiteViewRegistry($this->connection, 0.0))->silenceSchema($schemaId);
-                }
+                $this->tellIndexes($schemaId, $recordId, $revision, $locale);
             }
 
             // One audit event per write, in its transaction: a translation whose
@@ -421,6 +433,132 @@ final class DatabaseLocalizedValues implements LocalizedValues, LocalizedValuesB
         });
 
         return $written;
+    }
+
+    /**
+     * Copies a revision's translations onto the next revision of the record, in the writer's transaction (sites plan,
+     * step 4.1): the translations of the fields still localized under the next revision's schema version, but those
+     * $except names, which the write itself replaces. A record's update, archive and restore do it; no audit event of
+     * its own, since nothing changes that the revision's own event does not say.
+     *
+     * @param array<string, list<string>> $except by locale: the fields left behind
+     * @return list<string> the locales copied
+     * @phpstan-impure
+     */
+    public function carryForward(string $schemaId, string $recordId, int $fromRevision, int $toRevision, string $actorId, ?string $correlationId = null, array $except = []): array
+    {
+        if ($this->table !== true) {
+            $this->table = $this->connection->getSchemaBuilder()->hasTable(self::TABLE);
+        }
+        if (!$this->table) {
+            return [];
+        }
+        $rows = $this->connection->table(self::TABLE)
+            ->where('schema_id', $schemaId)->where('record_id', $recordId)->where('revision', $fromRevision)
+            ->orderBy('id')->get(['locale', 'field_key', 'value_json', 'content_hash']);
+        if ($rows->isEmpty()) {
+            return [];
+        }
+        $localized = array_filter($this->revisionSchema($schemaId, $recordId, $toRevision)['fields'], static fn (array $field): bool => ($field['localized'] ?? false) === true);
+        $now = $this->now();
+        $inserts = [];
+        $locales = [];
+        foreach ($rows as $row) {
+            $locale = (string) $row->locale;
+            $field = (string) $row->field_key;
+            if (isset($localized[$field]) && !in_array($field, $except[$locale] ?? [], true)) {
+                $inserts[] = ['schema_id' => $schemaId, 'record_id' => $recordId, 'revision' => $toRevision, 'locale' => $locale, 'field_key' => $field,
+                    'value_json' => $row->value_json, 'content_hash' => $row->content_hash, 'created_by' => $actorId, 'correlation_id' => $correlationId, 'created_at' => $now];
+                $locales[$locale] = true;
+            }
+        }
+        if ($inserts === []) {
+            return [];
+        }
+        $this->connection->transaction(function () use ($schemaId, $recordId, $toRevision, $inserts, $locales): void {
+            if ($this->observer !== null && $this->hasPublications()) {
+                $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)
+                    ->where('schema_id', $schemaId)->where('record_id', $recordId)
+                    ->lockForUpdate()->get(['publication_id']);
+            }
+            foreach (array_chunk($inserts, 200) as $chunk) {
+                $this->connection->table(self::TABLE)->insert($chunk);
+            }
+            foreach (array_keys($locales) as $locale) {
+                $this->tellIndexes($schemaId, $recordId, $toRevision, (string) $locale);
+            }
+        });
+
+        return array_map('strval', array_keys($locales));
+    }
+
+    /**
+     * A row a draft only inherited (carryForward(), the same content as a revision before it) is not the draft's own yet:
+     * a translation written for the draft takes its place, so a writer's order (the update, then its translations) goes
+     * on working. A revision that ever went out, or a row it wrote itself, stays immutable.
+     *
+     * @phpstan-impure
+     */
+    private function replaceCarried(string $schemaId, string $recordId, int $revision, string $locale, string $fieldKey, string $encoded, string $actorId, ?string $correlationId, string $now): bool
+    {
+        if ($revision < 2) {
+            return false;
+        }
+        $row = fn () => $this->connection->table(self::TABLE)
+            ->where('schema_id', $schemaId)->where('record_id', $recordId)->where('locale', $locale)->where('field_key', $fieldKey);
+        $hash = $row()->where('revision', $revision)->value('content_hash');
+        if ($hash === null || !$row()->where('revision', '<', $revision)->where('content_hash', $hash)->exists()) {
+            return false;
+        }
+        if ($this->hasPublications() && $this->connection->table(DatabasePublicationLifecycle::LOG_TABLE)
+            ->where('schema_id', $schemaId)->where('record_id', $recordId)->where('revision', $revision)->exists()) {
+            return false;
+        }
+        $row()->where('revision', $revision)->update(['value_json' => $encoded, 'content_hash' => hash('sha256', $encoded),
+            'created_by' => $actorId, 'correlation_id' => $correlationId, 'created_at' => $now]);
+
+        return true;
+    }
+
+    /**
+     * A translation of a published revision changes what it shows, and one of any revision moves the record's projection
+     * version; the derived indexes learn of it in the same transaction. An index they do not include cannot follow it:
+     * its sets or slots of the storage stop answering.
+     *
+     * @phpstan-impure
+     */
+    private function tellIndexes(string $schemaId, string $recordId, int $revision, string $locale): void
+    {
+        $observer = $this->observer !== null ? ($this->observer)() : null;
+        $observer?->localizedValuesWritten($schemaId, $recordId, $revision, $locale);
+        if (!LocalizedValueObserverChain::maintains($observer, PublishedKeyIndex::class)) {
+            ($this->keyTable ??= new PublishedKeyTable($this->connection))->silenceSchema($schemaId);
+        }
+        if (!LocalizedValueObserverChain::maintains($observer, PublishedSiteViewIndex::class)) {
+            ($this->siteViews ??= new PublishedSiteViewRegistry($this->connection, 0.0))->silenceSchema($schemaId);
+        }
+    }
+
+    /**
+     * The required fields nothing answers for in this revision: no shared value, no row of the language yet.
+     *
+     * @param list<string> $missing
+     * @return list<string>
+     * @phpstan-impure
+     */
+    private function withoutAnswered(string $schemaId, string $recordId, int $revision, string $locale, array $missing): array
+    {
+        if ($missing === []) {
+            return [];
+        }
+        $shared = json_decode((string) $this->connection->table('larena_storage_record_versions')
+            ->where('schema_id', $schemaId)->where('record_id', $recordId)->where('revision', $revision)->value('values_json'), true);
+        $present = $this->connection->table(self::TABLE)
+            ->where('schema_id', $schemaId)->where('record_id', $recordId)->where('revision', $revision)->where('locale', $locale)
+            ->whereIn('field_key', $missing)->pluck('field_key')->all();
+
+        return array_values(array_filter($missing, static fn (string $key): bool => !in_array($key, $present, true)
+            && !(is_array($shared) && ($shared[$key] ?? null) !== null)));
     }
 
     /**

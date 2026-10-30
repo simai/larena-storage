@@ -466,7 +466,7 @@ final readonly class StorageSectionController
     {
         $publication = $publishable['actions']->publication();
         $bulk = ($permissions['record.bulk_archive'] ?? false) === true ? ['bulk_delete' => $this->copy('bulk_archive')] : [];
-        $bulk += $publication->bulkActions($publishable['can']);
+        $bulk += $publication->bulkActions($publishable['can'], $publishable['binding']['site']);
         $canCreate = ($permissions['record.create'] ?? false) === true;
 
         return new AdminDataviewPage(
@@ -806,7 +806,7 @@ final readonly class StorageSectionController
         $state = $this->snapshot($request, ['structure_id' => $structure, 'records' => 'skip']);
         $publishable = is_string($state['scope_ref'] ?? null) ? $this->publishable($request, $state['scope_ref'], $structure) : null;
         if ($recordId === null || !is_string($locale) || !is_int($revision) || $publishable === null
-            || !in_array($locale, $publishable['actions']->publication()->locales(), true) || !is_string($state['scope_ref'] ?? null)) {
+            || !in_array($locale, $publishable['actions']->publication()->locales($publishable['binding']['site']), true) || !is_string($state['scope_ref'] ?? null)) {
             return $refused();
         }
         $refusal = $publishable['actions']->write($this->actor($request), $state['scope_ref'], $structure, $publishable['binding'], $recordId, $verb, $locale, $revision);

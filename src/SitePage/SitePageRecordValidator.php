@@ -39,9 +39,13 @@ final readonly class SitePageRecordValidator implements StructureRoleRecordValid
             return $write->values;
         }
         $parent = $write->recordId === null ? $this->placement->parent() : $this->tree->parentOf($write->schemaId, $write->recordId);
-        $why = $this->rules->whyNotWrite($write->schemaId, $write->recordId, $parent, $slug);
+        $why = $this->rules->whyNotWrite($write->schemaId, $write->recordId, $parent, $slug, $write->locale);
         if ($why !== null) {
             throw new StorageRejected($why);
+        }
+        // A language's own slug leaves the shared `target` alone: that is the shared values' note.
+        if ($write->locale !== null) {
+            return $write->values;
         }
         $target = $this->addresses->currentAddress($write->schemaId, $parent, $slug);
 

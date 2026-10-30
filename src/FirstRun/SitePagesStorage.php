@@ -7,8 +7,10 @@ namespace Larena\Storage\FirstRun;
 use Closure;
 use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Database\Connection;
+use InvalidArgumentException;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
+use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
 
 /**
  * The site pages as an ordinary storage (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, step 1.4;
@@ -26,7 +28,11 @@ use Larena\Storage\Runtime\DatabaseStorageWorkbench;
  * installation adopted before gets them on the next run of the command. The Home page keeps its values: without
  * the fields it reads as `text` with no body (contentMode()).
  *
- * - `content_mode`: choice@1 `text` | `blocks`, optional, not localized;
+ * A page's address and content form are per language (sites plan, step 4.3): `slug` and `content_mode` are localized,
+ * and adopt() makes them so on every storage bound to the pages role, each with one more structure version
+ * (localizeAddressFields()). No record is rewritten; a language with no translation keeps showing the shared slug.
+ *
+ * - `content_mode`: choice@1 `text` | `blocks`, optional, localized;
  * - `body`: html@1, optional, localized, public;
  * - `blocks`: content@1, optional, localized, public.
  */
@@ -45,6 +51,9 @@ final readonly class SitePagesStorage
 
     /** The page content fields, in the order they are added. */
     public const CONTENT_FIELDS = ['content_mode', 'body', 'blocks'];
+
+    /** The fields that became per language after a storage may have been made (sites plan, step 4.3). */
+    public const LOCALIZED_FIELDS = ['slug', 'content_mode'];
 
     public const CONTENT_MODE_TEXT = 'text';
 
@@ -78,7 +87,7 @@ final readonly class SitePagesStorage
         $plan = $this->adopted() ?? $this->workbench->planAdoption($this->scope($actor, $scopeRef), self::STRUCTURE_ID,
             StarterSite::SCHEMA_ID, $this->label($locale), self::OWNER_REF_PREFIX, $actor, self::OWNER_REF_FIELD);
 
-        return self::withContentFields($plan, $this->missingContentFields());
+        return self::withContentFields($plan, $this->missingContentFields()) + ['localized_fields' => $this->localizeAddressFields($actor, null, false)];
     }
 
     /**
@@ -101,7 +110,62 @@ final readonly class SitePagesStorage
             $this->addContentFields((string) $receipt['scope_ref'], $missing, $actor, $locale, $correlationId);
         }
 
-        return self::withContentFields($receipt, $missing);
+        return self::withContentFields($receipt, $missing) + ['localized_fields' => $this->localizeAddressFields($actor, $correlationId)];
+    }
+
+    /**
+     * Every storage bound to the pages role with `slug` and `content_mode` localized, as a structure version where one
+     * is needed. Each storage reports `localized`, `already` or, where the person may not change it, `refused`: a
+     * refusal stops nothing, and the command run by someone who may finishes the rest. Without $write it only tells.
+     *
+     * @return list<array{schema_id: string, state: string, reason_code?: string}>
+     */
+    public function localizeAddressFields(string $actor, ?string $correlationId = null, bool $write = true): array
+    {
+        $report = [];
+        foreach ($this->pageStorages() as $storage) {
+            try {
+                $structure = $this->workbench->readStructure($storage['scope_ref'], $storage['structure_id'], $actor);
+                $changed = false;
+                $fields = [];
+                foreach ($structure->fields as $field) {
+                    if (in_array($field['key'] ?? null, self::LOCALIZED_FIELDS, true) && ($field['localized'] ?? false) !== true) {
+                        $field['localized'] = true;
+                        $changed = true;
+                    }
+                    $fields[] = $field;
+                }
+                if ($changed && $write) {
+                    $this->workbench->updateStructure($storage['scope_ref'], $storage['structure_id'], $structure->version,
+                        ['structure_id' => $storage['structure_id'], 'label' => $structure->label, 'fields' => $fields], $actor, $correlationId);
+                }
+                $report[] = ['schema_id' => $storage['schema_id'], 'state' => $changed ? 'localized' : 'already'];
+            } catch (StorageRejected|InvalidArgumentException $refused) {
+                $report[] = ['schema_id' => $storage['schema_id'], 'state' => 'refused', 'reason_code' => $refused instanceof StorageRejected ? $refused->reasonCode : $refused->getMessage()];
+            }
+        }
+
+        return $report;
+    }
+
+    /**
+     * The workbench storages bound to the pages role, on any site.
+     *
+     * @return list<array{scope_ref: string, structure_id: string, schema_id: string}>
+     */
+    private function pageStorages(): array
+    {
+        $storages = [];
+        $schemas = $this->connection->table(DatabaseStructureRoleRegistry::BINDINGS_TABLE)
+            ->where('role_ref', StarterSite::ROLE_REF)->where('status', 'active')->pluck('schema_id')->all();
+        foreach ($this->connection->table('larena_storage_workbench_structures')
+            ->whereIn('storage_schema_id', array_values(array_unique($schemas)))->whereNull('archived_at')->whereNull('import_run_ref')
+            ->orderBy('created_at')->orderBy('structure_id')
+            ->get(['scope_ref', 'structure_id', 'storage_schema_id']) as $row) {
+            $storages[] = ['scope_ref' => (string) $row->scope_ref, 'structure_id' => (string) $row->structure_id, 'schema_id' => (string) $row->storage_schema_id];
+        }
+
+        return $storages;
     }
 
     /**
@@ -142,7 +206,7 @@ final readonly class SitePagesStorage
                 'required' => false,
                 'visibility' => 'public',
             ] + match ($key) {
-                'content_mode' => ['type' => 'choice', 'type_version' => 1, 'localized' => false, 'constraints' => ['options' => [
+                'content_mode' => ['type' => 'choice', 'type_version' => 1, 'localized' => true, 'constraints' => ['options' => [
                     ['value' => self::CONTENT_MODE_TEXT, 'label' => $this->word('content_mode_text', $locale)],
                     ['value' => self::CONTENT_MODE_BLOCKS, 'label' => $this->word('content_mode_blocks', $locale)],
                 ]]],
@@ -168,7 +232,7 @@ final readonly class SitePagesStorage
         ];
 
         return ['structure_id' => self::STRUCTURE_ID, 'label' => $this->label($locale), 'fields' => [
-            $string('slug', 10, true, 120, false),
+            $string('slug', 10, true, 120, true),
             $string('title', 20, true, 191, true),
             ['key' => 'order_index', 'label' => $this->word('order_index', $locale), 'position' => 30, 'type' => 'integer', 'type_version' => 1,
                 'required' => true, 'visibility' => 'public', 'constraints' => []],

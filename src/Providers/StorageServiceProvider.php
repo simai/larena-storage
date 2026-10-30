@@ -85,6 +85,8 @@ use Larena\Property\Runtime\PropertyOptionSourceRegistry;
 use Larena\Storage\Runtime\StorageStructureOptionSource;
 use Larena\Storage\Contracts\StorageSchemaEvolution as StorageSchemaEvolutionContract;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
+use Larena\Core\Contracts\SiteLanguages;
+use Larena\Core\Site\SiteLanguageFolders;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
@@ -433,6 +435,7 @@ final class StorageServiceProvider extends ServiceProvider
         });
         $this->app->singleton(RecordOperationHandlers::class, static fn (Application $app): RecordOperationHandlers => new RecordOperationHandlers(
             $app->make(VersionedStorageContract::class),
+            static fn (): DatabaseLocalizedValues => $app->make(DatabaseLocalizedValues::class),
         ));
 
         // Storage serves its own handler references when an operation runs
@@ -650,6 +653,7 @@ final class StorageServiceProvider extends ServiceProvider
                 },
                 // The roles' record rules: the site redirects' and the site pages'.
                 recordValidators: static fn (): array => [$app->make(SiteRedirectValidator::class), $app->make(SitePageRecordValidator::class)],
+                translations: static fn (): DatabaseLocalizedValues => $app->make(DatabaseLocalizedValues::class),
             );
         });
         $this->app->alias(DatabaseStorageWorkbench::class, StorageWorkbenchContract::class);
@@ -722,10 +726,16 @@ final class StorageServiceProvider extends ServiceProvider
                         return false;
                     }
                 },
-                // The locales a site declares: the storage's own setting, else the admin's editor locales, else the
-                // application locale.
+                // The locales a site declares: its own list (setting site.languages, sites plan step 4.2) when it has
+                // one, then the storage's own setting, else the admin's editor locales, else the application locale.
                 siteLocales: static function (string $siteRef) use ($app): array {
                     $config = $app->make('config');
+                    if ($app->bound(SiteLanguages::class)) {
+                        $languages = $app->make(SiteLanguages::class)->languages($siteRef);
+                        if ($languages !== []) {
+                            return $languages;
+                        }
+                    }
                     foreach (['larena-storage.sitepack.locales', 'larena-admin.structure_editors.locales'] as $key) {
                         $locales = $config->get($key);
                         if (is_array($locales) && $locales !== []) {
@@ -938,6 +948,7 @@ final class StorageServiceProvider extends ServiceProvider
 
                 return SitePageReservedSlugs::from($uris, is_array($public) ? array_diff($public, ['.', '..']) : []);
             },
+            $app->bound(SiteLanguages::class) ? $app->make(SiteLanguages::class) : null,
         ));
         $this->app->singleton(SitePageRecordValidator::class);
         $this->app->singleton(SitePageAddressChanges::class, static fn (Application $app): SitePageAddressChanges => new SitePageAddressChanges(
@@ -949,6 +960,7 @@ final class StorageServiceProvider extends ServiceProvider
             static fn (): ?SitePageAddressObserver => $app->bound(SitePageAddressObserver::class) ? $app->make(SitePageAddressObserver::class) : null,
             $app->bound('log') ? $app->make('log') : null,
             $app->bound('translator') ? $app->make('translator') : null,
+            $app->bound(SiteLanguageFolders::class) ? $app->make(SiteLanguageFolders::class) : null,
         ));
     }
 

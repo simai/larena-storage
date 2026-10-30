@@ -13,6 +13,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Schema;
 use Larena\Core\Enums\ScopeKind;
+use Larena\Core\Enums\SiteMatch;
+use Larena\Core\Site\CurrentSite;
 use Larena\Core\FirstRun\FirstRunContext;
 use Larena\Core\FirstRun\FirstRunPayload;
 use Larena\Core\Plane\DatabasePlaneRegistry;
@@ -481,6 +483,19 @@ try {
     storageViewRejects(static fn () => siteRedirectCreate($target, ['from_address' => '/e', 'to_address' => '/x']), 'site_redirect_cycle');
     [$status, $receipt] = siteRedirectsCommand($target['storage'], ['--actor' => $admin]);
     storageViewExpect($status === 0 && $receipt['sites'][0]['state'] === SiteRedirectsStorage::ALREADY_PRESENT, 'the command made a second redirects storage after the import');
+
+    // A site in a folder: its rules name addresses inside it, and the target stays in it (sites plan, step 4.4).
+    $site['redirects']->ensure(SITE_REDIRECTS_SITE, '/en/old-folder', '/en/new-folder', 301, 'prefix', 'page moved', $admin);
+    $inFolder = static function (string $uri) use ($site): array {
+        $request = Request::create($uri);
+        $request->attributes->set(CurrentSite::ATTRIBUTE, new CurrentSite(ScopeRef::parse(SITE_REDIRECTS_SITE), null, null, '/shop', SiteMatch::Exact));
+        $response = (new SiteRedirectMiddleware($site['maps']['cache'], static fn (): string => SITE_REDIRECTS_SITE))->handle($request, static fn (Request $request): Response => new Response('page'));
+
+        return [$response->getStatusCode(), $response->headers->get('Location')];
+    };
+    storageViewExpect($inFolder('/shop/en/old-folder/a?x=1') === [301, '/shop/en/new-folder/a?x=1'], 'a site in a folder: the rule answers inside it and leads inside it');
+    storageViewExpect($inFolder('/shop/nothing-here')[0] === 200, 'a site in a folder: no rule, no redirect');
+    storageViewExpect(siteRedirectAsk($site, '/en/old-folder')[0] === 301, 'a site at the root is as before');
 
     echo "Site redirects passed.\n";
 } finally {

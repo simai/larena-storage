@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Runtime;
 
+use Closure;
 use Larena\Core\Contracts\OperationContext;
 use Larena\Core\Contracts\OperationDescriptor;
 use Larena\Core\Contracts\OperationProposalHandler;
@@ -20,7 +21,8 @@ use Larena\Storage\Exceptions\StorageRejected;
  */
 final readonly class RecordOperationHandlers implements OperationProposalHandler
 {
-    public function __construct(private VersionedStorage $storage)
+    /** @param (Closure(): DatabaseLocalizedValues)|null $translations what a record's next revision keeps; without it, none */
+    public function __construct(private VersionedStorage $storage, private ?Closure $translations = null)
     {
     }
 
@@ -78,6 +80,10 @@ final readonly class RecordOperationHandlers implements OperationProposalHandler
             ),
             default => throw new StorageRejected('unknown_operation'),
         };
+
+        if ($descriptor->name === 'storage.record.update' && $this->translations !== null) {
+            ($this->translations)()->carryForward($schema->schemaId, $written->version->ref->recordId, $this->positive($context, 'expected_revision'), $written->version->ref->revision, $context->actorId, $context->correlationId);
+        }
 
         return ['record' => [
             'schema_id' => $written->version->ref->schemaId,

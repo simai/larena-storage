@@ -6,6 +6,8 @@ namespace Larena\Storage\SiteRedirect;
 
 use Closure;
 use Illuminate\Http\Request;
+use Larena\Core\Site\CurrentSite;
+use Larena\Core\Site\SiteMap;
 use Larena\Storage\Contracts\RequestSiteScope;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -20,6 +22,9 @@ use Symfony\Component\HttpFoundation\Response;
  * The site is the request's (RequestSiteScope, which the application binds over its site resolution), else the
  * default site. The application adds the middleware to its web group after the site is resolved. The map comes from
  * SiteRedirectCache: a request answered from the cache reads no database.
+ *
+ * A rule names an address inside its site, a language's folder included: on a `/shop` domain the rule `/old` answers
+ * `/shop/old`, and its target is `/shop/new`. An absolute target goes where it says.
  */
 final readonly class SiteRedirectMiddleware
 {
@@ -65,12 +70,14 @@ final readonly class SiteRedirectMiddleware
             }
         }
         $site = $this->sites?->siteScopeRef($request);
-        $hit = $this->maps->map($site ?? ($this->defaultSite)())->resolve($path);
+        $current = $request->attributes->get(CurrentSite::ATTRIBUTE);
+        $folder = $current instanceof CurrentSite && $current->folder !== '' && SiteMap::inFolder($current->folder, $path) ? $current->folder : '';
+        $hit = $this->maps->map($site ?? ($this->defaultSite)())->resolve($folder === '' ? $path : $current->pathInSite($path));
         if ($hit === null) {
             return null;
         }
         $target = $hit['target'];
-        $location = SiteRedirectPath::isAbsolute($target) ? $target : $request->getBaseUrl() . SiteRedirectPath::location($target);
+        $location = SiteRedirectPath::isAbsolute($target) ? $target : $request->getBaseUrl() . $folder . SiteRedirectPath::location($target);
         $query = $request->getQueryString();
         if ($query !== null && $query !== '') {
             [$base, $suffix] = SiteRedirectPath::split($location);
