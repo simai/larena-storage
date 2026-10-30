@@ -40,7 +40,7 @@ $rejected = static function (callable $call, string $reason): StructureRoleRejec
 // Every starter role ships a fixture that satisfies it, doc_space included, and a
 // fixture missing a required field is reported by name.
 $fixtures = StarterStructureRoles::fixtures();
-larena_storage_role_assert(array_keys($fixtures) === ['site_node@v1', 'redirect@v1', 'site_redirect@v1', 'doc_space@v1', 'doc_page@v1', 'org_chart@v1']);
+larena_storage_role_assert(array_keys($fixtures) === ['site_node@v1', 'redirect@v1', 'site_record@v1', 'site_redirect@v1', 'doc_space@v1', 'doc_page@v1', 'org_chart@v1']);
 foreach ($fixtures as $roleRef => $fixture) {
     $report = $registry->validateStructure($roleRef, 'fixture.' . strtok($roleRef, '@'), $fixture['fields'], $fixture['relation_keys'], $fixture['lifecycle']);
     larena_storage_role_assert($report->conforms, $roleRef . ' fixture conforms');
@@ -85,7 +85,7 @@ larena_storage_role_assert(array_map(static fn ($b): string => $b->schemaId, $re
 
 // Each change is audited.
 $types = array_map(static fn ($event): string => $event->type, $sink->events);
-larena_storage_role_assert(count(array_keys($types, StructureRoleAuditEventCatalog::REGISTERED, true)) === 7, 'six starter roles and v2 are registered');
+larena_storage_role_assert(count(array_keys($types, StructureRoleAuditEventCatalog::REGISTERED, true)) === 8, 'seven starter roles and v2 are registered');
 larena_storage_role_assert(in_array(StructureRoleAuditEventCatalog::MIGRATED, $types, true), 'the migration is audited');
 $migrated = array_values(array_filter($sink->events, static fn ($event): bool => $event->type === StructureRoleAuditEventCatalog::MIGRATED))[0];
 larena_storage_role_assert($migrated->correlationId === 'corr-migrate' && $migrated->payload['schema_id'] === 'site.pages');

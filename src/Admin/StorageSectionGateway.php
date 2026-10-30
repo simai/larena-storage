@@ -27,6 +27,7 @@ use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Encryption\StorageEncryptionPolicy;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Presets\StoragePresets;
 use RuntimeException;
 use Throwable;
 
@@ -129,6 +130,10 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
     ];
     private const PERMISSIONS = [
         'structure.create' => 'storage.workbench.structure.create',
+        // «Заготовка» of a new storage: its fields and its role, with the same right as an empty one.
+        'structure.create_preset' => 'storage.workbench.structure.create',
+        // «Отвязать роль»: an ordinary storage again, with the right to change a storage.
+        'structure.unbind_role' => 'storage.workbench.structure.update',
         'structure.update' => 'storage.workbench.structure.update',
         'record.create' => 'storage.workbench.record.create',
         'record.update' => 'storage.workbench.record.update',
@@ -327,6 +332,8 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
             $scopeRef = $this->scope($actor, $requestedScope);
             $redirect = match ($action) {
                 'structure.create' => $this->createStructure($actor, $scopeRef, $payload),
+                'structure.create_preset' => $this->createPreset($actor, $scopeRef, $payload),
+                'structure.unbind_role' => $this->unbindRole($actor, $scopeRef, $payload),
                 'structure.update' => $this->updateStructure($actor, $scopeRef, $payload),
                 'record.create' => $this->createRecord($actor, $scopeRef, $payload),
                 'record.update' => $this->updateRecord($actor, $scopeRef, $payload),
@@ -374,8 +381,9 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
                 $exception->reasonCode === self::VIEW_NOT_READY => self::VIEW_NOT_READY,
                 in_array($exception->reasonCode, self::FIELD_OPTION_REASONS, true) => $exception->reasonCode,
                 in_array($exception->reasonCode, self::ENCRYPTION_REASONS, true) => $exception->reasonCode,
-                // A site page's address refused (SitePageRules): the panel says why in its own words.
-                str_starts_with($exception->reasonCode, 'site_page_') => $exception->reasonCode,
+                in_array($exception->reasonCode, ['storage_role_binding_published', 'storage_binding_unknown'], true) => $exception->reasonCode,
+                // A site page's or record's address refused: the panel says why in its own words.
+                str_starts_with($exception->reasonCode, 'site_page_'), str_starts_with($exception->reasonCode, 'site_record_') => $exception->reasonCode,
                 default => 'storage_workbench_action_rejected',
             }, $requestedScope);
         } catch (InvalidArgumentException|JsonException $exception) {
@@ -516,6 +524,43 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
         $structure = $this->workbench->createStructure($scopeRef, $this->structureDescriptor($payload, $scopeRef, $actor), $actor);
 
         return ['scope_ref' => $scopeRef, 'structure_id' => $structure->structureId];
+    }
+
+    /** @param array<string, mixed> $payload @return array<string, string> */
+    private function createPreset(string $actor, string $scopeRef, array $payload): array
+    {
+        $preset = $payload['preset'] ?? null;
+        if (!is_string($preset) || !in_array($preset, StoragePresets::KEYS, true) || $preset === StoragePresets::PLAIN) {
+            throw new InvalidArgumentException('storage_preset_unknown');
+        }
+        $structure = \Illuminate\Container\Container::getInstance()->make(StoragePresets::class)
+            ->create($scopeRef, $this->structureId($payload), $this->text($payload['label'] ?? null, 1, 120), $preset, $actor);
+
+        return ['scope_ref' => $scopeRef, 'structure_id' => $structure->structureId];
+    }
+
+    /**
+     * Ends the storage's binding to the role the payload names, in the scopes it is bound in. A storage with records still
+     * out under the role is refused in words.
+     *
+     * @param array<string, mixed> $payload @return array<string, string>
+     */
+    private function unbindRole(string $actor, string $scopeRef, array $payload): array
+    {
+        $structureId = $this->structureId($payload);
+        $schemaId = $this->workbench->readStructure($scopeRef, $structureId, $actor)->schema->schemaId;
+        $roleRef = $payload['role_ref'] ?? null;
+        $site = $payload['site_ref'] ?? null;
+        if (!is_string($roleRef) || !is_string($site)) {
+            throw new InvalidArgumentException('storage_role_unbind_invalid');
+        }
+        try {
+            \Illuminate\Container\Container::getInstance()->make(\Larena\Storage\Contracts\StructureRoleRegistry::class)->unbindStructure($roleRef, $schemaId, $site, $actor);
+        } catch (\Larena\Storage\Exceptions\StructureRoleRejected $refused) {
+            throw new StorageRejected('storage_'.$refused->reasonCode);
+        }
+
+        return ['scope_ref' => $scopeRef, 'structure_id' => $structureId];
     }
 
     /**

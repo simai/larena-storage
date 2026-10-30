@@ -5,6 +5,8 @@ declare(strict_types=1);
 // The Storage section of the admin (/admin/storage) and the storage workbench stand (/admin/storage-workbench):
 // larena/storage's admin UI, shown only where larena/admin is installed.
 return [
+    'presets' => ['plain' => 'Пустое хранилище', 'materials' => 'Материалы с адресами (новости, статьи)', 'pages' => 'Дерево страниц сайта'],
+    'material_fields' => ['slug' => 'Адрес', 'title' => 'Название', 'description' => 'Описание'],
     'section' => [
         'confirm_bulk_publish' => 'Опубликовать выбранные записи (:count) на языке :locale?',
         'confirm_bulk_unpublish' => 'Снять с публикации выбранные записи (:count) на языке :locale?',
@@ -715,6 +717,13 @@ return [
         'archive_storage' => 'Перенести хранилище в архив',
         'archive_storage_text' => 'Записи сохранятся, но добавлять и менять их будет нельзя, пока хранилище не восстановят.',
         'restore_storage' => 'Восстановить хранилище',
+        'storage_role_binding_published' => 'Записи этого хранилища ещё опубликованы. Сначала снимите их с публикации.',
+        'storage_binding_unknown' => 'Хранилище уже не привязано.',
+        'unbind_role' => 'Перестать быть содержимым сайта',
+        'unbind_role_text' => 'Хранилище станет обычным: у его записей не будет публикации и адресов на сайте. Ничего не удаляется. Сначала снимите записи с публикации.',
+        'unbind_role_action' => 'Отвязать',
+        'preset' => 'Начать с',
+        'preset_hint' => 'Поля и роль для начала; потом их можно менять.',
         'purge_storage' => 'Удалить хранилище навсегда',
         'purge_storage_text' => 'Хранилище и все его записи будут удалены без возможности восстановления. Его ID нельзя будет использовать снова. Введите ID хранилища, чтобы подтвердить.',
         // A typed ID that is not this storage's: said under the field and in the notice; nothing is deleted.
@@ -809,6 +818,11 @@ return [
         'language_folder_note' => 'Изменилась папка основного языка.',
         'redirect_note' => 'Адрес страницы изменился.',
         'refusals' => [
+            'site_record_address_taken' => 'Этот адрес уже занят другой записью этого хранилища или страницей её раздела.',
+            'site_record_slug_taken' => 'Этот адрес уже есть у другой записи этого хранилища.',
+            'site_record_slug_invalid' => 'Адрес — латинские буквы, цифры, «-» и «_», с буквы или цифры.',
+            'site_page_records_storage_invalid' => 'Выберите хранилище материалов этого сайта.',
+            'site_page_records_storage_taken' => 'Записи этого хранилища уже выдаёт другая страница.',
             'site_page_address_taken' => 'Адрес уже занят другой страницей в этом разделе',
             'site_page_slug_reserved' => 'Этот адрес занят самой системой (например, admin или api). Выберите другой.',
             'site_page_slug_invalid' => 'Адрес — латинские буквы, цифры, «-» и «_», с буквы или цифры.',
@@ -819,6 +833,7 @@ return [
         'site_pages' => 'Страницы сайта',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
         'site_page_fields' => [
+            'records_storage' => 'Выдаёт записи',
             'slug' => 'Адрес', 'title' => 'Название', 'order_index' => 'Порядок', 'target' => 'Цель', 'description' => 'Описание',
             'content_mode' => 'Форма содержимого', 'body' => 'Текст', 'blocks' => 'Блоки',
             'content_mode_text' => 'Текст', 'content_mode_blocks' => 'Блоки',

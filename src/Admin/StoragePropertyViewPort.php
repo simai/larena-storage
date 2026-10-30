@@ -207,7 +207,7 @@ final class StoragePropertyViewPort extends PropertyViewPort
         if ($reason === StorageSectionGateway::FIELD_VALUE_INVALID) {
             return $this->fieldReasonMessage('');
         }
-        if (str_starts_with($reason, 'site_page_')) {
+        if (str_starts_with($reason, 'site_page_') || str_starts_with($reason, 'site_record_')) {
             $container = \Illuminate\Container\Container::getInstance();
             $text = $container->bound('translator') ? $container->make('translator')->get('larena-storage::admin.site_pages.refusals.'.$reason) : null;
 

@@ -52,6 +52,9 @@ final readonly class SitePagesStorage
     /** The page content fields, in the order they are added. */
     public const CONTENT_FIELDS = ['content_mode', 'body', 'blocks'];
 
+    /** «Выдаёт записи»: the storage whose records have their addresses under this page (sites plan, step 5.7). */
+    public const RECORDS_FIELD = 'records_storage';
+
     /** The fields that became per language after a storage may have been made (sites plan, step 4.3). */
     public const LOCALIZED_FIELDS = ['slug', 'content_mode'];
 
@@ -68,7 +71,7 @@ final readonly class SitePagesStorage
     private const DEFAULT_FIELD_LABELS = [
         'slug' => 'Address', 'title' => 'Title', 'order_index' => 'Order', 'target' => 'Target', 'description' => 'Description',
         'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',
-        'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks',
+        'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks', 'records_storage' => 'Gives out records of',
     ];
 
     /** @param Closure(string): string $scopeForActor The scope the person works in, the one the storage section lists. */
@@ -128,9 +131,22 @@ final readonly class SitePagesStorage
         $report = [];
         foreach ($this->pageStorages() as $storage) {
             try {
-                $structure = $this->workbench->readStructure($storage['scope_ref'], $storage['structure_id'], $actor);
+                $structure = $this->workbench->structureForUpgrade($storage['scope_ref'], $storage['structure_id']);
                 $changed = false;
                 $fields = [];
+                $present = array_map('strval', array_column($structure->fields, 'key'));
+                $last = 0;
+                foreach ($structure->fields as $field) {
+                    $last = max($last, is_int($field['position'] ?? null) ? $field['position'] : 0);
+                }
+                // What a storage of pages made before them lacks: their optional fields, a safe addition.
+                $added = [];
+                foreach ([...$this->contentFields($last), $this->recordsField($last + 40)] as $field) {
+                    if (!in_array($field['key'], $present, true)) {
+                        $added[] = $field;
+                        $changed = true;
+                    }
+                }
                 foreach ($structure->fields as $field) {
                     if (in_array($field['key'] ?? null, self::LOCALIZED_FIELDS, true) && ($field['localized'] ?? false) !== true) {
                         $field['localized'] = true;
@@ -144,8 +160,8 @@ final readonly class SitePagesStorage
                     $fields[] = $field;
                 }
                 if ($changed && $write) {
-                    $this->workbench->updateStructure($storage['scope_ref'], $storage['structure_id'], $structure->version,
-                        ['structure_id' => $storage['structure_id'], 'label' => $structure->label, 'fields' => $fields], $actor, $correlationId);
+                    $this->workbench->upgradeStructure($storage['scope_ref'], $storage['structure_id'], $structure->version,
+                        ['structure_id' => $storage['structure_id'], 'label' => $structure->label, 'fields' => [...$fields, ...$added]], $actor, $correlationId);
                 }
                 $report[] = ['schema_id' => $storage['schema_id'], 'state' => $changed ? 'localized' : 'already'];
             } catch (StorageRejected|InvalidArgumentException $refused) {
@@ -227,6 +243,18 @@ final readonly class SitePagesStorage
     }
 
     /**
+     * The field that makes a page a section giving out records. The card offers it as a choice of the site's storages, so
+     * the storage's own forms do not show it; it is not a text of the site's.
+     *
+     * @return array<string, mixed>
+     */
+    private function recordsField(int $position, ?string $locale = null): array
+    {
+        return ['key' => self::RECORDS_FIELD, 'label' => $this->word(self::RECORDS_FIELD, $locale), 'position' => $position, 'type' => 'string', 'type_version' => 2,
+            'required' => false, 'visibility' => 'protected', 'hidden' => true, 'constraints' => ['max_length' => 120]];
+    }
+
+    /**
      * The workbench descriptor of a new site's pages (NewSiteStorages): an ordinary storage with the fields the
      * site page role asks for, as the starter site's schema has them, and the content fields.
      *
@@ -247,6 +275,7 @@ final readonly class SitePagesStorage
             ['hidden' => true] + $string('target', 40, false, 512, false),
             $string('description', 50, false, 2000, true),
             ...$this->contentFields(50, $locale),
+            $this->recordsField(90, $locale),
         ]];
     }
 

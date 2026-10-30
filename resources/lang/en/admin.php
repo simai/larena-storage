@@ -5,6 +5,8 @@ declare(strict_types=1);
 // The Storage section of the admin (/admin/storage) and the storage workbench stand (/admin/storage-workbench):
 // larena/storage's admin UI, shown only where larena/admin is installed.
 return [
+    'presets' => ['plain' => 'Empty storage', 'materials' => 'Materials with addresses (news, articles)', 'pages' => 'A tree of site pages'],
+    'material_fields' => ['slug' => 'Address', 'title' => 'Title', 'description' => 'Description'],
     'section' => [
         'confirm_bulk_publish' => 'Publish the selected records (:count) in :locale?',
         'confirm_bulk_unpublish' => 'Unpublish the selected records (:count) in :locale?',
@@ -715,6 +717,13 @@ return [
         'archive_storage' => 'Archive storage',
         'archive_storage_text' => 'Records are kept but cannot be added or changed until the storage is restored.',
         'restore_storage' => 'Restore storage',
+        'storage_role_binding_published' => 'Records of this storage are still published. Unpublish them first.',
+        'storage_binding_unknown' => 'This storage is no longer bound.',
+        'unbind_role' => 'Stop being site content',
+        'unbind_role_text' => 'The storage becomes an ordinary one: its records no longer have publication and addresses on the site. Nothing is deleted. Take its records off the site first.',
+        'unbind_role_action' => 'Unbind',
+        'preset' => 'Start from',
+        'preset_hint' => 'Fields and a role to begin with; they can be changed afterwards.',
         'purge_storage' => 'Delete storage permanently',
         'purge_storage_text' => 'The storage and all of its records are deleted and cannot be restored. Its ID cannot be used again. Type the storage ID to confirm.',
         // A typed ID that is not this storage's: said under the field and in the notice; nothing is deleted.
@@ -809,6 +818,11 @@ return [
         'language_folder_note' => 'The main language\'s folder changed.',
         'redirect_note' => 'The page\'s address changed.',
         'refusals' => [
+            'site_record_address_taken' => 'This address is already taken by another record of this storage or a page of its section.',
+            'site_record_slug_taken' => 'Another record of this storage already has this address.',
+            'site_record_slug_invalid' => 'An address is latin letters, digits, «-» and «_», starting with a letter or a digit.',
+            'site_page_records_storage_invalid' => 'Choose a storage of materials on this site.',
+            'site_page_records_storage_taken' => 'Another page already gives out the records of this storage.',
             'site_page_address_taken' => 'This address is already taken by another page in this section',
             'site_page_slug_reserved' => 'The system itself uses this address (admin or api, for example). Choose another.',
             'site_page_slug_invalid' => 'An address is latin letters, digits, «-» and «_», starting with a letter or a digit.',
@@ -819,6 +833,7 @@ return [
         'site_pages' => 'Site pages',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
         'site_page_fields' => [
+            'records_storage' => 'Gives out records of',
             'slug' => 'Address', 'title' => 'Title', 'order_index' => 'Order', 'target' => 'Target', 'description' => 'Description',
             'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',
             'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks',

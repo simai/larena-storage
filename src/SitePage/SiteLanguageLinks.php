@@ -38,11 +38,11 @@ final readonly class SiteLanguageLinks
         $own = $this->languages->ownStructure($site);
         $links = [];
         foreach ($this->languages->languages($site) as $language) {
-            $address = $this->addresses->addressOf($site, $language, $recordId);
+            $address = $this->addresses->addressOf($site, $language, $recordId) ?? $this->addresses->itemAddressOf($site, $language, $recordId);
             $exact = $address !== null;
             $home = false;
             if ($address === null) {
-                $source = $own ? null : $this->addresses->addressOf($site, $main, $recordId);
+                $source = $own ? null : ($this->addresses->addressOf($site, $main, $recordId) ?? $this->addresses->itemAddressOf($site, $main, $recordId));
                 $home = $source === null;
                 $address = $source ?? SitePagePath::HOME_ADDRESS;
             }

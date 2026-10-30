@@ -109,6 +109,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/LaravelDatabaseStorageAdapterContractTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/PdoLocalDevStorageAdapterTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageAuditEmissionTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/SiteRecordRoleTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageFailsClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StoragePersistenceFailClosedTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Unit/StorageSchemaContractTest.php",

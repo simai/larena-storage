@@ -34,6 +34,12 @@ final class StarterStructureRoles
     /** The role ref site_redirect bindings carry. */
     public const SITE_REDIRECT_REF = self::SITE_REDIRECT . '@v1';
 
+    /** A record with an address under a page of its site (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, step 5.5). */
+    public const SITE_RECORD = 'site_record';
+
+    /** The role ref site_record bindings carry. */
+    public const SITE_RECORD_REF = self::SITE_RECORD . '@v1';
+
     public const DOC_SPACE = 'doc_space';
 
     public const DOC_PAGE = 'doc_page';
@@ -84,6 +90,25 @@ final class StarterStructureRoles
                 // A redirect answers immediately or not at all; a draft redirect is
                 // a contradiction, so it has no publication lifecycle.
                 lifecycle: RoleLifecycle::Plain,
+                ownerPackage: self::OWNER_PACKAGE,
+            ),
+            new StructureRole(
+                roleCode: self::SITE_RECORD,
+                roleVersion: 1,
+                title: 'Site record',
+                // slug: where it stands under the page that gives its storage out, per language; title: what it is called.
+                requiredFields: [
+                    ['key' => 'slug', 'type' => 'string'],
+                    ['key' => 'title', 'type' => 'string'],
+                ],
+                optionalFields: [
+                    ['key' => 'description', 'type' => 'string'],
+                    ['key' => 'content_mode', 'type' => 'choice'],
+                    ['key' => 'body', 'type' => 'html'],
+                    ['key' => 'blocks', 'type' => 'content'],
+                ],
+                requiredRelations: [],
+                lifecycle: RoleLifecycle::Publishable,
                 ownerPackage: self::OWNER_PACKAGE,
             ),
             new StructureRole(

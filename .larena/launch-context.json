@@ -369,7 +369,11 @@
     "tests/Integration/SitePageLanguagesTest.php",
     "src/Runtime/RecordOperationHandlers.php",
     "src/SitePage/SiteLanguageLinks.php",
-    "src/SitePage/SiteLanguageScheme.php"
+    "src/SitePage/SiteLanguageScheme.php",
+    "src/Presets/StoragePresets.php",
+    "src/SitePage/SiteRecordAddresses.php",
+    "src/SitePage/SiteRecordValidator.php",
+    "tests/Unit/SiteRecordRoleTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

@@ -36,13 +36,19 @@ final class SitePageAddressCache
 
     private const RECORDS = 'r';
 
+    /** Records with addresses (SiteRecordAddresses): address => "schema\nrecord\nsection page". */
+    private const ITEMS = 'x';
+
+    /** Records with addresses: record => address. */
+    private const ITEM_ADDRESSES = 'y';
+
     /** @var array<string, string> by site */
     private array $generations = [];
 
     /** @var array<string, array<string, string>> by part */
     private array $parts = [];
 
-    /** @var array<string, array{0: array<string, string>, 1: array<string, string>}> whole maps read here, by site and language */
+    /** @var array<string, array{0: array<string, string>, 1: array<string, string>, 2: array<string, string>, 3: array<string, string>}> whole maps read here, by site and language */
     private array $maps = [];
 
     public function __construct(
@@ -50,6 +56,7 @@ final class SitePageAddressCache
         private readonly SitePageAddresses $addresses,
         private readonly ?CacheRepository $cache = null,
         private readonly ?StructureRoleChoice $choice = null,
+        private readonly ?SiteRecordAddresses $items = null,
     ) {
     }
 
@@ -66,16 +73,58 @@ final class SitePageAddressCache
     }
 
     /**
+     * The record with an address there, or null.
+     *
+     * @return array{schema: string, record: string, section: string}|null
+     */
+    public function itemAt(string $site, string $locale, string $address): ?array
+    {
+        $entry = $this->entry($site, $locale, self::ITEMS, $address);
+
+        return $entry === null ? null : self::item($entry);
+    }
+
+    /** A record's address in a language, or null when it is not reachable there. */
+    public function itemAddressOf(string $site, string $locale, string $recordId): ?string
+    {
+        return $this->entry($site, $locale, self::ITEM_ADDRESSES, $recordId);
+    }
+
+    /**
+     * Every reachable record with an address in a language: address => what it is. For what lists them all (the sitemap).
+     *
+     * @return array<string, array{schema: string, record: string, section: string}>
+     */
+    public function allItems(string $site, string $locale): array
+    {
+        return array_map(self::item(...), $this->every($site, $locale, self::ITEMS, 2));
+    }
+
+    /**
      * Every reachable page in a language: record => address. For what lists them all (the sitemap, an old address).
      *
      * @return array<string, string>
      */
     public function all(string $site, string $locale): array
     {
+        return $this->every($site, $locale, self::RECORDS, 1);
+    }
+
+    /** @return array{schema: string, record: string, section: string} */
+    private static function item(string $entry): array
+    {
+        [$schema, $record, $section] = array_pad(explode("\n", $entry, 3), 3, '');
+
+        return ['schema' => $schema, 'record' => $record, 'section' => $section];
+    }
+
+    /** @return array<string, string> one kind of the map, whole */
+    private function every(string $site, string $locale, string $kind, int $position): array
+    {
         $scope = $this->generation($site) . '.' . $site . '.' . $locale;
         if ($this->cache !== null && !isset($this->maps[$site . "\n" . $locale])) {
             try {
-                $keys = array_map(fn (int $shard): string => self::PREFIX . $scope . '.' . self::RECORDS . $shard, range(0, self::SHARDS - 1));
+                $keys = array_map(fn (int $shard): string => self::PREFIX . $scope . '.' . $kind . $shard, range(0, self::SHARDS - 1));
                 $found = $this->fetched([...$keys, self::PREFIX . $scope . '.built']);
                 if (is_array($found[self::PREFIX . $scope . '.built'] ?? null)) {
                     $all = [];
@@ -89,7 +138,7 @@ final class SitePageAddressCache
             }
         }
 
-        return $this->map($site, $locale)[1];
+        return $this->map($site, $locale)[$position];
     }
 
     /** What changes whenever a site's addresses may have: what derived lists (the sitemap) key on. */
@@ -147,8 +196,9 @@ final class SitePageAddressCache
         if (!isset($this->parts[$part])) {
             $stored = $this->stored($site, $locale, $kind, $shard);
             if ($stored === null) {
-                [$addresses, $records] = $this->map($site, $locale);
-                $whole = $kind === self::ADDRESSES ? $addresses : $records;
+                $whole = $this->map($site, $locale)[match ($kind) {
+                    self::ADDRESSES => 0, self::RECORDS => 1, self::ITEMS => 2, default => 3,
+                }];
 
                 return $whole[$key] ?? null;
             }
@@ -194,7 +244,7 @@ final class SitePageAddressCache
         return $found;
     }
 
-    /** @return array{0: array<string, string>, 1: array<string, string>} address => record, record => address */
+    /** @return array{0: array<string, string>, 1: array<string, string>, 2: array<string, string>, 3: array<string, string>} address => page, page => address, address => record, record => address */
     private function map(string $site, string $locale): array
     {
         $key = $site . "\n" . $locale;
@@ -206,21 +256,29 @@ final class SitePageAddressCache
         $schemaId = $this->tree->schemaOf($site);
         $addresses = $schemaId === null ? [] : $this->addresses->build($schemaId, $site, $locale);
         $records = array_flip($addresses);
+        // A page at the address of a record wins: a collision is refused when published, and an old one must not hide a page.
+        $items = $schemaId === null || $this->items === null ? [] : array_diff_key($this->items->build($schemaId, $site, $locale, $records), $addresses);
+        $itemAddresses = [];
+        foreach ($items as $address => $entry) {
+            $itemAddresses[self::item($entry)['record']] = (string) $address;
+        }
         if ($this->cache !== null && $this->tree->connection()->transactionLevel() === 0) {
-            $this->store(self::PREFIX . $generation . '.' . $site . '.' . $locale, $addresses, $records);
+            $this->store(self::PREFIX . $generation . '.' . $site . '.' . $locale, $addresses, $records, $items, $itemAddresses);
         }
 
-        return $this->maps[$key] = [$addresses, $records];
+        return $this->maps[$key] = [$addresses, $records, $items, $itemAddresses];
     }
 
     /**
      * @param array<string, string> $addresses
      * @param array<string, string> $records
+     * @param array<string, string> $items
+     * @param array<string, string> $itemAddresses
      */
-    private function store(string $scope, array $addresses, array $records): void
+    private function store(string $scope, array $addresses, array $records, array $items, array $itemAddresses): void
     {
         $entries = [];
-        foreach ([self::ADDRESSES => $addresses, self::RECORDS => $records] as $kind => $map) {
+        foreach ([self::ADDRESSES => $addresses, self::RECORDS => $records, self::ITEMS => $items, self::ITEM_ADDRESSES => $itemAddresses] as $kind => $map) {
             foreach ($map as $key => $value) {
                 $entries[$scope . '.' . $kind . (crc32((string) $key) % self::SHARDS)][(string) $key] = $value;
             }

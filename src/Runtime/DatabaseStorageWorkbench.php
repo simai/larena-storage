@@ -810,6 +810,27 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     }
 
     /**
+     * A storage as the platform's own upgrades read it, on any site: not a person's reading, so no site need be their current one.
+     */
+    public function structureForUpgrade(string $scopeRef, string $structureId): StorageWorkbenchStructure
+    {
+        return $this->readStructureInternal($scopeRef, $structureId);
+    }
+
+    /**
+     * The platform's own upgrade of a storage it made (a console command or a first run, never a request): the same safe
+     * change as updateStructure(), on any site, under the actor named for the audit.
+     *
+     * @param array<string, mixed> $descriptor
+     */
+    public function upgradeStructure(string $scopeRef, string $structureId, int $expectedVersion, array $descriptor, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
+    {
+        $confirmed = self::takeDisableConfirmation($descriptor);
+
+        return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $this->normalizeDescriptor($descriptor), $actor, $this->correlationId($correlationId), false, $confirmed);
+    }
+
+    /**
      * Changes a structure in ways an update refuses: fields may be removed, retyped,
      * made required or given other constraints. No record version is rewritten: each
      * keeps the schema version it was written under and is read through the converter
@@ -2057,6 +2078,9 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             if ($current->state !== self::STATE_ACTIVE) {
                 throw new StorageRejected('storage_workbench_record_archived');
             }
+            // A translation emptied (a null value): the field is not carried on, and the language shows the source text again.
+            $written = array_map('strval', array_keys($values));
+            $values = $main ? $values : array_filter($values, static fn (mixed $value): bool => $value !== null);
             $kept = array_filter($current->values, static fn (string|int $key): bool => !in_array((string) $key, [self::SCOPE_FIELD, self::STATE_FIELD], true), ARRAY_FILTER_USE_KEY);
             if (!$main) {
                 $localized = [];
@@ -2086,8 +2110,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 $correlationId,
             )->version;
             $this->carryTranslations($structure, $recordId, $expectedRevision, $version->ref->revision, $actor, $correlationId,
-                [$locale => array_map('strval', array_keys($values))]);
-            if (!$main) {
+                [$locale => $written]);
+            if (!$main && $checked !== []) {
                 $translations = $this->translations === null ? null : ($this->translations)();
                 if (!$translations instanceof DatabaseLocalizedValues) {
                     throw new StorageRejected('storage_workbench_record_languages_unavailable');
@@ -2380,7 +2404,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     throw new StorageRejected('storage_record_purge_referenced');
                 }
                 if ($this->tableExists('larena_storage_structure_role_bindings')
-                    && $this->database->table('larena_storage_structure_role_bindings')->where('schema_id', $schemaId)->exists()) {
+                    && $this->database->table('larena_storage_structure_role_bindings')->where('schema_id', $schemaId)->where('status', 'active')->exists()) {
                     throw new StorageRejected('storage_workbench_structure_role_bound');
                 }
                 $rows = $this->database->table('larena_storage_records')

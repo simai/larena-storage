@@ -21,7 +21,7 @@ $before = $connection->table(DatabaseStructureRoleRegistry::ROLES_TABLE)
     ->map(static fn ($row): array => (array) $row)
     ->all();
 
-larena_storage_role_assert(count($before) === 6);
+larena_storage_role_assert(count($before) === 7);
 
 // Three more installs, by different actors, with different correlation ids.
 $starter->install('actor:second', 'correlation-2');
@@ -38,8 +38,8 @@ $after = $connection->table(DatabaseStructureRoleRegistry::ROLES_TABLE)
 // install that rewrote created_by or updated_at would quietly rewrite history.
 larena_storage_role_assert($before == $after, 'a re-run must change no row at all');
 larena_storage_role_assert($report['installed'] === [], 'a re-run installs nothing');
-larena_storage_role_assert(count($report['already_present']) === 6);
-larena_storage_role_assert($report['role_count'] === 6);
+larena_storage_role_assert(count($report['already_present']) === 7);
+larena_storage_role_assert($report['role_count'] === 7);
 
 // The declared starter set is exactly what the freeze names, with the lifecycles
 // it names.
@@ -49,6 +49,7 @@ $expected = [
     'org_chart@v1' => RoleLifecycle::Plain,
     'redirect@v1' => RoleLifecycle::Plain,
     'site_node@v1' => RoleLifecycle::Publishable,
+    'site_record@v1' => RoleLifecycle::Publishable,
     'site_redirect@v1' => RoleLifecycle::Publishable,
 ];
 

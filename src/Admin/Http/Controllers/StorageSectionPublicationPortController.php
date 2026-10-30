@@ -28,8 +28,10 @@ final readonly class StorageSectionPublicationPortController
 
     private const MAX_BYTES = 1_048_576;
 
-    /** The capabilities of this list: no saved views or «for all», which the records port's bridge carries. */
-    public const CAPABILITIES = ['row-actions', 'personal-column-settings', 'create-record'];
+    /** How many records «for all» changes in one request, the same limit as the list's own archive under a filter. */
+    private const MAX_UNDER_FILTER = 1000;
+
+    private const PAGE_UNDER_FILTER = 100;
 
     public function __construct(
         private Router $router,
@@ -37,6 +39,25 @@ final readonly class StorageSectionPublicationPortController
         private StorageSectionPublicationActions $actions,
         private ConfigRepository $config,
     ) {
+    }
+
+    /**
+     * The capabilities of this list, for a person with these rights: as the storage's other lists offer them.
+     *
+     * @param array<string, mixed> $permissions
+     * @return list<string>
+     */
+    public static function capabilities(array $permissions): array
+    {
+        return array_values(array_filter([
+            'row-actions',
+            'personal-column-settings',
+            ($permissions['record.create'] ?? false) === true ? 'create-record' : null,
+            ($permissions['dataview.saved_view.save'] ?? false) === true ? 'saved-views' : null,
+            ($permissions['dataview.saved_view.save_shared'] ?? false) === true ? 'shared-saved-views' : null,
+            ($permissions['dataview.preferences.save_shared'] ?? false) === true ? 'shared-column-settings' : null,
+            'bulk-under-filter',
+        ]));
     }
 
     public function __invoke(Request $request, string $structure): JsonResponse
@@ -64,10 +85,12 @@ final readonly class StorageSectionPublicationPortController
         }
         try {
             return self::answer(match ($intent) {
-                'query.change' => $this->query($request, $actor, $scope, $structure, $binding, $payload),
-                'record.open' => $this->listPort($request, $scope, $structure, $intent, $payload),
+                'query.change', 'view.open' => $this->query($request, $actor, $scope, $structure, $binding, $intent, $payload,
+                    is_array($base['permissions'] ?? null) ? $base['permissions'] : []),
+                'record.open', 'view.save', 'view.save_shared', 'view.delete', 'settings.save_personal', 'settings.save_shared' => $this->listPort($request, $scope, $structure, $intent, $payload),
                 'record.mutate' => $this->mutate($request, $actor, $scope, $structure, $binding, $payload),
                 'bulk.apply_selected' => $this->bulk($request, $actor, $scope, $structure, $binding, $payload),
+                'bulk.apply_under_filter' => $this->underFilter($request, $actor, $scope, $structure, $binding, $payload),
                 default => ['answer' => 'unavailable', 'reason' => 'capability-not-provided'],
             });
         } catch (Throwable) {
@@ -80,11 +103,12 @@ final readonly class StorageSectionPublicationPortController
      *
      * @param array{schema: string, site: string} $binding
      * @param array<mixed> $payload
+     * @param array<string, mixed> $permissions
      * @return array<string, mixed>
      */
-    private function query(Request $request, string $actor, string $scope, string $structure, array $binding, array $payload): array
+    private function query(Request $request, string $actor, string $scope, string $structure, array $binding, string $intent, array $payload, array $permissions): array
     {
-        $answer = $this->listPort($request, $scope, $structure, 'query.change', $payload);
+        $answer = $this->listPort($request, $scope, $structure, $intent, $payload);
         $data = is_array($answer['data'] ?? null) ? $answer['data'] : null;
         if (($answer['answer'] ?? null) !== 'applied' || $data === null || !is_array($data['records'] ?? null) || !is_array($data['columns'] ?? null)) {
             return $answer;
@@ -103,11 +127,11 @@ final readonly class StorageSectionPublicationPortController
                 StorageSectionPublication::COLUMN => $publication->badges($binding['schema'], $record['id'], $binding['site']),
             ] + (is_array($record['display_values'] ?? null) ? $record['display_values'] : []);
         }
-        unset($data['saved_views']);
         $data['records'] = $records;
-        $data['columns'][] = $publication->column();
+        // Beside the name: a narrow list shows only its first columns, and where a record is out is what this list is about.
+        array_splice($data['columns'], 2, 0, [$publication->column()]);
         $data['row_actions'] = $publication->rowActions($binding['site']);
-        $data['capabilities'] = array_fill_keys(self::CAPABILITIES, true);
+        $data['capabilities'] = array_fill_keys(self::capabilities($permissions), true);
         $answer['data'] = $data;
 
         return $answer;
@@ -180,6 +204,87 @@ final readonly class StorageSectionPublicationPortController
         $done = 0;
         foreach ($ids as $id) {
             $revision = $revisions[$id];
+            if (!StorageSectionPublication::allows($verb, $publication->head($binding['schema'], $id, $binding['site'], $locale), $revision)) {
+                continue;
+            }
+            $refusal = $this->actions->write($actor, $scope, $structure, $binding, $id, $verb, $locale, $revision);
+            if ($refusal === StorageSectionPublicationActions::CHANGED) {
+                return ['answer' => 'conflict', 'reason' => 'stale-revision', 'count' => $done];
+            }
+            if ($refusal !== null) {
+                return ['count' => $done] + $this->refused($refusal);
+            }
+            $done++;
+        }
+
+        return ['answer' => 'applied', 'count' => $done];
+    }
+
+    /**
+     * «For all»: everything the list's filters and search find, as the person saw it counted. The list's own archive
+     * takes it as it is; publishing goes record by record, each through the same operation as a row, read from the list
+     * page by page. A number that moved is a conflict before anything is written, and the person confirms what will happen.
+     *
+     * @param array{schema: string, site: string} $binding
+     * @param array<mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function underFilter(Request $request, string $actor, string $scope, string $structure, array $binding, array $payload): array
+    {
+        $publication = $this->actions->publication();
+        $action = $payload['action_id'] ?? null;
+        $chosen = $publication->parse($action, $binding['site']);
+        $total = $payload['confirmed_total'] ?? null;
+        $search = $payload['search'] ?? '';
+        $filters = $payload['filters'] ?? [];
+        if (($chosen === null && $action !== 'bulk_delete') || !is_int($total) || $total < 0 || !is_string($search) || !is_array($filters)) {
+            return ['answer' => 'refused', 'reason' => 'selection_invalid'];
+        }
+        if ($total > self::MAX_UNDER_FILTER) {
+            return $this->refused('bulk_too_many');
+        }
+        if ($total === 0) {
+            return ['answer' => 'applied', 'count' => 0];
+        }
+        $digest = hash('sha256', (string) json_encode([$actor, $structure, $action, $total, $search, $filters]));
+        $confirm = $payload['confirm'] ?? null;
+        if (!is_string($confirm)) {
+            $key = $chosen === null ? 'larena-storage::admin.section.confirm_bulk' : 'larena-storage::admin.section.confirm_bulk_'.$chosen[0];
+
+            return ['answer' => 'refused', 'reason' => 'confirm_required', 'data' => ['confirm' => ['digest' => $digest,
+                'summary' => $publication->word($key, ['count' => (string) $total, 'locale' => $chosen[1] ?? ''])]]];
+        }
+        if (!hash_equals($digest, $confirm)) {
+            return ['answer' => 'refused', 'reason' => 'confirm-mismatch'];
+        }
+        if ($chosen === null) {
+            return $this->listPort($request, $scope, $structure, 'bulk.apply_under_filter',
+                ['action_id' => 'archive', 'confirmed_total' => $total, 'search' => $search, 'filters' => $filters]);
+        }
+        $found = [];
+        for ($page = 1; count($found) < $total; $page++) {
+            $answer = $this->listPort($request, $scope, $structure, 'query.change', ['sequence' => $page, 'reason' => 'host-connected',
+                'query' => ['filters' => $filters, 'search' => $search, 'sort' => [], 'page' => $page, 'per_page' => self::PAGE_UNDER_FILTER]]);
+            $rows = is_array($answer['data']['records'] ?? null) ? $answer['data']['records'] : null;
+            if (($answer['answer'] ?? null) !== 'applied' || $rows === null) {
+                return ['answer' => 'refused', 'reason' => 'filters_invalid'];
+            }
+            if (($answer['data']['total'] ?? null) !== $total) {
+                return ['answer' => 'conflict', 'reason' => 'count_changed', 'current_total' => $answer['data']['total'] ?? null];
+            }
+            foreach ($rows as $row) {
+                if (is_array($row) && is_string($row['id'] ?? null) && is_int($row['revision'] ?? null)) {
+                    $found[$row['id']] = $row['revision'];
+                }
+            }
+            if ($rows === []) {
+                break;
+            }
+        }
+        [$verb, $locale] = $chosen;
+        $done = 0;
+        foreach ($found as $id => $revision) {
+            $id = (string) $id;
             if (!StorageSectionPublication::allows($verb, $publication->head($binding['schema'], $id, $binding['site'], $locale), $revision)) {
                 continue;
             }

@@ -57,6 +57,12 @@ interface StructureRoleRegistry
     public function listStructures(string $scopeRef, ?string $roleRef = null): array;
 
     /**
+     * Ends a storage's binding to a role in a scope: it is an ordinary storage again and can be removed. A record of it
+     * still published under the role refuses it (`role_binding_published`), and so does no such binding (`binding_unknown`).
+     */
+    public function unbindStructure(string $roleRef, string $schemaId, string $scopeRef, string $actorId, ?string $correlationId = null): void;
+
+    /**
      * @return array<string, mixed>
      */
     public function explain(string $roleRef): array;

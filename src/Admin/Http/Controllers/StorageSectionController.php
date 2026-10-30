@@ -66,7 +66,7 @@ final readonly class StorageSectionController
     private const MAX_INPUT_BYTES = 1048576;
     private const RECORD_PATTERN = '/\Arecord-[a-f0-9]{32}\z/D';
     private const ACTIONS = [
-        'structure.create', 'structure.configure', 'structure.archive', 'structure.restore', 'structure.purge',
+        'structure.create', 'structure.configure', 'structure.archive', 'structure.restore', 'structure.purge', 'structure.unbind_role',
         'record.create', 'record.update', 'record.revert', 'record.archive', 'record.restore', 'record.purge',
     ];
     private const STATE_KEYS = [
@@ -298,32 +298,12 @@ final readonly class StorageSectionController
             ? $this->publishable($request, $state['scope_ref'], $structure) : null;
         $dataview = null;
         if ($selected !== null && $columns !== [] && !$listNotReady && $publishable !== null) {
-            $dataview = $this->dataview($this->publicationList($structure, $recordsPath, $records, $columns, $permissions, $headerActions, $publishable));
+            $dataview = $this->dataview($this->publicationList($structure, $recordsPath, $records, $columns, $permissions, $headerActions, $publishable,
+                ($permissions['record.create'] ?? false) === true ? $this->createItems($state, $selected, $structure) : [], $this->firstQuery($request)));
         } elseif ($selected !== null && $columns !== [] && !$listNotReady) {
             $bulk = ($permissions['record.bulk_archive'] ?? false) === true && !$structureArchived;
             $canCreate = ($permissions['record.create'] ?? false) === true && !$structureArchived;
-            // «Create» offers this storage's record and, for each «Storage record» field, a record of the
-            // storage it points to, opened on that storage's own page; an archived target is not offered.
-            $createItems = [];
-            if ($canCreate) {
-                $active = [];
-                foreach (is_array($state['structures'] ?? null) ? $state['structures'] : [] as $listed) {
-                    if (is_array($listed) && ($listed['archived'] ?? false) !== true && is_string($listed['structure_id'] ?? null)) {
-                        $active[$listed['structure_id']] = true;
-                    }
-                }
-                foreach ($this->fields($selected) as $field) {
-                    $target = ($field['type'] ?? null) === 'record' ? ($field['constraints']['target_structure_id'] ?? null) : null;
-                    if (!is_string($target) || $target === $structure || !isset($active[$target])
-                        || isset($createItems[$target]) || preg_match('/^[a-z][a-z0-9_]{0,40}$/', (string) ($field['key'] ?? '')) !== 1) {
-                        continue;
-                    }
-                    $createItems[$target] = ['id' => 'field-'.str_replace('_', '-', (string) $field['key']),
-                        'name' => is_string($field['label'] ?? null) && trim($field['label']) !== '' ? trim($field['label']) : (string) $field['key'],
-                        'href' => $this->sectionPath().'/'.rawurlencode($target).'?record_mode=create#minimal-cms-record-editor'];
-                }
-                $createItems = $createItems === [] ? [] : [['id' => 'record', 'name' => $this->translated('minimal_cms.create_item_record')], ...array_values($createItems)];
-            }
+            $createItems = $canCreate ? $this->createItems($state, $selected, $structure) : [];
             $dataview = $this->dataview($archiveView
                 ? new AdminDataviewPage(
                     instanceId: 'storage-archive-'.substr(hash('sha256', $structure), 0, 12),
@@ -366,9 +346,7 @@ final readonly class StorageSectionController
                     headerActions: $headerActions,
                     // The first query as the page's query form holds it (the shared data view page: its pagination query
                     // from the address; no other query field), so the list declares the call it sends first.
-                    firstQuery: is_string($state['scope_ref'] ?? null) && $state['scope_ref'] !== '' ? AdminDataviewPage::firstQueryOf(
-                        (array) json_decode(AdminDataviewPageHostComposer::host([], [], $this->addressQuery($request))['pagination_query'], true), [],
-                    ) : null,
+                    firstQuery: is_string($state['scope_ref'] ?? null) && $state['scope_ref'] !== '' ? $this->firstQuery($request) : null,
                     portFields: ['scope_ref' => is_string($state['scope_ref'] ?? null) ? $state['scope_ref'] : '', 'structure_id' => $structure],
                 ));
         }
@@ -434,7 +412,7 @@ final readonly class StorageSectionController
                 $this->fieldChangeNotice($request, $selected, $structure, $permissions, 'records'), $recordsPath),
             // A host port list connects itself; the records port's bridge asks for a port address on the form.
             'portUrl' => $publishable !== null ? null : $this->sectionPath().'/port',
-            'portCapabilities' => $publishable !== null ? StorageSectionPublicationPortController::CAPABILITIES : $capabilities,
+            'portCapabilities' => $publishable !== null ? StorageSectionPublicationPortController::capabilities($permissions) : $capabilities,
             'bulkAll' => $publishable === null && !$archiveView && $selected !== null && ($permissions['record.bulk_archive'] ?? false) === true
                 && ($selected['archived'] ?? false) !== true,
             'addressQuery' => $archiveView ? [] : $this->addressQuery($request),
@@ -462,32 +440,80 @@ final readonly class StorageSectionController
      * @param array<string, mixed> $permissions @param list<array<string, mixed>> $headerActions
      * @param array{binding: array{schema: string, site: string}, can: array<string, bool>, actions: StorageSectionPublicationActions} $publishable
      */
-    private function publicationList(string $structure, string $recordsPath, array $records, array $columns, array $permissions, array $headerActions, array $publishable): AdminDataviewPage
+    private function publicationList(string $structure, string $recordsPath, array $records, array $columns, array $permissions, array $headerActions, array $publishable, array $createItems, ?array $firstQuery): AdminDataviewPage
     {
         $publication = $publishable['actions']->publication();
-        $bulk = ($permissions['record.bulk_archive'] ?? false) === true ? ['bulk_delete' => $this->copy('bulk_archive')] : [];
+        $archive = ($permissions['record.bulk_archive'] ?? false) === true;
+        $bulk = $archive ? ['bulk_delete' => $this->copy('bulk_archive')] : [];
         $bulk += $publication->bulkActions($publishable['can'], $publishable['binding']['site']);
         $canCreate = ($permissions['record.create'] ?? false) === true;
 
         return new AdminDataviewPage(
             instanceId: 'storage-section-'.substr(hash('sha256', $structure), 0, 12),
             title: $this->copy('records'),
-            columns: [...$columns, ['key' => StorageSectionPublication::COLUMN, 'label' => $publication->word('larena-admin::structure_editors.publication'), 'sortable' => false]],
+            columns: [...array_slice($columns, 0, 2), ['key' => StorageSectionPublication::COLUMN, 'label' => $publication->word('larena-admin::structure_editors.publication'), 'sortable' => false], ...array_slice($columns, 2)],
             total: max(0, (int) ($records['matched_count'] ?? 0)),
             pageId: 'page.admin.storage-records',
             portUrl: $recordsPath.'/publication-port',
             selectable: $bulk !== [],
             settings: true,
             actions: $canCreate,
+            createItems: $createItems,
             bulkActions: $bulk,
+            // «For all»: everything the list's filters and search find, read again and counted by the host.
+            forAllLabel: $bulk !== [] ? $this->translated('minimal_cms.for_all') : null,
             applyText: $this->copy('apply'),
             countLabel: $this->translated('minimal_cms.record_count'),
             tableViewLabel: $this->translated('minimal_cms.table_view'),
             headerActions: $headerActions,
+            firstQuery: $firstQuery,
             portKind: 'host',
-            portCapabilities: $canCreate ? StorageSectionPublicationPortController::CAPABILITIES : array_values(array_diff(StorageSectionPublicationPortController::CAPABILITIES, ['create-record'])),
+            portCapabilities: StorageSectionPublicationPortController::capabilities($permissions),
             hostPanels: ['view' => '?record_id=__ID__&record_mode=view#minimal-cms-record-view', 'edit' => '?record_id=__ID__&record_mode=edit#minimal-cms-record-editor']
                 + ($canCreate ? ['create' => '?record_mode=create#minimal-cms-record-editor'] : []),
+        );
+    }
+
+    /**
+     * «Create» offers this storage's record and, for each «Storage record» field, a record of the storage it points to,
+     * opened on that storage's own page; an archived target is not offered.
+     *
+     * @param array<string, mixed> $state @param array<string, mixed> $selected
+     * @return list<array<string, string>>
+     */
+    private function createItems(array $state, array $selected, string $structure): array
+    {
+        $active = [];
+        foreach (is_array($state['structures'] ?? null) ? $state['structures'] : [] as $listed) {
+            if (is_array($listed) && ($listed['archived'] ?? false) !== true && is_string($listed['structure_id'] ?? null)) {
+                $active[$listed['structure_id']] = true;
+            }
+        }
+        $createItems = [];
+        foreach ($this->fields($selected) as $field) {
+            $target = ($field['type'] ?? null) === 'record' ? ($field['constraints']['target_structure_id'] ?? null) : null;
+            if (!is_string($target) || $target === $structure || !isset($active[$target])
+                || isset($createItems[$target]) || preg_match('/^[a-z][a-z0-9_]{0,40}$/', (string) ($field['key'] ?? '')) !== 1) {
+                continue;
+            }
+            $createItems[$target] = ['id' => 'field-'.str_replace('_', '-', (string) $field['key']),
+                'name' => is_string($field['label'] ?? null) && trim($field['label']) !== '' ? trim($field['label']) : (string) $field['key'],
+                'href' => $this->sectionPath().'/'.rawurlencode($target).'?record_mode=create#minimal-cms-record-editor'];
+        }
+
+        return $createItems === [] ? [] : [['id' => 'record', 'name' => $this->translated('minimal_cms.create_item_record')], ...array_values($createItems)];
+    }
+
+    /**
+     * The first query as the page's query form holds it (the shared data view page: its pagination query from the
+     * address; no other query field), so the list declares the call it sends first.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function firstQuery(Request $request): ?array
+    {
+        return AdminDataviewPage::firstQueryOf(
+            (array) json_decode(AdminDataviewPageHostComposer::host([], [], $this->addressQuery($request))['pagination_query'], true), [],
         );
     }
 
@@ -553,6 +579,17 @@ final readonly class StorageSectionController
                 ]),
             ]);
         }
+        // A storage bound to a publishable role can go back to being an ordinary one, and only then be removed for good.
+        $bound = ($permissions['structure.configure'] ?? false) === true ? $this->boundRole($request, $selected) : null;
+        if ($bound !== null) {
+            $parts[] = $section('storage-role-title', $this->copy('unbind_role'), [
+                new AdminElement('p', [], $this->copy('unbind_role_text')),
+                $form('data-larena-storage-unbind-role', 'structure.unbind_role', [
+                    ...array_map(static fn (AdminNode $input): string => (string) (new AdminElementDocumentRenderer())->tree($input), AdminElement::hiddenInputs(['payload[role_ref]' => $bound['role'], 'payload[site_ref]' => $bound['site']])),
+                    AdminFrameworkForm::start()->submit($this->copy('unbind_role_action'), false),
+                ]),
+            ]);
+        }
         if ($archived && ($permissions['structure.restore'] ?? false) === true) {
             $parts[] = $section('storage-restore-title', $this->copy('restore_storage'), [
                 $form('data-larena-storage-restore-structure', 'structure.restore', [AdminFrameworkForm::start()->submit($this->copy('restore'))]),
@@ -575,6 +612,20 @@ final readonly class StorageSectionController
         }
 
         return $this->draw(...$parts);
+    }
+
+    /**
+     * The publishable role the storage is bound to, and in which site.
+     *
+     * @param array<string, mixed> $selected
+     * @return array{role: string, site: string}|null
+     */
+    private function boundRole(Request $request, array $selected): ?array
+    {
+        $structure = is_string($selected['structure_id'] ?? null) ? $selected['structure_id'] : null;
+        $scope = $this->gateway->snapshot($this->actor($request), null, ['surface' => 'storage_section', 'records' => 'skip'])['scope_ref'] ?? null;
+
+        return $structure === null || !is_string($scope) ? null : StorageSectionBindings::publicationActions($this->container)?->boundRole($this->actor($request), $scope, $structure);
     }
 
     /** Described page parts drawn by the shared element Document renderer, for the view to print with {{ }}. */
@@ -1385,6 +1436,9 @@ final readonly class StorageSectionController
             && $structure !== null) {
             // The storage refuses while one of its fields changes or is encrypted: the page names it and asks to wait.
             return $redirect->withErrors(['storage' => (string) $this->fieldChanges()->refusal($reason, $this->current($request, $structure))]);
+        }
+        if ($reason === 'storage_role_binding_published' || $reason === 'storage_binding_unknown') {
+            return $redirect->withErrors(['storage' => (string) $this->translator->get('larena-storage::admin.section.'.$reason)]);
         }
         // Storage's refusals of a structure change about encryption, in the section's words (a record's write keeps its draft).
         if (in_array($reason, StorageSectionGateway::ENCRYPTION_REASONS, true) && $status !== 'denied'

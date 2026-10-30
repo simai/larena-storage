@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Admin;
 
+use Larena\Storage\Presets\StoragePresets;
 use Larena\Storage\Admin\Contracts\StorageWorkbenchGateway;
 use Larena\Admin\Record\AdminRecordLayoutStore;
 use Larena\Admin\Runtime\PropertyViewPort;
@@ -83,7 +84,11 @@ final class StorageStructurePropertyViewPort extends PropertyViewPort
     /** @param array<string,mixed> $values @return array<string,mixed> */
     protected function createObject(string $actor, string $scope, string $collection, array $values): array
     {
-        $receipt = $this->gateway->dispatch($actor, $scope, 'structure.create', [
+        // A preset makes the storage with its fields and role; the others start with a name.
+        $preset = $values['preset'] ?? null;
+        $receipt = is_string($preset) && $preset !== '' && $preset !== StoragePresets::PLAIN ? $this->gateway->dispatch($actor, $scope, 'structure.create_preset', [
+            'label' => $values['label'] ?? null, 'structure_id' => $values['structure_id'] ?? null, 'preset' => $preset,
+        ]) : $this->gateway->dispatch($actor, $scope, 'structure.create', [
             'label' => $values['label'] ?? null, 'structure_id' => $values['structure_id'] ?? null,
             'fields' => [['key' => 'title', 'label' => $this->section('label', 'Name'), 'type' => 'string', 'required' => true, 'position' => 10]],
         ]);
@@ -196,6 +201,9 @@ final class StorageStructurePropertyViewPort extends PropertyViewPort
             // The id is given once, when the storage is made; afterwards it is shown, not changed.
             ['key' => 'structure_id', 'label' => $this->section('structure_id', 'Storage ID'), 'type' => 'string', 'type_version' => 1,
                 'constraints' => [], 'default' => 'workbench.', 'hint' => $this->section('structure_id_hint', '')] + ($existing ? ['readonly' => true] : ['required' => true]),
+            // What it starts from is chosen once, when the storage is made.
+            ...($existing ? [] : [['key' => 'preset', 'label' => $this->section('preset', 'Start from'), 'type' => 'choice', 'type_version' => 1,
+                'constraints' => ['options' => $this->presets()], 'hint' => $this->section('preset_hint', '')]]),
             ['key' => 'menu_group', 'label' => $this->section('menu_group', 'Group in the menu'), 'type' => 'string', 'type_version' => 1,
                 'constraints' => [], 'hint' => $this->section('menu_group_hint', '')],
             // Only an existing storage has records whose history it keeps.
@@ -206,6 +214,14 @@ final class StorageStructurePropertyViewPort extends PropertyViewPort
             ...($stated ? [['key' => 'field_state', 'label' => $this->section('field_change.column', 'State'), 'type' => 'text', 'type_version' => 1,
                 'constraints' => [], 'readonly' => true]] : []),
         ]];
+    }
+
+    /** @return list<array{value: string, label: string}> */
+    private function presets(): array
+    {
+        $container = \Illuminate\Container\Container::getInstance();
+
+        return $container->bound(StoragePresets::class) ? $container->make(StoragePresets::class)->options() : [];
     }
 
     private function section(string $key, string $fallback): string

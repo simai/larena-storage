@@ -18,6 +18,9 @@ use Larena\Storage\Contracts\SitePageAddressObserver;
 use Larena\Storage\Runtime\PublicationGuardChain;
 use Larena\Storage\SitePage\SitePageAddressCache;
 use Larena\Storage\SitePage\SitePageAddressChanges;
+use Larena\Storage\SitePage\SiteRecordAddresses;
+use Larena\Storage\SitePage\SiteRecordValidator;
+use Larena\Storage\Presets\StoragePresets;
 use Larena\Storage\SitePage\SitePageAddresses;
 use Larena\Storage\SitePage\SitePagePlacement;
 use Larena\Storage\SitePage\SitePageRecordValidator;
@@ -655,7 +658,7 @@ final class StorageServiceProvider extends ServiceProvider
                     return true;
                 },
                 // The roles' record rules: the site redirects' and the site pages'.
-                recordValidators: static fn (): array => [$app->make(SiteRedirectValidator::class), $app->make(SitePageRecordValidator::class)],
+                recordValidators: static fn (): array => [$app->make(SiteRedirectValidator::class), $app->make(SitePageRecordValidator::class), $app->make(SiteRecordValidator::class)],
                 translations: static fn (): DatabaseLocalizedValues => $app->make(DatabaseLocalizedValues::class),
             );
         });
@@ -932,11 +935,36 @@ final class StorageServiceProvider extends ServiceProvider
         ));
         $this->app->singleton(SitePageAddresses::class);
         $this->app->singleton(SitePagePlacement::class);
+        $this->app->singleton(SiteRecordAddresses::class, static fn (Application $app): SiteRecordAddresses => new SiteRecordAddresses(
+            $app->make(SitePageTree::class),
+            $app->make(SitePageAddresses::class),
+            $app->make(DatabaseReadContracts::class),
+            $app->bound(SiteLanguages::class) ? $app->make(SiteLanguages::class) : null,
+        ));
+        $this->app->singleton(SiteRecordValidator::class);
+        $this->app->singleton(StoragePresets::class, static fn (Application $app): StoragePresets => new StoragePresets(
+            $app->make(StorageWorkbenchContract::class),
+            $app->make(StructureRoleRegistry::class),
+            $app->make(StarterStructureRoles::class),
+            $app->make(SitePagesStorage::class),
+            // The site whose data lives in a workbench scope.
+            static function (string $scopeRef) use ($app): ?string {
+                foreach ($app->make(DatabaseScopeRegistry::class)->list(ScopeKind::Site) as $site) {
+                    if ($site->dataRef() === $scopeRef) {
+                        return $site->ref->toString();
+                    }
+                }
+
+                return null;
+            },
+            $app->bound('translator') ? $app->make('translator') : null,
+        ));
         $this->app->scoped(SitePageAddressCache::class, static fn (Application $app): SitePageAddressCache => new SitePageAddressCache(
             $app->make(SitePageTree::class),
             $app->make(SitePageAddresses::class),
             $app->bound('cache.store') ? $app->make('cache.store') : null,
             $app->bound(StructureRoleChoice::class) ? $app->make(StructureRoleChoice::class) : null,
+            $app->make(SiteRecordAddresses::class),
         ));
         $this->app->singleton(SitePageRules::class, static fn (Application $app): SitePageRules => new SitePageRules(
             $app->make(SitePageTree::class),
@@ -956,8 +984,15 @@ final class StorageServiceProvider extends ServiceProvider
                 return SitePageReservedSlugs::from($uris, is_array($public) ? array_diff($public, ['.', '..']) : []);
             },
             $app->bound(SiteLanguages::class) ? $app->make(SiteLanguages::class) : null,
+            $app->make(SiteRecordAddresses::class),
         ));
-        $this->app->singleton(SitePageRecordValidator::class);
+        $this->app->singleton(SitePageRecordValidator::class, static fn (Application $app): SitePageRecordValidator => new SitePageRecordValidator(
+            $app->make(SitePageRules::class),
+            $app->make(SitePageTree::class),
+            $app->make(SitePageAddresses::class),
+            $app->make(SitePagePlacement::class),
+            $app->make(SiteRecordAddresses::class),
+        ));
         $this->app->bind(SiteLanguageStructure::class, static fn (Application $app): SiteLanguageStructure => new SiteLanguageScheme(
             $app->make(SitePageTree::class),
             $app->make(DatabaseReadContracts::class),
@@ -980,6 +1015,7 @@ final class StorageServiceProvider extends ServiceProvider
             $app->bound('translator') ? $app->make('translator') : null,
             $app->bound(SiteLanguageFolders::class) ? $app->make(SiteLanguageFolders::class) : null,
             $app->bound(SiteLanguages::class) ? $app->make(SiteLanguages::class) : null,
+            $app->make(SiteRecordAddresses::class),
         ));
     }
 

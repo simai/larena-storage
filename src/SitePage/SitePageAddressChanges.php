@@ -67,6 +67,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         private readonly ?Translator $translator = null,
         private readonly ?SiteLanguageFolders $folders = null,
         private readonly ?SiteLanguages $languages = null,
+        private readonly ?SiteRecordAddresses $records = null,
     ) {
     }
 
@@ -76,6 +77,11 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         if ($why !== null) {
             throw new PublicationRejected($why);
         }
+        if ($this->records?->isRecordOf($schemaId, $scopeRef) === true) {
+            $this->beforePublication[self::key($schemaId, $recordId, $scopeRef, $locale)] = $this->records->addressOf($schemaId, $scopeRef, $locale, $recordId);
+
+            return;
+        }
         if (!$this->tree->isPageOf($schemaId, $scopeRef)) {
             return;
         }
@@ -84,6 +90,11 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
 
     public function publicationChanged(PublicationState $state, int $projectionVersion): void
     {
+        if ($this->records?->isRecordOf($state->schemaId, $state->scopeRef) === true) {
+            $this->recordChanged($state);
+
+            return;
+        }
         if (!$this->tree->isPageOf($state->schemaId, $state->scopeRef)) {
             return;
         }
@@ -99,6 +110,20 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         }
         // What stands below moved with it, or went with it, whichever transition this was.
         $this->notify($state->schemaId, $state->scopeRef, $state->locale, $this->tree->descendants($state->schemaId, $state->recordId, self::NOTIFY_LIMIT));
+    }
+
+    /** A record's address moved with its publication: its old one leads to the new one, that address alone. */
+    private function recordChanged(PublicationState $state): void
+    {
+        $this->forget($state->scopeRef);
+        $key = self::key($state->schemaId, $state->recordId, $state->scopeRef, $state->locale);
+        $before = $this->beforePublication[$key] ?? null;
+        unset($this->beforePublication[$key]);
+        $after = $state->isPublished() ? $this->records?->addressOf($state->schemaId, $state->scopeRef, $state->locale, $state->recordId) : null;
+        if ($after !== null && $before !== null && $after !== $before) {
+            [$actor, $correlationId] = $this->lastWriter($state);
+            $this->follow($state->scopeRef, $state->locale, $before, $after, $actor, $correlationId, SiteRedirectPath::MATCH_EXACT);
+        }
     }
 
     public function placing(string $relationKey, string $schemaId, string $recordId, ?string $newParentRecordId): void
@@ -155,6 +180,9 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
             return;
         }
         $why = $this->rules->whyNotTranslate($schemaId, $recordId, $revision, $locale, $values[SitePagePath::SLUG_FIELD]);
+        if ($why === null && $this->records !== null && $this->records->sitesOf($schemaId) !== []) {
+            $why = $this->tree->placesOfRevision($schemaId, $recordId, $revision) !== [] ? SitePageRules::SLUG_PUBLISHED : null;
+        }
         if ($why !== null) {
             throw new LocalizedValueRejected($why);
         }
@@ -166,7 +194,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         if ($this->tree->placesOfRevision($schemaId, $recordId, $revision) === []) {
             return;
         }
-        foreach ($this->tree->sitesOf($schemaId) as $site) {
+        foreach ([...$this->tree->sitesOf($schemaId), ...($this->records?->sitesOf($schemaId) ?? [])] as $site) {
             $this->forget($site);
         }
     }
@@ -199,13 +227,13 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
     }
 
     /** $from and $to are addresses in the language's site; a rule names them as a visitor opens them, its folder included. */
-    private function follow(string $site, string $locale, ?string $from, string $to, string $actor, ?string $correlationId): void
+    private function follow(string $site, string $locale, ?string $from, string $to, string $actor, ?string $correlationId, string $match = SiteRedirectPath::MATCH_PREFIX): void
     {
         try {
             $redirects = ($this->redirects)();
             $redirects->release($site, $this->inFolder($site, $locale, $to), $actor, $correlationId);
             if ($from !== null && $from !== SitePagePath::HOME_ADDRESS) {
-                $redirects->ensure($site, $this->inFolder($site, $locale, $from), $this->inFolder($site, $locale, $to), 301, SiteRedirectPath::MATCH_PREFIX, $this->note(), $actor, $correlationId);
+                $redirects->ensure($site, $this->inFolder($site, $locale, $from), $this->inFolder($site, $locale, $to), 301, $match, $this->note(), $actor, $correlationId);
             }
         } catch (Throwable $failure) {
             $this->log?->warning('site_page_redirect_not_written', ['site' => $site, 'from' => $from, 'to' => $to, 'reason' => $failure->getMessage()]);

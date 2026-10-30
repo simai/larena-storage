@@ -11,6 +11,7 @@ use Larena\Storage\Contracts\StructureRole;
 use Larena\Storage\Contracts\StructureRoleBinding;
 use Larena\Storage\Contracts\StructureRoleConformanceReport;
 use Larena\Storage\Contracts\StructureRoleRegistry;
+use Larena\Storage\Enums\PublicationStateValue;
 use Larena\Storage\Enums\RoleBindingStatus;
 use Larena\Storage\Enums\RoleLifecycle;
 use Larena\Storage\Enums\RoleStatus;
@@ -215,6 +216,34 @@ final class DatabaseStructureRoleRegistry implements StructureRoleRegistry
             conformanceCheckedAt: $now,
             correlationId: $correlationId,
         );
+    }
+
+    public function unbindStructure(string $roleRef, string $schemaId, string $scopeRef, string $actorId, ?string $correlationId = null): void
+    {
+        $bindingId = StructureRoleBinding::identity($roleRef, $schemaId, $scopeRef);
+        $this->connection->transaction(function () use ($bindingId, $roleRef, $schemaId, $scopeRef, $actorId, $correlationId): void {
+            $existing = $this->connection->table(self::BINDINGS_TABLE)->where('binding_id', $bindingId)->lockForUpdate()->first();
+            if ($existing === null || (string) $existing->status !== RoleBindingStatus::Active->value) {
+                throw new StructureRoleRejected('binding_unknown', 'Structure is not bound to this role in this scope.');
+            }
+            if ($this->connection->getSchemaBuilder()->hasTable(DatabasePublicationLifecycle::STATES_TABLE)
+                && $this->connection->table(DatabasePublicationLifecycle::STATES_TABLE)->where('schema_id', $schemaId)->where('scope_ref', $scopeRef)
+                    ->where('state', PublicationStateValue::Published->value)->exists()) {
+                throw new StructureRoleRejected('role_binding_published', 'Structure has records published under this role.');
+            }
+            $this->connection->table(self::BINDINGS_TABLE)->where('binding_id', $bindingId)->update([
+                'status' => RoleBindingStatus::Revoked->value,
+                'bound_by' => $actorId,
+                'correlation_id' => $correlationId,
+                'updated_at' => $this->now(),
+            ]);
+            $this->emit(StructureRoleAuditEventCatalog::UNBOUND, $actorId, $roleRef, $correlationId, [
+                'binding_id' => $bindingId,
+                'role_ref' => $roleRef,
+                'schema_id' => $schemaId,
+                'scope_ref' => $scopeRef,
+            ]);
+        });
     }
 
     /**

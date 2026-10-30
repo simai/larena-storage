@@ -6,6 +6,7 @@ namespace Larena\Storage\Admin;
 
 use Larena\Admin\Runtime\StructureEditorOperations;
 use Larena\Storage\Contracts\StorageWorkbench;
+use Larena\Storage\Contracts\StructureRoleRegistry;
 use Larena\Storage\SitePage\SitePageRules;
 use Throwable;
 
@@ -25,6 +26,7 @@ final readonly class StorageSectionPublicationActions
         private StorageWorkbench $workbench,
         private StructureEditorOperations $operations,
         private ?SitePageRules $pages = null,
+        private ?StructureRoleRegistry $roles = null,
     ) {
     }
 
@@ -48,6 +50,26 @@ final readonly class StorageSectionPublicationActions
         }
 
         return $site === null ? null : ['schema' => $schema, 'site' => $site];
+    }
+
+    /**
+     * The publishable role the storage plays, and in which site: what «Отвязать» ends.
+     *
+     * @return array{role: string, site: string}|null
+     */
+    public function boundRole(string $actor, string $scope, string $structure): ?array
+    {
+        $binding = $this->binding($actor, $scope, $structure);
+        if ($binding === null || $this->roles === null) {
+            return null;
+        }
+        foreach ($this->roles->listStructures($binding['site']) as $role) {
+            if ($role->schemaId === $binding['schema']) {
+                return ['role' => $role->roleRef, 'site' => $binding['site']];
+            }
+        }
+
+        return null;
     }
 
     /** @return array<string, bool> by verb, what the person may do */

@@ -24,6 +24,7 @@ final readonly class SitePageRecordValidator implements StructureRoleRecordValid
         private SitePageTree $tree,
         private SitePageAddresses $addresses,
         private SitePagePlacement $placement,
+        private ?SiteRecordAddresses $records = null,
     ) {
     }
 
@@ -34,6 +35,16 @@ final readonly class SitePageRecordValidator implements StructureRoleRecordValid
 
     public function validate(StructureRoleRecordWrite $write): array
     {
+        // «Выдаёт записи»: a storage the site can give out, and no other page's.
+        $storage = $write->values[SiteRecordAddresses::SECTION_FIELD] ?? null;
+        if (is_string($storage) && $this->records !== null) {
+            foreach ($this->tree->sitesOf($write->schemaId) as $site) {
+                $why = $this->records->whyNotSection($write->schemaId, $write->recordId, $site, $storage);
+                if ($why !== null) {
+                    throw new StorageRejected($why);
+                }
+            }
+        }
         $slug = $write->values[SitePagePath::SLUG_FIELD] ?? null;
         // A value of the wrong kind is the field types' to refuse, with their own reason.
         if (!is_string($slug)) {

@@ -47,6 +47,7 @@ final readonly class SitePageRules
         private DatabaseReadContracts $read,
         private Closure $reserved,
         private ?SiteLanguages $languages = null,
+        private ?SiteRecordAddresses $records = null,
     ) {
     }
 
@@ -131,7 +132,7 @@ final readonly class SitePageRules
     public function whyNotPublish(string $schemaId, string $recordId, string $site, string $locale, int $revision): ?string
     {
         if (!$this->tree->isPageOf($schemaId, $site)) {
-            return null;
+            return $this->records?->whyNotPublish($schemaId, $recordId, $site, $locale, $revision);
         }
         $slug = $this->read->keyValuesAt($schemaId, [['record_id' => $recordId, 'revision' => $revision]], $locale, SitePagePath::SLUG_FIELD)[$recordId] ?? '';
         if ($slug === '') {
@@ -143,6 +144,10 @@ final readonly class SitePageRules
         $parent = $this->tree->parentOf($schemaId, $recordId);
         if ($this->isReserved($schemaId, $parent, $slug)) {
             return self::SLUG_RESERVED;
+        }
+        // A section's records stand beside its pages.
+        if ($this->records?->holdsUnder($schemaId, $site, $locale, $parent, $slug) === true) {
+            return self::ADDRESS_TAKEN;
         }
 
         return $this->publishedSiblingHolds($schemaId, $site, $locale, $recordId, $parent, $slug) ? self::ADDRESS_TAKEN : null;

@@ -316,7 +316,7 @@ assert($empty['records'] === ['items' => [], 'continuation' => null, 'matched_co
     'sort_unindexed' => [], 'large' => false, 'sort_default' => false, 'history' => []]);
 assert($empty['files'] === ['nodes' => []] && $empty['documents'] === [] && $empty['pages'] === [] && $empty['publication'] === null);
 assert(array_keys($empty['permissions']) === [
-    'structure.create', 'structure.update', 'record.create', 'record.update', 'record.revert', 'record.archive', 'record.bulk_archive',
+    'structure.create', 'structure.create_preset', 'structure.unbind_role', 'structure.update', 'record.create', 'record.update', 'record.revert', 'record.archive', 'record.bulk_archive',
     'record.restore', 'record.purge', 'structure.configure', 'structure.history_keep', 'structure.migrate', 'structure.archive', 'structure.restore', 'structure.purge',
     'sitepack.export', 'sitepack.import', 'publication.publish', 'encryption.manage', 'record.decrypt',
 ]);

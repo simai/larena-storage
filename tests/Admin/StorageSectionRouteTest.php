@@ -123,7 +123,7 @@ foreach (['ru', 'en'] as $locale) {
 // create records in a storage that is not archived, never in the archive view.
 assert(str_contains($controllerSource, "            'personal-column-settings',\n"));
 assert(str_contains($controllerSource, "(\$permissions['record.create'] ?? false) === true && !\$structureArchived && !\$archiveView ? 'create-record' : null,"));
-assert(str_contains($controllerSource, "'portCapabilities' => \$publishable !== null ? StorageSectionPublicationPortController::CAPABILITIES : \$capabilities,"));
+assert(str_contains($controllerSource, "'portCapabilities' => \$publishable !== null ? StorageSectionPublicationPortController::capabilities(\$permissions) : \$capabilities,"));
 
 // Times of the section (a record's versions, jobs, SitePack runs) are the site's (QA 2026-10-22: 01:44 shown for a local
 // 04:44 without a word): in its time zone, «UTC» named while the site keeps UTC, as monitoring shows them.
