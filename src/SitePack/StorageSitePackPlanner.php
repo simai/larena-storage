@@ -15,8 +15,11 @@ use Larena\Storage\Contracts\StorageSchemaVersionRef;
 use Larena\Storage\Contracts\StorageSitePackImportOptions;
 use Larena\Storage\Contracts\StorageSitePackPlan;
 use Larena\Storage\Contracts\StorageSitePackRun;
+use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Contracts\StructureRoleRegistry;
+use Larena\Storage\Contracts\VersionedStorage;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\FirstRun\StarterSite;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\SchemaEvolution\SchemaDefinitionNormalizer;
 use stdClass;
@@ -36,10 +39,26 @@ use Throwable;
  * and checks every version as the import will write it: its values rewritten (StorageSitePackValues) and normalized
  * under the new structure's schema, its translations against the localized fields and the declared locales. The
  * decisions go to the run's id map; the counts, warnings and errors make the plan.
+ *
+ * A pack of a structure that adopted a schema in place (the site pages, `adoption` in its structure line) goes into
+ * the target's structure that adopted the same schema, in the target scope (id map: structure `merge`): no new
+ * structure, no new schema. Its fields must be the target's (same key, type and type version); a missing one refuses
+ * the plan (`storage_sitepack_site_pages_fields_missing`: larena:storage:adopt-site-pages gives the site pages their
+ * content fields), and so does a target whose schema is there but not adopted (`storage_sitepack_site_pages_not_adopted`)
+ * or adopted in another scope (`storage_sitepack_site_pages_scope_mismatch`). The target holds no record, or only the
+ * starter site's Home page as the first run left it (replaced: id map `replaced`, removed when the records are
+ * written); any other page refuses it (`storage_sitepack_site_pages_not_empty`). A role the target schema plays
+ * already is `already_bound`, never bound twice.
  */
 final class StorageSitePackPlanner
 {
     private const int CHUNK = 500;
+
+    /** Plan errors of a pack whose structure adopted a schema (the site pages). */
+    public const string SITE_PAGES_NOT_EMPTY = 'storage_sitepack_site_pages_not_empty';
+    public const string SITE_PAGES_FIELDS_MISSING = 'storage_sitepack_site_pages_fields_missing';
+    public const string SITE_PAGES_NOT_ADOPTED = 'storage_sitepack_site_pages_not_adopted';
+    public const string SITE_PAGES_SCOPE_MISMATCH = 'storage_sitepack_site_pages_scope_mismatch';
 
     /** @var array<string, array{code: string, count: int, subject: ?string}> */
     private array $warnings = [];
@@ -64,6 +83,7 @@ final class StorageSitePackPlanner
         private readonly Connection $database,
         private readonly StorageSitePackRuns $runs,
         private readonly DatabaseStorageWorkbench $workbench,
+        private readonly VersionedStorage $storage,
         private readonly SchemaDefinitionNormalizer $normalizer,
         private readonly PropertyTypeRegistry $propertyTypes,
         private readonly StorageSitePackFileImports $fileImports,
@@ -94,39 +114,61 @@ final class StorageSitePackPlanner
         $assets = $this->assets($source);
         ($this->tick)();
 
-        // --- The structure. ---
-        $targetId = $this->structureId($sourceId, $options);
-        $descriptor = $this->descriptor($structure, $targetId ?? $sourceId, $options, $source->containsDecryptedValues());
-        $definition = null;
+        // --- The structure: the target's adopted one, or a new one. ---
+        $adoption = $source->adoption();
+        $merge = $adoption !== null && $this->schemaExists($adoption['schema_id']);
+        $target = $merge ? $this->mergeTarget($structure, $adoption['schema_id']) : null;
+        $schema = null;
         $schemaId = null;
-        if ($targetId !== null) {
-            try {
-                $definition = $this->workbench->importDefinition($this->scopeRef, $descriptor);
-                $schemaId = $definition['schema_id'];
-                $descriptor = $definition['descriptor'];
-            } catch (StorageRejected $exception) {
-                $this->error('structure_invalid', $exception->reasonCode);
-            } catch (\InvalidArgumentException $exception) {
-                $this->error('structure_invalid', $exception->getMessage());
+        if ($merge) {
+            $schemaId = $adoption['schema_id'];
+            $targetId = $target === null ? null : $target['structure']->structureId;
+            $schema = $target === null ? null : $target['schema'];
+            $descriptor = $target === null
+                // No target to check the records against: the pack's own fields, so only the refusal above is said.
+                ? ['structure_id' => $sourceId, 'label' => (string) $structure['label'], 'fields' => array_values(array_filter($structure['fields'], 'is_array'))]
+                : ['structure_id' => $target['structure']->structureId, 'label' => $target['structure']->label, 'fields' => $target['structure']->fields];
+            if ($targetId !== null) {
+                $this->runs->addIds([$this->idRow(StorageSitePackRuns::ID_KIND_STRUCTURE, $sourceId, $targetId, 'merge')]);
             }
-            $this->runs->addIds([$this->idRow(StorageSitePackRuns::ID_KIND_STRUCTURE, $sourceId, $targetId, $targetId === $sourceId ? 'keep' : 'remap')]);
+        } else {
+            $targetId = $this->structureId($sourceId, $options);
+            $descriptor = $this->descriptor($structure, $targetId ?? $sourceId, $options, $source->containsDecryptedValues());
+            $definition = null;
+            if ($targetId !== null) {
+                try {
+                    $definition = $this->workbench->importDefinition($this->scopeRef, $descriptor);
+                    $schemaId = $definition['schema_id'];
+                    $descriptor = $definition['descriptor'];
+                } catch (StorageRejected $exception) {
+                    $this->error('structure_invalid', $exception->reasonCode);
+                } catch (\InvalidArgumentException $exception) {
+                    $this->error('structure_invalid', $exception->getMessage());
+                }
+                $this->runs->addIds([$this->idRow(StorageSitePackRuns::ID_KIND_STRUCTURE, $sourceId, $targetId, $targetId === $sourceId ? 'keep' : 'remap')]);
+            }
+            $schema = $definition === null ? null : new StorageSchemaVersion(
+                new StorageSchemaVersionRef((string) $schemaId, 1),
+                'larena/storage',
+                $definition['definition']['fields'],
+                hash('sha256', $this->normalizer->canonicalJson($definition['definition'])),
+                $this->actor,
+                null,
+                gmdate('Y-m-d H:i:s'),
+            );
         }
-        $schema = $definition === null ? null : new StorageSchemaVersion(
-            new StorageSchemaVersionRef((string) $schemaId, 1),
-            'larena/storage',
-            $definition['definition']['fields'],
-            hash('sha256', $this->normalizer->canonicalJson($definition['definition'])),
-            $this->actor,
-            null,
-            gmdate('Y-m-d H:i:s'),
-        );
 
-        // --- Records, first pass: their ids. ---
+        // --- Records, first pass: their ids; the pages a merge replaces. ---
         $records = $this->recordIds($source, $options);
+        if ($merge) {
+            $records['replaced'] = $target === null ? 0 : $this->replacedRecords((string) $schemaId);
+        }
         ($this->tick)();
 
         // --- Records, second pass: every version as it will be written. ---
-        $checked = $this->check($source, $structure, $schema, $descriptor);
+        $values = new StorageSitePackValues($structure['fields'], $sourceId,
+            StorageSitePackIdMap::listTargets($this->database, $this->scopeRef, $this->runRef, $source->sourceSchemaId(), $schemaId));
+        $checked = $this->check($source, $values, $schema, $descriptor);
 
         // --- Replay, publication, roles, locales, files. ---
         $replay = $this->replay($source->packageId());
@@ -144,7 +186,7 @@ final class StorageSitePackPlanner
         if ($checked['localized'] > 0 && $this->localized === null) {
             $this->error('localized_unavailable', null);
         }
-        $roles = $this->roles($structure);
+        $roles = $this->roles($structure, $merge ? $schemaId : null);
         $declared = $options->declaredLocales ?? [];
         $locales = array_keys($this->locales);
         sort($locales, SORT_STRING);
@@ -163,7 +205,8 @@ final class StorageSitePackPlanner
             [
                 'source_id' => $sourceId,
                 'target_id' => $targetId,
-                'kept' => $targetId === $sourceId,
+                'kept' => !$merge && $targetId === $sourceId,
+                'merge' => $merge,
                 'label' => (string) $descriptor['label'],
                 'history_keep' => is_int($structure['history_keep'] ?? null) ? $structure['history_keep'] : null,
                 'fields' => count($descriptor['fields']),
@@ -186,13 +229,129 @@ final class StorageSitePackPlanner
             'plan' => $plan,
             'import' => [
                 'source_structure_id' => $sourceId,
+                'source_schema_id' => $source->sourceSchemaId(),
                 'structure_id' => $targetId,
                 'schema_id' => $schemaId,
                 'descriptor' => $descriptor,
                 'history_keep' => $plan->structure['history_keep'],
                 'package_id' => $source->packageId(),
-            ],
+            ] + ($merge && $target !== null ? [
+                'merge' => true,
+                'schema_version' => $target['schema']->ref->version,
+                'owner_prefix' => $target['structure']->recordOwnerPrefix ?? $adoption['owner_prefix'],
+                'owner_field' => $target['structure']->recordOwnerField,
+            ] : []),
         ];
+    }
+
+    private function schemaExists(string $schemaId): bool
+    {
+        return $this->database->table('larena_storage_schemas')->where('schema_id', $schemaId)->exists();
+    }
+
+    /**
+     * The target's structure that adopted the schema, and its current schema, when the pack's records may go into it:
+     * adopted in the target scope, with every field of the pack (same key, type and type version). Otherwise null,
+     * the reason among the errors.
+     *
+     * @param array<string, mixed> $structure
+     * @return array{structure: StorageWorkbenchStructure, schema: StorageSchemaVersion}|null
+     */
+    private function mergeTarget(array $structure, string $schemaId): ?array
+    {
+        $head = $this->database->getSchemaBuilder()->hasColumn('larena_storage_workbench_structures', 'adopted_schema_id')
+            ? $this->database->table('larena_storage_workbench_structures')->where('adopted_schema_id', $schemaId)->first(['scope_ref', 'structure_id'])
+            : null;
+        if (!$head instanceof stdClass) {
+            $this->error(self::SITE_PAGES_NOT_ADOPTED, $schemaId);
+
+            return null;
+        }
+        if ((string) $head->scope_ref !== $this->scopeRef) {
+            $this->error(self::SITE_PAGES_SCOPE_MISMATCH, (string) $head->scope_ref);
+
+            return null;
+        }
+        try {
+            $target = $this->workbench->readStructure($this->scopeRef, (string) $head->structure_id, $this->actor);
+            $schema = $this->storage->schemaVersion($target->schema);
+        } catch (StorageRejected $exception) {
+            $this->error('structure_invalid', $exception->reasonCode);
+
+            return null;
+        }
+        $fields = [];
+        foreach ($target->fields as $field) {
+            $fields[(string) ($field['key'] ?? '')] = $field;
+        }
+        $missing = false;
+        foreach ($structure['fields'] as $field) {
+            $key = is_array($field) && is_string($field['key'] ?? null) ? $field['key'] : null;
+            $here = $key === null ? null : ($fields[$key] ?? null);
+            if ($key === null || $here === null || ($here['type'] ?? null) !== ($field['type'] ?? null)
+                || (int) ($here['type_version'] ?? 0) !== (int) ($field['type_version'] ?? 0)) {
+                $this->error(self::SITE_PAGES_FIELDS_MISSING, $key);
+                $missing = true;
+            }
+        }
+
+        return $missing ? null : ['structure' => $target, 'schema' => $schema];
+    }
+
+    /**
+     * The records a merge replaces: none when the target holds none, the starter site's Home page when it is the only
+     * record and untouched. Any other record refuses the plan: a site in use is not merged into.
+     */
+    private function replacedRecords(string $schemaId): int
+    {
+        $ids = array_map('strval', $this->database->table('larena_storage_records')->where('schema_id', $schemaId)
+            ->orderBy('record_id')->limit(2)->pluck('record_id')->all());
+        if ($ids === []) {
+            return 0;
+        }
+        if (count($ids) > 1 || !self::untouchedStarterPage($this->database, $schemaId, $ids[0])) {
+            $this->error(self::SITE_PAGES_NOT_EMPTY, null);
+
+            return 0;
+        }
+        $this->runs->addIds([$this->idRow(StorageSitePackRuns::ID_KIND_REPLACED, $ids[0], null, 'replaced')]);
+
+        return 1;
+    }
+
+    /**
+     * Whether a record is the starter site's Home page as the first run wrote it (StarterSite): its owner ref, one
+     * version, the Home slug, and nothing anyone did since: no translation, no publication state (ever published or
+     * scheduled), no relation.
+     */
+    public static function untouchedStarterPage(Connection $database, string $schemaId, string $recordId): bool
+    {
+        if ($schemaId !== StarterSite::SCHEMA_ID) {
+            return false;
+        }
+        $head = $database->table('larena_storage_records')->where('schema_id', $schemaId)->where('record_id', $recordId)
+            ->first(['owner_ref', 'current_revision']);
+        if (!$head instanceof stdClass || (string) $head->owner_ref !== StarterSite::RECORD_OWNER_REF
+            || (int) $head->current_revision !== 1) {
+            return false;
+        }
+        $versions = $database->table('larena_storage_record_versions')->where('schema_id', $schemaId)->where('record_id', $recordId)
+            ->get(['values_json'])->all();
+        $values = count($versions) === 1 ? json_decode((string) $versions[0]->values_json, true) : null;
+        if (!is_array($values) || ($values['slug'] ?? null) !== StarterSite::HOME_SLUG) {
+            return false;
+        }
+        $schema = $database->getSchemaBuilder();
+        foreach (['larena_storage_localized_values', 'larena_storage_publication_states', 'larena_storage_publication_log'] as $table) {
+            if ($schema->hasTable($table) && $database->table($table)->where('schema_id', $schemaId)->where('record_id', $recordId)->exists()) {
+                return false;
+            }
+        }
+
+        return !$schema->hasTable('larena_storage_record_relations') || !$database->table('larena_storage_record_relations')
+            ->where(static function ($query) use ($recordId): void {
+                $query->where('from_record_id', $recordId)->orWhere('to_record_id', $recordId);
+            })->exists();
     }
 
     /**
@@ -455,13 +614,11 @@ final class StorageSitePackPlanner
     /**
      * Checks every version as the import will write it.
      *
-     * @param array<string, mixed> $structure
      * @param array{structure_id: string, label: string, fields: list<array<string, mixed>>} $descriptor
      * @return array{versions: int, localized: int, relations: int, published: int, scheduled: int}
      */
-    private function check(StorageSitePackSource $source, array $structure, ?StorageSchemaVersion $schema, array $descriptor): array
+    private function check(StorageSitePackSource $source, StorageSitePackValues $values, ?StorageSchemaVersion $schema, array $descriptor): array
     {
-        $values = new StorageSitePackValues($structure['fields'], (string) $structure['id']);
         $localizedFields = [];
         foreach ($descriptor['fields'] as $field) {
             if (($field['localized'] ?? false) === true) {
@@ -628,7 +785,7 @@ final class StorageSitePackPlanner
      * @param array<string, mixed> $structure
      * @return list<array{role_ref: string, action: string}>
      */
-    private function roles(array $structure): array
+    private function roles(array $structure, ?string $mergeSchemaId = null): array
     {
         $roles = [];
         foreach (is_array($structure['role_bindings'] ?? null) ? $structure['role_bindings'] : [] as $binding) {
@@ -637,6 +794,11 @@ final class StorageSitePackPlanner
                 continue;
             }
             $action = 'bind';
+            if ($mergeSchemaId !== null && $this->bound($roleRef, $mergeSchemaId)) {
+                // The structure the records go into plays the role already: it is never bound twice.
+                $roles[] = ['role_ref' => $roleRef, 'action' => 'already_bound'];
+                continue;
+            }
             try {
                 if ($this->roles === null || $this->roles->read($roleRef) === null) {
                     $action = 'skip';
@@ -655,6 +817,13 @@ final class StorageSitePackPlanner
         return $roles;
     }
 
+    private function bound(string $roleRef, string $schemaId): bool
+    {
+        return $this->database->getSchemaBuilder()->hasTable('larena_storage_structure_role_bindings')
+            && $this->database->table('larena_storage_structure_role_bindings')
+                ->where('role_ref', $roleRef)->where('schema_id', $schemaId)->where('status', 'active')->exists();
+    }
+
     private function allowed(string $operation): bool
     {
         try {
@@ -671,7 +840,7 @@ final class StorageSitePackPlanner
     {
         $hash = hash_init('sha256');
         $rows = 0;
-        foreach ([StorageSitePackRuns::ID_KIND_STRUCTURE, StorageSitePackRuns::ID_KIND_RECORD, StorageSitePackRuns::ID_KIND_REFERENCE, StorageSitePackRuns::ID_KIND_USER, StorageSitePackRuns::ID_KIND_FILE] as $kind) {
+        foreach ([StorageSitePackRuns::ID_KIND_STRUCTURE, StorageSitePackRuns::ID_KIND_RECORD, StorageSitePackRuns::ID_KIND_REFERENCE, StorageSitePackRuns::ID_KIND_USER, StorageSitePackRuns::ID_KIND_FILE, StorageSitePackRuns::ID_KIND_REPLACED] as $kind) {
             $after = null;
             do {
                 $page = $this->runs->idsAfter($this->runRef, $kind, null, $after, 1000);

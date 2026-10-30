@@ -137,6 +137,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSitePackExportMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSitePackImportTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSitePackImportMySqlTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageSitePackSitePagesTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageFieldEncryptionTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageFieldEncryptionMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageFieldEncryptionRunTest.php",

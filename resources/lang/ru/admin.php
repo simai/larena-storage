@@ -332,6 +332,10 @@ return [
                 'localized_unavailable' => 'В архиве есть переводы, а переводы на этом сайте сейчас недоступны.',
                 'publication_unavailable' => 'Публикация на этом сайте недоступна — загрузите записи черновиками.',
                 'publication_denied' => 'Нет права публиковать записи — загрузите их черновиками.',
+                'storage_sitepack_site_pages_not_empty' => 'На сайте уже есть страницы. Страницы переносятся только на сайт без страниц или с одной стартовой «Главной».',
+                'storage_sitepack_site_pages_fields_missing' => 'У страниц сайта здесь нет поля «:subject». Выполните php artisan larena:storage:adopt-site-pages и проверьте снова.',
+                'storage_sitepack_site_pages_not_adopted' => 'Страницы сайта здесь ещё не хранилище. Выполните php artisan larena:storage:adopt-site-pages и проверьте снова.',
+                'storage_sitepack_site_pages_scope_mismatch' => 'Страницы сайта здесь в другой области (:subject). Загрузите архив там.',
                 'other' => 'Архив нельзя загрузить: ошибок :count.',
             ],
             'warnings' => [
@@ -344,6 +348,7 @@ return [
                 'role_binding_skipped' => 'Роль :subject не будет назначена: нет права управлять ролями.',
                 'encrypted_values_omitted' => 'Зашифрованное поле «:subject» придёт без значений: архив их не переносит, а поле станет необязательным.',
                 'encrypted_values_decrypted' => 'Значения зашифрованного поля «:subject» лежат в архиве открыто — при загрузке они будут зашифрованы ключом этого сайта.',
+                'list_target_unresolved' => 'Списки, которые называют хранилище, не найденное на этом сайте, покажутся как недоступные: :count.',
                 'other' => 'Замечаний: :count.',
             ],
             'reasons' => [

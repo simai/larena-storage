@@ -6,14 +6,19 @@ namespace Larena\Storage\SitePack;
 
 /**
  * The storage SitePack format: a SitePack envelope (core's `sitepack.manifest.json` and `sitepack.catalog.json`) whose
- * annotations carry the schema stamp `larena.storage.sitepack`, version 1, and these artifacts:
+ * annotations carry the schema stamp `larena.storage.sitepack`, version 1, minor SCHEMA_MINOR (`schema_minor`; a pack
+ * without it is minor 0), and these artifacts:
  *
  * - `artifacts/storage/structures.jsonl`: one line per structure: id, label, history_keep, fields (type, type_version,
  *   required, visibility, constraints, position, label and the options hidden, searchable, indexed, localized), the
  *   current schema definition (without the reserved fields), role bindings by role ref, and the source versions
- *   (informational).
+ *   (informational). Since minor 1: `schema_id`, the storage schema the structure had on the source (an import maps
+ *   list targets that name it), and, for a structure that adopted an existing schema in place (the site pages),
+ *   `adoption: {schema_id, owner_prefix, owner_field}`: an import puts its records into the target's structure that
+ *   adopted the same schema instead of making a new one (StorageSitePackPlanner).
  * - `artifacts/storage/records/<structure key>/part-000001.jsonl` …: one line per record, in record id order, at most
- *   PART_RECORDS a part: `{id, state, versions, publication, relations}`. A version is `{revision, current,
+ *   PART_RECORDS a part: `{id, state, owner_ref, versions, publication, relations}` (`owner_ref` since minor 1, the
+ *   record's owner ref on the source). A version is `{revision, current,
  *   published_in, schema_version, values, localized: {locale: {field: value}}, content_hash}`, live versions only (the
  *   current one and those a publication state points to as published or scheduled), values read under the current
  *   schema; `schema_version` is the one the version was written under (informational) and `content_hash` is
@@ -26,11 +31,16 @@ namespace Larena\Storage\SitePack;
  *
  * Never in a pack: older revisions, the publication log, audit, field-change rows, actor ids, correlation ids, the
  * reserved fields larena_scope_ref and larena_record_state, and derived tables (витрины, slots, published keys).
+ *
+ * A minor adds optional fields only: every reader of the format reads a pack of any minor, the fields it does not know
+ * left aside, and a pack of an earlier minor reads without them.
  */
 final class StorageSitePackFormat
 {
     public const string SCHEMA_NAME = 'larena.storage.sitepack';
     public const int SCHEMA_VERSION = 1;
+    /** The format's additions within its version (see the class comment). */
+    public const int SCHEMA_MINOR = 1;
     public const string PACKAGE_PREFIX = 'storage';
     public const string ADAPTER = 'larena/storage';
     /** The manifest annotation of a pack whose encrypted values are in plaintext. */
@@ -102,6 +112,7 @@ final class StorageSitePackFormat
     {
         return [
             'adapter' => self::ADAPTER,
+            'schema_minor' => self::SCHEMA_MINOR,
             'includes' => ['history' => false, 'archived_records' => true],
             'source' => ['site_ref' => $siteRef, 'structure_ids' => $structureIds, 'exported_at' => $exportedAt],
         ] + ($decrypted ? [self::DECRYPTED_ANNOTATION => true] : []);

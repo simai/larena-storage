@@ -1485,6 +1485,12 @@ final readonly class VersionedStorage implements VersionedStorageContract
         return $prefix . '-' . hash('sha256', $correlationId);
     }
 
+    /** The correlation id a record version written under $correlationId carries (a SitePack discard finds its own by it). */
+    public static function recordCorrelationId(string $correlationId): string
+    {
+        return 'storage-record-' . hash('sha256', $correlationId);
+    }
+
     private function timestamp(): string
     {
         return gmdate('Y-m-d H:i:s');

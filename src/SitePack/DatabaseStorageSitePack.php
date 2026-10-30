@@ -559,6 +559,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
                 $this->database,
                 $this->runs,
                 $this->importWorkbench(),
+                $this->storage,
                 $this->normalizer,
                 $this->propertyTypes,
                 $this->fileImports,
@@ -1069,7 +1070,14 @@ final class DatabaseStorageSitePack implements StorageSitePack
         $row = $this->runs->row($runRef);
         if ($row !== null && (string) $row->kind === StorageSitePackRun::KIND_IMPORT) {
             $import = self::decode($row->options_json)['import'] ?? null;
-            if (is_array($import) && $this->workbench instanceof DatabaseStorageWorkbench) {
+            if (is_array($import) && ($import['merge'] ?? false) === true) {
+                // Into an adopted structure: only the records this run wrote go, never those of a run that ended;
+                // the structure stays.
+                if ((string) $row->state !== StorageSitePackRun::STATE_DONE) {
+                    StorageSitePackImporter::discardMerged($this->database, $this->runs, $runRef,
+                        is_string($import['schema_id'] ?? null) ? $import['schema_id'] : null, (string) ($row->correlation_id ?? ''));
+                }
+            } elseif (is_array($import) && $this->workbench instanceof DatabaseStorageWorkbench) {
                 StorageSitePackImporter::discard(
                     $this->database,
                     $this->workbench,

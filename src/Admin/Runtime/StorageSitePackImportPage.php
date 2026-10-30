@@ -34,7 +34,7 @@ final readonly class StorageSitePackImportPage
     ];
     /** Plan issue codes whose subject names something a person recognises (a language, a storage ID, a role). */
     private const array SUBJECTS = ['locale_not_declared', 'already_imported', 'structure_id_taken', 'role_unknown', 'role_binding_skipped',
-        'encrypted_values_omitted', 'encrypted_values_decrypted'];
+        'encrypted_values_omitted', 'encrypted_values_decrypted', 'storage_sitepack_site_pages_fields_missing', 'storage_sitepack_site_pages_scope_mismatch'];
     /** The value of a reference choice that leaves the storage of the same ID. */
     public const string SAME_ID = '__same__';
 

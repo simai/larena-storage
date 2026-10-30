@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Larena\Storage\SitePack;
 
+use Closure;
+use Illuminate\Database\Connection;
+use Larena\Storage\Contracts\StorageSitePackRun;
+
 /** Reads an import's id map for one chunk of records: the targets of the pack's records, references, users and files. */
 final class StorageSitePackIdMap
 {
@@ -57,5 +61,45 @@ final class StorageSitePackIdMap
         }
 
         return $targets;
+    }
+
+    /**
+     * The storage a list block's schema id names on this site, for one import (StorageSitePackValues): the pack's own
+     * storage → the one it becomes ($targetSchemaId); another storage → the one the latest earlier import of this
+     * scope made of it (a pack that said its schema id) while that one is here; else the same schema when this site
+     * has it; else null. The plan and the import ask the same, so they decide the same.
+     *
+     * @return Closure(string): ?string
+     */
+    public static function listTargets(Connection $database, string $scopeRef, string $runRef, ?string $sourceSchemaId, ?string $targetSchemaId): Closure
+    {
+        $known = [];
+
+        return static function (string $schemaId) use ($database, $scopeRef, $runRef, $sourceSchemaId, $targetSchemaId, &$known): ?string {
+            if (array_key_exists($schemaId, $known)) {
+                return $known[$schemaId];
+            }
+            if ($sourceSchemaId !== null && $schemaId === $sourceSchemaId) {
+                return $known[$schemaId] = $targetSchemaId;
+            }
+            $exists = static fn (string $id): bool => $database->table('larena_storage_schemas')->where('schema_id', $id)->exists();
+            foreach ($database->table(StorageSitePackRuns::TABLE)
+                ->where('kind', StorageSitePackRun::KIND_IMPORT)
+                ->where('state', StorageSitePackRun::STATE_DONE)
+                ->where('scope_ref', $scopeRef)
+                ->where('run_ref', '!=', $runRef)
+                // A first sieve (`_` matches any letter); each candidate is read below.
+                ->where('options_json', 'like', '%"source_schema_id":"' . $schemaId . '"%')
+                ->orderByDesc('finished_at')
+                ->pluck('options_json') as $json) {
+                $options = json_decode((string) $json, true);
+                $import = is_array($options) && is_array($options['import'] ?? null) ? $options['import'] : [];
+                if (($import['source_schema_id'] ?? null) === $schemaId && is_string($import['schema_id'] ?? null) && $exists($import['schema_id'])) {
+                    return $known[$schemaId] = $import['schema_id'];
+                }
+            }
+
+            return $known[$schemaId] = $exists($schemaId) ? $schemaId : null;
+        };
     }
 }

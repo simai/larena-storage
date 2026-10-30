@@ -20,6 +20,10 @@ use Larena\Storage\Encryption\StorageFieldEnvelope;
  * - file@1: through the files the plan decided (reuse, create, remap). A file the pack does not carry: an optional
  *   field is cleared (`file_missing_cleared`), a required one is an error (`file_required_missing`).
  *
+ * - content@1: the `target` of each `larena.list` block (a structure role ref, or a storage schema id). A role ref is
+ *   kept; a schema id is mapped through $listTargets (the pack's own structure → the storage it becomes, another
+ *   storage → the one an earlier import of this scope made of it, or the same schema here). Unresolved: kept as it
+ *   is (`list_target_unresolved`; the site shows the list as unavailable until it names a storage of the site).
  * - an encrypted field («Шифровать»): a pack carries no encrypted value, unless it was exported with them in
  *   plaintext (`contains_decrypted_values`: the write seals them with this site's key); an envelope found anyway (it
  *   would not open on this site) is left out (`encrypted_values_omitted`).
@@ -36,11 +40,23 @@ final readonly class StorageSitePackValues
 
     public const string USER_PATTERN = '/\Auser:[a-z][a-z0-9_]{0,63}:[1-9][0-9]{0,19}\z/D';
 
+    /** A warning: a list block names a storage this site does not have; it is kept as it is. */
+    public const string LIST_TARGET_UNRESOLVED = 'list_target_unresolved';
+
+    /** The block type whose `target` names a storage (a role ref or a schema id). */
+    public const string LIST_BLOCK = 'larena.list';
+
+    private const string ROLE_REF_PATTERN = '/\A[a-z][a-z0-9_]{0,63}@v[1-9][0-9]{0,5}\z/D';
+
     /** @var array<string, array<string, mixed>> */
     private array $fields;
 
-    /** @param list<array<string, mixed>> $sourceFields the pack's fields (their record@1 targets as the pack names them) */
-    public function __construct(array $sourceFields, private string $sourceStructureId)
+    /**
+     * @param list<array<string, mixed>> $sourceFields the pack's fields (their record@1 targets as the pack names them)
+     * @param (Closure(string): ?string)|null $listTargets the storage a list block's schema id names here, null when
+     *        none; without it list targets pass as they are
+     */
+    public function __construct(array $sourceFields, private string $sourceStructureId, private ?Closure $listTargets = null)
     {
         $fields = [];
         foreach ($sourceFields as $field) {
@@ -93,6 +109,10 @@ final readonly class StorageSitePackValues
                 $issues[] = self::ENCRYPTED_OMITTED;
                 continue;
             }
+            if ($field !== null && ($field['type'] ?? null) === 'content' && is_array($value)) {
+                $values[$key] = $this->listTargets($value, $issues);
+                continue;
+            }
             if ($field === null || !is_string($value) || $value === '') {
                 continue;
             }
@@ -138,6 +158,35 @@ final readonly class StorageSitePackValues
         }
 
         return ['values' => $values, 'issues' => $issues];
+    }
+
+    /**
+     * A content@1 value with each list block's schema id target mapped.
+     *
+     * @param array<array-key, mixed> $blocks
+     * @param list<string> $issues
+     * @return array<array-key, mixed>
+     */
+    private function listTargets(array $blocks, array &$issues): array
+    {
+        if ($this->listTargets === null) {
+            return $blocks;
+        }
+        foreach ($blocks as $position => $block) {
+            $target = is_array($block) && ($block['type'] ?? null) === self::LIST_BLOCK && is_array($block['params'] ?? null)
+                ? ($block['params']['target'] ?? null) : null;
+            if (!is_string($target) || $target === '' || preg_match(self::ROLE_REF_PATTERN, $target) === 1) {
+                continue;
+            }
+            $mapped = ($this->listTargets)($target);
+            if ($mapped === null) {
+                $issues[] = self::LIST_TARGET_UNRESOLVED;
+            } elseif ($mapped !== $target) {
+                $blocks[$position]['params']['target'] = $mapped;
+            }
+        }
+
+        return $blocks;
     }
 
     /** Issue codes that refuse the import (the others are warnings). */

@@ -10,6 +10,7 @@ use DateTimeZone;
 use Illuminate\Database\Connection;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
+use Larena\Storage\Contracts\StorageRecordVersionRef;
 use Larena\Storage\Contracts\StorageSchemaVersionRef;
 use Larena\Storage\Contracts\StorageSitePackPlan;
 use Larena\Storage\Contracts\StorageSitePackRun;
@@ -42,6 +43,12 @@ use Throwable;
  *   the past is published by the sweep;
  * - finalize: counts against the plan, the role bindings (when not bound yet), the importing state cleared, the run
  *   done and audited, in one transaction.
+ *
+ * A merge (the plan put the records into the target's adopted structure, the site pages) writes no structure: it
+ * checks the structure is still the one planned, removes the record the plan replaces (the starter Home page, still
+ * untouched) before the first record is written, writes the records under the adopted schema's current version, each
+ * owner ref the structure's prefix and owner field value (DatabaseStorageWorkbench::fieldOwnerRef()), else the pack's
+ * owner ref when it has that prefix, else the prefix and a random part, never one another record holds.
  */
 final class StorageSitePackImporter
 {
@@ -104,7 +111,10 @@ final class StorageSitePackImporter
         $structure = $source->structure;
         $sourceFields = is_array($structure['fields'] ?? null) ? $structure['fields'] : [];
         // The values are rewritten as the pack describes its fields (their record@1 targets as the pack names them).
-        $this->values = new StorageSitePackValues($sourceFields, (string) $structure['id']);
+        $this->values = new StorageSitePackValues($sourceFields, (string) $structure['id'], StorageSitePackIdMap::listTargets(
+            $this->database, $this->scopeRef, $this->runRef, $source->sourceSchemaId(),
+            is_string($this->import['schema_id'] ?? null) ? $this->import['schema_id'] : null,
+        ));
         if ($phase === StorageSitePackRun::PHASE_STRUCTURE) {
             $this->structure();
             $phase = StorageSitePackRun::PHASE_FILES;
@@ -136,8 +146,37 @@ final class StorageSitePackImporter
         $this->finalize($counts, $done);
     }
 
+    private function merges(): bool
+    {
+        return ($this->import['merge'] ?? false) === true;
+    }
+
+    /** The schema version the records are written under: the new structure's first, or the adopted one's current. */
+    private function schemaVersion(): int
+    {
+        return $this->merges() ? (int) ($this->import['schema_version'] ?? 0) : 1;
+    }
+
+    /** A merge: the adopted structure is still the one the plan read (its schema version, not importing). */
+    private function assertMergeTarget(): void
+    {
+        $head = $this->database->table('larena_storage_workbench_structures')
+            ->where('scope_ref', $this->scopeRef)
+            ->where('structure_id', (string) $this->import['structure_id'])
+            ->first();
+        if (!$head instanceof stdClass || ($head->adopted_schema_id ?? null) !== $this->import['schema_id']
+            || ($head->import_run_ref ?? null) !== null || (int) $head->current_schema_version !== $this->schemaVersion()) {
+            throw new StorageRejected('storage_sitepack_plan_stale');
+        }
+    }
+
     private function structure(): void
     {
+        if ($this->merges()) {
+            $this->assertMergeTarget();
+
+            return;
+        }
         $structureId = (string) $this->import['structure_id'];
         $head = $this->database->table('larena_storage_workbench_structures')
             ->where('scope_ref', $this->scopeRef)
@@ -231,7 +270,11 @@ final class StorageSitePackImporter
         foreach (is_array($cursor['depths'] ?? null) ? $cursor['depths'] : [] as $depth) {
             $depths[(int) $depth] = true;
         }
-        $schema = new StorageSchemaVersionRef((string) $this->import['schema_id'], 1);
+        $schema = new StorageSchemaVersionRef((string) $this->import['schema_id'], $this->schemaVersion());
+        if ($this->merges()) {
+            $this->assertMergeTarget();
+            $counts = $this->replace($schema, $counts);
+        }
         $part = (int) ($cursor['part'] ?? 1);
         $line = (int) ($cursor['line'] ?? 0);
         foreach (StorageSitePackSource::chunks($source->records($part, $line), $this->chunk) as $batch) {
@@ -267,6 +310,58 @@ final class StorageSitePackImporter
     }
 
     /**
+     * A merge: removes the records the plan replaces (the starter Home page), each only while it is as the plan saw
+     * it; one removed before an interruption is gone already.
+     *
+     * @param array<string, int> $counts
+     * @return array<string, int>
+     */
+    private function replace(StorageSchemaVersionRef $schema, array $counts): array
+    {
+        $after = null;
+        do {
+            $rows = $this->runs->idsAfter($this->runRef, StorageSitePackRuns::ID_KIND_REPLACED, 'replaced', $after, 100);
+            foreach ($rows as $row) {
+                $after = (string) $row->source_ref;
+                if (!$this->database->table(self::RECORDS)->where('schema_id', $schema->schemaId)->where('record_id', $after)->exists()) {
+                    continue;
+                }
+                if (!StorageSitePackPlanner::untouchedStarterPage($this->database, $schema->schemaId, $after)) {
+                    throw new StorageRejected('storage_sitepack_plan_stale');
+                }
+                $this->storage->purge([new StorageRecordVersionRef($schema->schemaId, $after, 1)], $this->actor, $this->correlationId);
+                $counts['records_replaced'] = ($counts['records_replaced'] ?? 0) + 1;
+                ($this->save)(['counts_json' => self::json($counts)]);
+            }
+        } while (count($rows) === 100);
+
+        return $counts;
+    }
+
+    /**
+     * The owner ref of a record a merge writes: the structure's prefix and its owner field's value, else the pack's
+     * owner ref when it has the prefix, else the prefix and a random part; never one another record of the storage holds.
+     *
+     * @param array<string, mixed> $values the record's current values, rewritten
+     */
+    private function ownerRef(string $schemaId, array $values, mixed $packOwnerRef): string
+    {
+        $prefix = (string) ($this->import['owner_prefix'] ?? '');
+        $field = is_string($this->import['owner_field'] ?? null) ? $this->import['owner_field'] : null;
+        $candidates = [
+            DatabaseStorageWorkbench::fieldOwnerRef($prefix, $field, $values),
+            is_string($packOwnerRef) && str_starts_with($packOwnerRef, $prefix) && strlen($packOwnerRef) > strlen($prefix) ? $packOwnerRef : null,
+        ];
+        foreach ($candidates as $candidate) {
+            if ($candidate !== null && !$this->database->table(self::RECORDS)->where('schema_id', $schemaId)->where('owner_ref', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
+
+        return $prefix . bin2hex(random_bytes(16));
+    }
+
+    /**
      * @param array<string, mixed> $record
      * @param array{record: Closure(string, bool): ?string, user: Closure(string): bool, file: Closure(string): ?string, ids: array<string, string>} $lookup
      * @param array<string, int> $counts
@@ -293,7 +388,9 @@ final class StorageSitePackImporter
             }
         }
         $this->storage->importRecord(
-            'workbench.record:' . bin2hex(random_bytes(16)),
+            $this->merges()
+                ? $this->ownerRef($schema->schemaId, $versions[count($versions) - 1], $record['owner_ref'] ?? null)
+                : 'workbench.record:' . bin2hex(random_bytes(16)),
             $schema,
             $recordId,
             $versions,
@@ -580,7 +677,7 @@ final class StorageSitePackImporter
             return $counts;
         }
         $schemaId = (string) $this->import['schema_id'];
-        $fields = $this->storage->schemaVersion(new StorageSchemaVersionRef($schemaId, 1))->fields;
+        $fields = $this->storage->schemaVersion(new StorageSchemaVersionRef($schemaId, $this->schemaVersion()))->fields;
         foreach ($this->plan->roles as $role) {
             if ($role['action'] !== 'bind' || $this->roles === null) {
                 continue;
@@ -623,7 +720,9 @@ final class StorageSitePackImporter
             }
             $counts = $this->bindRoles($counts);
             unset($counts['roles_done']);
-            if (!$this->workbench->finishImportingStructure($this->scopeRef, (string) $this->import['structure_id'], $this->runRef)) {
+            if ($this->merges()) {
+                $this->assertMergeTarget();
+            } elseif (!$this->workbench->finishImportingStructure($this->scopeRef, (string) $this->import['structure_id'], $this->runRef)) {
                 throw new StorageRejected('storage_sitepack_plan_stale');
             }
             $now = (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z');
@@ -704,6 +803,58 @@ final class StorageSitePackImporter
             $database->table('larena_storage_published_key_sets')->where('schema_id', $schemaId)->delete();
         }
         $workbench->discardImportingStructure($scopeRef, $structureId, $runRef);
+    }
+
+    /**
+     * Removes the records a merge run wrote into the adopted structure (the targets of its id map whose first
+     * version the run wrote, under its correlation id), with their versions, translations, publication states and
+     * relations; the structure, its schema and every other record stay. The page it replaced is not brought back: the site is left without pages, and a new plan finds it empty.
+     * Idempotent; in chunks, each its own transaction.
+     */
+    public static function discardMerged(Connection $database, StorageSitePackRuns $runs, string $runRef, ?string $schemaId, string $correlationId): void
+    {
+        if ($schemaId === null || $correlationId === '') {
+            return;
+        }
+        $schema = $database->getSchemaBuilder();
+        $tables = [];
+        foreach (['larena_storage_localized_values', 'larena_storage_publication_states', 'larena_storage_publication_log', 'larena_storage_published_keys'] as $table) {
+            if ($schema->hasTable($table)) {
+                $tables[] = $table;
+            }
+        }
+        $relations = $schema->hasTable(self::RELATIONS);
+        $after = null;
+        do {
+            $rows = $runs->idsAfter($runRef, StorageSitePackRuns::ID_KIND_RECORD, null, $after, 500);
+            $targets = [];
+            foreach ($rows as $row) {
+                $after = (string) $row->source_ref;
+                if (is_string($row->target_ref) && $row->target_ref !== '') {
+                    $targets[] = $row->target_ref;
+                }
+            }
+            /** @var list<string> $ids */
+            $ids = $targets === [] ? [] : array_map('strval', $database->table('larena_storage_record_versions')->where('schema_id', $schemaId)
+                ->whereIn('record_id', $targets)->where('revision', 1)->where('correlation_id', \Larena\Storage\Runtime\VersionedStorage::recordCorrelationId($correlationId))->pluck('record_id')->all());
+            if ($ids !== []) {
+                $database->transaction(static function () use ($database, $ids, $schemaId, $tables, $relations): void {
+                    if ($relations) {
+                        $database->table(self::RELATIONS)
+                            ->where(static function ($query) use ($ids): void {
+                                $query->whereIn('from_record_id', $ids)->orWhereIn('to_record_id', $ids);
+                            })
+                            ->delete();
+                    }
+                    foreach ($tables as $table) {
+                        $database->table($table)->where('schema_id', $schemaId)->whereIn('record_id', $ids)->delete();
+                    }
+                    (new PublishedSiteViewRegistry($database, 0.0))->deleteRecords($schemaId, $ids);
+                    $database->table('larena_storage_record_versions')->where('schema_id', $schemaId)->whereIn('record_id', $ids)->delete();
+                    $database->table(self::RECORDS)->where('schema_id', $schemaId)->whereIn('record_id', $ids)->delete();
+                });
+            }
+        } while (count($rows) === 500);
     }
 
     /** A pack's ISO time (`…T…Z`) as the stored UTC form. */

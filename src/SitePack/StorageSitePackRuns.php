@@ -26,6 +26,8 @@ final readonly class StorageSitePackRuns
     public const string ID_KIND_REFERENCE = 'reference';
     /** An import: a user a user@1 value names, kept when this installation has it. */
     public const string ID_KIND_USER = 'user';
+    /** An import into an adopted structure: a record of the target it replaces (the starter Home page), action `replaced`. */
+    public const string ID_KIND_REPLACED = 'replaced';
 
     /** An export lists a file its live versions reference. */
     public const string ACTION_EXPORT = 'export';

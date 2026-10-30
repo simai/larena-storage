@@ -13,7 +13,7 @@ use Larena\Storage\Exceptions\StorageRejected;
 /**
  * A storage SitePack opened for import with core's reader (envelope and catalog checked on open, every artifact's
  * size, line count and SHA-256 while it is streamed). It checks the storage format on top: the schema stamp
- * `larena.storage.sitepack` version 1, one structure line, record parts of that structure only, asset lines that are
+ * `larena.storage.sitepack` version 1 (any minor), one structure line, record parts of that structure only, asset lines that are
  * portable file descriptors whose blob is in the pack, and the shape of every record line.
  *
  * What it yields before an artifact's stream ends is provisional (core's rule): the plan reads everything before
@@ -48,7 +48,9 @@ final class StorageSitePackSource
         if (!is_string($structure['id'] ?? null) || preg_match('/\Aworkbench\.[a-z][a-z0-9_.:-]{0,109}\z/D', $structure['id']) !== 1
             || !is_string($structure['label'] ?? null) || !is_array($structure['fields'] ?? null) || !array_is_list($structure['fields'])
             || (($structure['history_keep'] ?? null) !== null && !is_int($structure['history_keep']))
-            || !is_array($structure['role_bindings'] ?? [])) {
+            || !is_array($structure['role_bindings'] ?? [])
+            || (($structure['schema_id'] ?? null) !== null && !self::schemaId($structure['schema_id']))
+            || !self::adoptionValid($structure['adoption'] ?? null)) {
             throw new StorageRejected('storage_sitepack_structure_invalid');
         }
         $this->structure = $structure;
@@ -80,6 +82,34 @@ final class StorageSitePackSource
         } catch (SitePackRejected $exception) {
             throw new StorageRejected($exception->reasonCode, $exception);
         }
+    }
+
+    /** The storage schema the structure had on the source (minor 1), null in an earlier pack. */
+    public function sourceSchemaId(): ?string
+    {
+        $schemaId = $this->structure['schema_id'] ?? null;
+
+        return is_string($schemaId) ? $schemaId : null;
+    }
+
+    /**
+     * The schema the structure adopted in place on the source, its owner ref prefix and owner field (minor 1): null
+     * for an ordinary structure and in an earlier pack.
+     *
+     * @return array{schema_id: string, owner_prefix: string, owner_field: ?string}|null
+     */
+    public function adoption(): ?array
+    {
+        $adoption = $this->structure['adoption'] ?? null;
+        if (!is_array($adoption)) {
+            return null;
+        }
+
+        return [
+            'schema_id' => (string) $adoption['schema_id'],
+            'owner_prefix' => (string) $adoption['owner_prefix'],
+            'owner_field' => is_string($adoption['owner_field'] ?? null) ? $adoption['owner_field'] : null,
+        ];
     }
 
     public function packageId(): string
@@ -245,7 +275,7 @@ final class StorageSitePackSource
     }
 
     /**
-     * One record line, checked: `{id, state, versions: [{revision, current, published_in, schema_version, values,
+     * One record line, checked: `{id, state, owner_ref (optional), versions: [{revision, current, published_in, schema_version, values,
      * localized, content_hash}], publication: [...], relations: [...]}`, versions in revision order, one current.
      *
      * @param array<string, mixed> $record
@@ -258,7 +288,9 @@ final class StorageSitePackSource
             || !in_array($record['state'] ?? null, ['active', 'archived'], true)
             || !is_array($versions) || $versions === [] || !array_is_list($versions)
             || !is_array($record['publication'] ?? null) || !array_is_list($record['publication'])
-            || !is_array($record['relations'] ?? null) || !array_is_list($record['relations'])) {
+            || !is_array($record['relations'] ?? null) || !array_is_list($record['relations'])
+            || (($record['owner_ref'] ?? null) !== null && (!is_string($record['owner_ref'])
+                || preg_match('/\A[a-z][a-z0-9_.:-]{1,190}\z/D', $record['owner_ref']) !== 1))) {
             throw new StorageRejected('storage_sitepack_record_invalid');
         }
         $previous = 0;
@@ -300,6 +332,25 @@ final class StorageSitePackSource
         }
 
         return $record;
+    }
+
+    private static function schemaId(mixed $schemaId): bool
+    {
+        return is_string($schemaId) && preg_match('/\A[a-z][a-z0-9_.:-]{1,119}\z/D', $schemaId) === 1;
+    }
+
+    /** No adoption, or one that names an adoptable schema, an owner ref prefix and, optionally, a field key. */
+    private static function adoptionValid(mixed $adoption): bool
+    {
+        if ($adoption === null) {
+            return true;
+        }
+
+        return is_array($adoption)
+            && self::schemaId($adoption['schema_id'] ?? null) && !str_starts_with((string) $adoption['schema_id'], 'workbench.')
+            && is_string($adoption['owner_prefix'] ?? null) && preg_match('/\A[a-z][a-z0-9_.-]{0,62}:\z/D', $adoption['owner_prefix']) === 1
+            && (($adoption['owner_field'] ?? null) === null
+                || (is_string($adoption['owner_field']) && preg_match('/\A[a-z][a-z0-9_]{0,63}\z/D', $adoption['owner_field']) === 1));
     }
 
     /**

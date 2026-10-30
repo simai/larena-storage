@@ -202,6 +202,7 @@
     "src/Console/Commands/StorageSitePackImportCommand.php",
     "tests/Support/storage-sitepack-import-fixture.php",
     "tests/Integration/StorageSitePackImportTest.php",
+    "tests/Integration/StorageSitePackSitePagesTest.php",
     "tests/Integration/StorageSitePackImportMySqlTest.php",
     "tests/fixtures/storage-sitepack-demo.zip",
     "database/migrations/platform/2026_10_24_000001_create_larena_storage_data_keys_table.php",

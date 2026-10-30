@@ -3863,10 +3863,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private function newOwnerRef(StorageWorkbenchStructure $structure, #[\SensitiveParameter] array $values): string
     {
         $prefix = $structure->recordOwnerPrefix ?? self::OWNER_PREFIX;
-        $field = $structure->recordOwnerField;
-        $value = $field === null ? null : ($values[$field] ?? null);
-        if (is_string($value) && preg_match('/\A[a-z0-9][a-z0-9_.-]*\z/D', $value) === 1 && strlen($prefix . $value) <= 191) {
-            $ownerRef = $prefix . $value;
+        $ownerRef = self::fieldOwnerRef($prefix, $structure->recordOwnerField, $values);
+        if ($ownerRef !== null) {
             if ($this->database->table('larena_storage_records')
                 ->where('schema_id', $structure->schema->schemaId)
                 ->where('owner_ref', $ownerRef)
@@ -3878,6 +3876,22 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
 
         return $prefix . bin2hex(random_bytes(16));
+    }
+
+    /**
+     * The owner ref a record's values give in a structure whose records' owner refs end with a field's value
+     * (site.pages:<slug>): the prefix and that value, or null when there is no such field or its value cannot end an
+     * owner ref. A SitePack import names the records it brings into an adopted structure by the same rule.
+     *
+     * @param array<string, mixed> $values
+     */
+    public static function fieldOwnerRef(string $prefix, ?string $field, #[\SensitiveParameter] array $values): ?string
+    {
+        $value = $field === null ? null : ($values[$field] ?? null);
+
+        return is_string($value) && preg_match('/\A[a-z0-9][a-z0-9_.-]*\z/D', $value) === 1 && strlen($prefix . $value) <= 191
+            ? $prefix . $value
+            : null;
     }
 
     /** @param list<array<string, mixed>> $fields */

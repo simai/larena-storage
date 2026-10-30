@@ -25,7 +25,7 @@ use Throwable;
  * The export engine of one run: it reads one structure of one scope and stages what the pack carries, a chunk at a
  * time, in the run's staging directory; DatabaseStorageSitePack saves the position after each chunk.
  *
- * - prepare(): the structure line (structures.jsonl in staging).
+ * - prepare(): the structure line (structures.jsonl in staging), with the schema it adopted when it did.
  * - records(): the next chunk of records in record id order (keyset), appended to the current part file at the byte
  *   offset the saved position names, so a chunk that was written but not saved is written again, not twice.
  * - files(): the next chunk of the files the live versions reference: one index line each, the content once per
@@ -113,6 +113,7 @@ final class StorageSitePackExporter
         }
         $line = [
             'id' => $this->structure->structureId,
+            'schema_id' => $this->structure->schema->schemaId,
             'label' => $this->structure->label,
             'history_keep' => $this->structure->historyKeep,
             'fields' => array_map(static fn (array $field): array => self::sorted($field), $this->structure->fields),
@@ -125,10 +126,30 @@ final class StorageSitePackExporter
                 'structure_version' => $this->structure->version,
                 'schema_version' => $this->structure->schema->version,
             ],
-        ];
+        ] + $this->adoption();
         $this->append($this->staging . '/structures.jsonl', 0, StorageSitePackFormat::line($this->objects($line)));
 
         return $this->database->table(self::RECORDS)->where('schema_id', $this->structure->schema->schemaId)->count();
+    }
+
+    /**
+     * The structure line's `adoption` for a structure that adopted an existing schema in place (the site pages): the
+     * schema, the owner ref prefix of its records and the field a new record's owner ref ends with. Its records
+     * written before the adoption carry no reserved fields: they read as active, in the structure's scope.
+     *
+     * @return array{adoption?: array{schema_id: string, owner_prefix: string, owner_field: ?string}}
+     */
+    private function adoption(): array
+    {
+        if ($this->structure->recordOwnerPrefix === null) {
+            return [];
+        }
+
+        return ['adoption' => [
+            'schema_id' => $this->structure->schema->schemaId,
+            'owner_prefix' => $this->structure->recordOwnerPrefix,
+            'owner_field' => $this->structure->recordOwnerField,
+        ]];
     }
 
     /** Removes part files after $part, left by a chunk that was written but never saved. */
@@ -156,7 +177,7 @@ final class StorageSitePackExporter
             $query->where('record_id', '>', $cursor['after']);
         }
         /** @var list<stdClass> $heads */
-        $heads = $query->orderBy('record_id')->limit($limit)->get(['record_id', 'current_revision', 'current_hash'])->all();
+        $heads = $query->orderBy('record_id')->limit($limit)->get(['record_id', 'owner_ref', 'current_revision', 'current_hash'])->all();
         $counts = ['records' => 0, 'archived_records' => 0, 'versions' => 0, 'localized_values' => 0, 'publications' => 0, 'relations' => 0];
         if ($heads === []) {
             return ['cursor' => $cursor, 'records' => 0, 'last' => true, 'counts' => $counts, 'ids' => []];
@@ -192,7 +213,7 @@ final class StorageSitePackExporter
             if ($current === null || !hash_equals((string) $head->current_hash, $current['hash'])) {
                 throw new StorageRejected('storage_sitepack_record_corrupt');
             }
-            $state = $current['values'][self::STATE_FIELD] ?? null;
+            $state = $current['values'][self::STATE_FIELD] ?? ($this->structure->adopted() ? 'active' : null);
             if (!in_array($state, ['active', 'archived'], true)) {
                 throw new StorageRejected('storage_sitepack_record_corrupt');
             }
@@ -204,7 +225,7 @@ final class StorageSitePackExporter
                 if ($version === null) {
                     throw new StorageRejected('storage_sitepack_record_corrupt');
                 }
-                if (($version['values'][self::SCOPE_FIELD] ?? null) !== $this->scopeRef) {
+                if (($version['values'][self::SCOPE_FIELD] ?? ($this->structure->adopted() ? $this->scopeRef : null)) !== $this->scopeRef) {
                     throw new StorageRejected('storage_sitepack_record_corrupt');
                 }
                 $values = $this->converter->convert($schemaId, $version['schema_version'], $this->structure->schema->version, $version['values']);
@@ -284,6 +305,7 @@ final class StorageSitePackExporter
             $line = StorageSitePackFormat::line([
                 'id' => $recordId,
                 'state' => $state,
+                'owner_ref' => (string) $head->owner_ref,
                 'versions' => $lines,
                 'publication' => $publicationLines,
                 'relations' => $recordRelations,

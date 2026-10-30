@@ -24,8 +24,12 @@ namespace Larena\Storage\Contracts;
  * Plan errors (any refuses apply()): locale_not_declared, already_imported (the site has this package; only `copy`
  * imports it again), structure_id_taken, structure_invalid, record_invalid, record_duplicate,
  * reference_required_unresolved, user_required_missing, file_required_missing, files_unavailable,
- * localized_unavailable, publication_unavailable, publication_denied. Warnings: reference_cleared, relation_dropped,
- * user_missing_cleared, user_missing_set_to_importer, file_missing_cleared, role_unknown, role_binding_skipped.
+ * localized_unavailable, publication_unavailable, publication_denied, and for a pack of the site pages (a structure
+ * that adopted its schema, imported into the target's adopted one): storage_sitepack_site_pages_not_empty (the target
+ * has pages other than the untouched starter Home page, which is replaced), storage_sitepack_site_pages_fields_missing,
+ * storage_sitepack_site_pages_not_adopted (both: run larena:storage:adopt-site-pages),
+ * storage_sitepack_site_pages_scope_mismatch. Warnings: reference_cleared, relation_dropped, user_missing_cleared,
+ * user_missing_set_to_importer, file_missing_cleared, role_unknown, role_binding_skipped, list_target_unresolved.
  *
  * Reasons a call is refused with (StorageRejected): storage_sitepack_export_denied, storage_sitepack_run_unknown,
  * storage_sitepack_field_change_running, storage_sitepack_run_not_done, storage_sitepack_run_finished,

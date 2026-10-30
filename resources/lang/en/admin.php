@@ -332,6 +332,10 @@ return [
                 'localized_unavailable' => 'The archive has translations, and translations are not available on this site now.',
                 'publication_unavailable' => 'Publication is not available on this site — import the records as drafts.',
                 'publication_denied' => 'You may not publish records — import them as drafts.',
+                'storage_sitepack_site_pages_not_empty' => 'The site already has pages. Pages are moved only into a site that has none, or only the starter Home page.',
+                'storage_sitepack_site_pages_fields_missing' => 'The site pages here lack the field «:subject». Run php artisan larena:storage:adopt-site-pages and check again.',
+                'storage_sitepack_site_pages_not_adopted' => 'The site pages here are not a storage yet. Run php artisan larena:storage:adopt-site-pages and check again.',
+                'storage_sitepack_site_pages_scope_mismatch' => 'The site pages here are in another workspace (:subject). Import the archive there.',
                 'other' => 'The archive cannot be imported: :count errors.',
             ],
             'warnings' => [
@@ -344,6 +348,7 @@ return [
                 'role_binding_skipped' => 'The role :subject will not be assigned: you may not manage roles.',
                 'encrypted_values_omitted' => 'The encrypted field «:subject» comes without its values: the archive does not carry them, and the field becomes optional.',
                 'encrypted_values_decrypted' => 'The values of the encrypted field «:subject» are open in the archive; the import encrypts them with this site\'s key.',
+                'list_target_unresolved' => 'Lists that name a storage not found on this site will show as unavailable: :count.',
                 'other' => 'Notes: :count.',
             ],
             'reasons' => [
