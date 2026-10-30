@@ -823,6 +823,7 @@ return [
             'site_record_slug_invalid' => 'Адрес — латинские буквы, цифры, «-» и «_», с буквы или цифры.',
             'site_page_records_storage_invalid' => 'Выберите хранилище материалов этого сайта.',
             'site_page_records_storage_taken' => 'Записи этого хранилища уже выдаёт другая страница.',
+            'site_page_canonical_invalid' => 'Канонический адрес — путь на сайте или адрес https.',
             'site_page_address_taken' => 'Адрес уже занят другой страницей в этом разделе',
             'site_page_slug_reserved' => 'Этот адрес занят самой системой (например, admin или api). Выберите другой.',
             'site_page_slug_invalid' => 'Адрес — латинские буквы, цифры, «-» и «_», с буквы или цифры.',
@@ -833,6 +834,7 @@ return [
         'site_pages' => 'Страницы сайта',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
         'site_page_fields' => [
+            'seo_title' => 'Заголовок окна', 'seo_description' => 'Описание для поисковиков', 'canonical' => 'Канонический адрес', 'noindex' => 'Не показывать поисковикам',
             'visible_in_menu' => 'Показывать в меню',
             'records_storage' => 'Выдаёт записи',
             'slug' => 'Адрес', 'title' => 'Название', 'order_index' => 'Порядок', 'target' => 'Цель', 'description' => 'Описание',

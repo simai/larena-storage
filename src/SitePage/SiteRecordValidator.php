@@ -24,6 +24,10 @@ final readonly class SiteRecordValidator implements StructureRoleRecordValidator
 
     public function validate(StructureRoleRecordWrite $write): array
     {
+        $seo = SitePageSeo::whyNot($write->values);
+        if ($seo !== null) {
+            throw new StorageRejected($seo);
+        }
         $slug = $write->values[SitePagePath::SLUG_FIELD] ?? null;
         if (is_string($slug)) {
             $why = $this->records->whyNotSlug($write->schemaId, $write->recordId, $slug);

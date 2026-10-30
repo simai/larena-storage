@@ -374,7 +374,8 @@
     "src/SitePage/SiteRecordAddresses.php",
     "src/SitePage/SiteRecordValidator.php",
     "tests/Unit/SiteRecordRoleTest.php",
-    "src/SitePage/SitePageMenu.php"
+    "src/SitePage/SitePageMenu.php",
+    "src/SitePage/SitePageSeo.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

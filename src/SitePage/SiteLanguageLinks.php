@@ -53,6 +53,49 @@ final readonly class SiteLanguageLinks
         return $links;
     }
 
+    /**
+     * The address a search engine is told to keep: on the main domain of the site and the language, whatever domain the
+     * request came by; $origin (the request's) where no main domain is known. Absolute.
+     */
+    public function canonical(string $site, string $language, string $address, string $scheme, string $origin): string
+    {
+        $ref = ScopeRef::tryParse($site);
+        $domain = $ref === null ? null : $this->domains->get()->mainOf($ref, $language);
+        $own = $domain !== null && $domain->locale === $language;
+        $path = SiteLanguageFolders::under($own ? '' : $this->folders->prefix($site, $language), $address);
+        if ($domain === null || $domain->isWildcard()) {
+            return $origin . $path;
+        }
+
+        return $scheme . '://' . $domain->host . ($domain->folder ?? '') . $path;
+    }
+
+    /**
+     * Where the same record stands in each language, for `hreflang`: the languages that show it, its own or its source text,
+     * and `x-default`, the main language's. Empty on a record shown in fewer than two languages.
+     *
+     * @return array<string, string> language or x-default => absolute address
+     */
+    public function alternates(string $site, string $recordId, string $scheme, string $origin): array
+    {
+        $main = $this->languages->main($site);
+        $own = $this->languages->ownStructure($site);
+        $at = fn (string $language): ?string => $this->addresses->addressOf($site, $language, $recordId) ?? $this->addresses->itemAddressOf($site, $language, $recordId);
+        $source = $own ? null : $at($main);
+        $found = [];
+        foreach ($this->languages->languages($site) as $language) {
+            $address = $at($language) ?? $source;
+            if ($address !== null) {
+                $found[$language] = $this->canonical($site, $language, $address, $scheme, $origin);
+            }
+        }
+        if (count($found) < 2) {
+            return [];
+        }
+
+        return $found + (isset($found[$main]) ? ['x-default' => $found[$main]] : []);
+    }
+
     /** An address of the site's in a language, as a visitor on $binding follows it: a language on another domain is absolute. */
     public function url(string $site, string $language, string $address, ?SiteBinding $binding, string $scheme, string $siteFolder = ''): string
     {

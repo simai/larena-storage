@@ -329,7 +329,7 @@ try {
         SitePagesStorage::OWNER_REF_PREFIX, $admin, SitePagesStorage::OWNER_REF_FIELD);
     $noFields = sitePackImportPlan($bare['sitePack'], SITE_PAGES_PACK_SCOPE, $pagesPack, $admin, $keep);
     $missing = array_map(static fn (array $error): ?string => $error['subject'], $noFields->plan->errors ?? []);
-    $content = [...SitePagesStorage::CONTENT_FIELDS, SitePagesStorage::RECORDS_FIELD, SitePagesStorage::MENU_FIELD];
+    $content = [...SitePagesStorage::CONTENT_FIELDS, SitePagesStorage::RECORDS_FIELD, SitePagesStorage::MENU_FIELD, ...\Larena\Storage\SitePage\SitePageSeo::FIELDS];
     sort($missing);
     sort($content);
     storageViewExpect($noFields->plan?->errorCodes() === ['storage_sitepack_site_pages_fields_missing'] && $missing === $content,

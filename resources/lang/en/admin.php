@@ -823,6 +823,7 @@ return [
             'site_record_slug_invalid' => 'An address is latin letters, digits, «-» and «_», starting with a letter or a digit.',
             'site_page_records_storage_invalid' => 'Choose a storage of materials on this site.',
             'site_page_records_storage_taken' => 'Another page already gives out the records of this storage.',
+            'site_page_canonical_invalid' => 'A canonical address is a path of the site or an https address.',
             'site_page_address_taken' => 'This address is already taken by another page in this section',
             'site_page_slug_reserved' => 'The system itself uses this address (admin or api, for example). Choose another.',
             'site_page_slug_invalid' => 'An address is latin letters, digits, «-» and «_», starting with a letter or a digit.',
@@ -833,6 +834,7 @@ return [
         'site_pages' => 'Site pages',
         // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
         'site_page_fields' => [
+            'seo_title' => 'Window title', 'seo_description' => 'Description for search engines', 'canonical' => 'Canonical address', 'noindex' => 'Keep out of search engines',
             'visible_in_menu' => 'Show in menus',
             'records_storage' => 'Gives out records of',
             'slug' => 'Address', 'title' => 'Title', 'order_index' => 'Order', 'target' => 'Target', 'description' => 'Description',

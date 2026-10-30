@@ -35,6 +35,10 @@ final readonly class SitePageRecordValidator implements StructureRoleRecordValid
 
     public function validate(StructureRoleRecordWrite $write): array
     {
+        $seo = SitePageSeo::whyNot($write->values);
+        if ($seo !== null) {
+            throw new StorageRejected($seo);
+        }
         // «Выдаёт записи»: a storage the site can give out, and no other page's.
         $storage = $write->values[SiteRecordAddresses::SECTION_FIELD] ?? null;
         if (is_string($storage) && $this->records !== null) {

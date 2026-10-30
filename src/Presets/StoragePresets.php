@@ -89,6 +89,7 @@ final readonly class StoragePresets
             $string('title', 20, true, 191, true),
             $string('description', 30, false, 2000, true),
             ...$this->pages->contentFields(30, $locale),
+            ...$this->pages->seoFields(60, $locale),
         ];
     }
 

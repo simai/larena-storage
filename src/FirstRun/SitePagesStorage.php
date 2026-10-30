@@ -11,6 +11,8 @@ use InvalidArgumentException;
 use Larena\Storage\Exceptions\StorageRejected;
 use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Larena\Storage\Runtime\DatabaseStructureRoleRegistry;
+use Larena\Storage\Runtime\StarterStructureRoles;
+use Larena\Storage\SitePage\SitePageSeo;
 
 /**
  * The site pages as an ordinary storage (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, step 1.4;
@@ -75,6 +77,7 @@ final readonly class SitePagesStorage
         'slug' => 'Address', 'title' => 'Title', 'order_index' => 'Order', 'target' => 'Target', 'description' => 'Description',
         'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',
         'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks', 'records_storage' => 'Gives out records of', 'visible_in_menu' => 'Show in menus',
+        'seo_title' => 'Window title', 'seo_description' => 'Description for search engines', 'canonical' => 'Canonical address', 'noindex' => 'Keep out of search engines',
     ];
 
     /** @param Closure(string): string $scopeForActor The scope the person works in, the one the storage section lists. */
@@ -144,7 +147,10 @@ final readonly class SitePagesStorage
                 }
                 // What a storage of pages made before them lacks: their optional fields, a safe addition.
                 $added = [];
-                foreach ([...$this->contentFields($last), $this->recordsField($last + 40), $this->menuField($last + 50)] as $field) {
+                // A storage of records with addresses gets only what it shares with pages: the fields for search engines.
+                $wanted = $storage['records'] ? $this->seoFields($last)
+                    : [...$this->contentFields($last), $this->recordsField($last + 40), $this->menuField($last + 50), ...$this->seoFields($last + 50)];
+                foreach ($wanted as $field) {
                     if (!in_array($field['key'], $present, true)) {
                         $added[] = $field;
                         $changed = true;
@@ -178,18 +184,21 @@ final readonly class SitePagesStorage
     /**
      * The workbench storages bound to the pages role, on any site.
      *
-     * @return list<array{scope_ref: string, structure_id: string, schema_id: string}>
+     * @return list<array{scope_ref: string, structure_id: string, schema_id: string, records: bool}>
      */
     private function pageStorages(): array
     {
         $storages = [];
         $schemas = $this->connection->table(DatabaseStructureRoleRegistry::BINDINGS_TABLE)
             ->where('role_ref', StarterSite::ROLE_REF)->where('status', 'active')->pluck('schema_id')->all();
+        $records = $this->connection->table(DatabaseStructureRoleRegistry::BINDINGS_TABLE)
+            ->where('role_ref', StarterStructureRoles::SITE_RECORD_REF)->where('status', 'active')->pluck('schema_id')->all();
         foreach ($this->connection->table('larena_storage_workbench_structures')
-            ->whereIn('storage_schema_id', array_values(array_unique($schemas)))->whereNull('archived_at')->whereNull('import_run_ref')
+            ->whereIn('storage_schema_id', array_values(array_unique([...$schemas, ...$records])))->whereNull('archived_at')->whereNull('import_run_ref')
             ->orderBy('created_at')->orderBy('structure_id')
             ->get(['scope_ref', 'structure_id', 'storage_schema_id']) as $row) {
-            $storages[] = ['scope_ref' => (string) $row->scope_ref, 'structure_id' => (string) $row->structure_id, 'schema_id' => (string) $row->storage_schema_id];
+            $storages[] = ['scope_ref' => (string) $row->scope_ref, 'structure_id' => (string) $row->structure_id, 'schema_id' => (string) $row->storage_schema_id,
+                'records' => !in_array($row->storage_schema_id, $schemas, true)];
         }
 
         return $storages;
@@ -245,6 +254,25 @@ final readonly class SitePagesStorage
         return $fields;
     }
 
+    /**
+     * The fields for search engines (SitePageSeo), each per language: the same on a page and on a record with an address.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function seoFields(int $afterPosition, ?string $locale = null): array
+    {
+        $string = fn (string $key, int $index, int $max): array => ['key' => $key, 'label' => $this->word($key, $locale), 'position' => $afterPosition + $index * 10, 'type' => 'string', 'type_version' => 2,
+            'required' => false, 'visibility' => 'public', 'localized' => true, 'constraints' => ['max_length' => $max]];
+
+        return [
+            $string(SitePageSeo::TITLE, 1, 191),
+            $string(SitePageSeo::DESCRIPTION, 2, 500),
+            $string(SitePageSeo::CANONICAL, 3, 512),
+            ['key' => SitePageSeo::NOINDEX, 'label' => $this->word(SitePageSeo::NOINDEX, $locale), 'position' => $afterPosition + 40, 'type' => 'boolean', 'type_version' => 1,
+                'required' => false, 'visibility' => 'public', 'localized' => true, 'constraints' => []],
+        ];
+    }
+
     /** @return array<string, mixed> */
     private function menuField(int $position, ?string $locale = null): array
     {
@@ -287,6 +315,7 @@ final readonly class SitePagesStorage
             ...$this->contentFields(50, $locale),
             $this->recordsField(90, $locale),
             $this->menuField(100, $locale),
+            ...$this->seoFields(100, $locale),
         ]];
     }
 
