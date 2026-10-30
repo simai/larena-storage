@@ -785,9 +785,14 @@ return [
         ],
     ],
     // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
-    // the name of the site pages' storage (Larena\Storage\FirstRun\SitePagesStorage).
+    // the name of the site pages' storage and its content fields (Larena\Storage\FirstRun\SitePagesStorage).
     'first_run' => [
         'site_pages' => 'Site pages',
+        // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
+        'site_page_fields' => [
+            'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',
+            'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks',
+        ],
         'demo_data' => 'Install demo data: a catalog of solutions with every field type, and its sections. They are deleted like any storage.',
     ],
 ];

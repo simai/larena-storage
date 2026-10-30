@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\View;
 
+use Larena\Property\Runtime\PropertyTypeRegistry;
 use Larena\Storage\Encryption\StorageFieldEnvelope;
 use Larena\Storage\Exceptions\StorageRejected;
 
@@ -178,6 +179,9 @@ final readonly class StorageViewProjector
             default => match (true) {
                 $column->isVarchar() => $this->bounded($column, $value),
                 is_string($value) => $value,
+                // A content value as Property writes it: each block's params an object, `{}` when empty.
+                $column->kind === 'content' && is_array($value) => PropertyTypeRegistry::contentJson($value)
+                    ?? throw new StorageRejected('storage_view_value_invalid'),
                 default => json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             },
         };

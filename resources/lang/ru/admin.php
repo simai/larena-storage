@@ -785,9 +785,14 @@ return [
         ],
     ],
     // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
-    // the name of the site pages' storage (Larena\Storage\FirstRun\SitePagesStorage).
+    // the name of the site pages' storage and its content fields (Larena\Storage\FirstRun\SitePagesStorage).
     'first_run' => [
         'site_pages' => 'Страницы сайта',
+        // The page content fields the site pages get (SitePagesStorage::CONTENT_FIELDS) and content_mode's options.
+        'site_page_fields' => [
+            'content_mode' => 'Форма содержимого', 'body' => 'Текст', 'blocks' => 'Блоки',
+            'content_mode_text' => 'Текст', 'content_mode_blocks' => 'Блоки',
+        ],
         'demo_data' => 'Установить демо-данные: каталог решений со всеми типами полей и его разделы. Их можно удалить, как любое хранилище.',
     ],
 ];

@@ -324,7 +324,9 @@ final readonly class StorageViewLayoutPlanner
             'lookup' => StorageViewColumn::varchar(self::LOOKUP_LENGTH),
             'color' => StorageViewColumn::varchar(self::COLOR_LENGTH),
             'phone' => StorageViewColumn::varchar(self::PHONE_LENGTH),
-            // A URL (up to 2048 bytes) and a link ({href, text?}, as JSON) are long text.
+            // A URL (up to 2048 bytes) and a link ({href, text?}, as JSON) are long text, and so are a page's content
+            // fields: formatted text (html, as written) and blocks (content, as JSON). Neither is indexed or filtered.
+            'url', 'link', 'html', 'content' => StorageViewColumn::SQL_TEXT,
             default => StorageViewColumn::SQL_TEXT,
         };
     }

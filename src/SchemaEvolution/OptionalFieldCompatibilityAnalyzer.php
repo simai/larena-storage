@@ -74,6 +74,9 @@ final readonly class OptionalFieldCompatibilityAnalyzer
                 'lookup' => [['source']],
                 // How a phone typed without «+» is read; it never applies to an absent value.
                 'phone' => [['default_country']],
+                // How long formatted text may be; an absent value has no length. A content field (its blocks) has no
+                // settings, so it is added with none, like any other optional field.
+                'html' => [['max_length']],
                 default => [],
             };
             if ($constraints !== [] && !in_array($constraintKeys, $allowedKeys, true)) {
