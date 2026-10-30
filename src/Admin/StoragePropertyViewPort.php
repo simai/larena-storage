@@ -121,6 +121,9 @@ final class StoragePropertyViewPort extends PropertyViewPort
     /** @param array<string,mixed> $values @return array<string,mixed> */
     protected function writeObject(string $actor, string $scope, string $collection, string $recordId, int|string $revision, array $values): array
     {
+        // The publication line is the panel's own column, read with the record: it is not a value of the record.
+        unset($values[StorageSectionPublication::COLUMN]);
+
         return $this->gateway->dispatch($actor, $scope, 'record.update', ['structure_id' => $collection, 'record_id' => $recordId,
             'expected_revision' => $revision, 'values' => $values]);
     }

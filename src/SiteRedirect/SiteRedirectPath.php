@@ -20,6 +20,15 @@ final class SiteRedirectPath
 
     public const MATCH_PREFIX = 'prefix';
 
+    /**
+     * «Основной язык тоже в папке» as one rule (step 4.9): from `/` to the language's folder, it answers every address of
+     * the site with no rule of its own, but what is not the site's pages: the other languages' folders, the reserved
+     * addresses (the map's caller says which) and the folder itself.
+     */
+    public const MATCH_SITE_ROOT = 'site_root';
+
+    public const MATCHES = [self::MATCH_EXACT, self::MATCH_PREFIX, self::MATCH_SITE_ROOT];
+
     public const MAX_LENGTH = 512;
 
     /** The rule's `from_address`, normalized; refused with `site_redirect_from_invalid`. */

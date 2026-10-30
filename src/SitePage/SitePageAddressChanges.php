@@ -6,6 +6,7 @@ namespace Larena\Storage\SitePage;
 
 use Closure;
 use Illuminate\Contracts\Translation\Translator;
+use Larena\Core\Contracts\SiteLanguages;
 use Larena\Core\Site\SiteLanguageFolders;
 use Larena\Storage\Contracts\LocalizedValueGuard;
 use Larena\Storage\Contracts\LocalizedValueObserver;
@@ -31,7 +32,8 @@ use Throwable;
  * - the checks of SitePageRules before the change (a translated slug that would move an address unpublished is refused);
  * - the addresses' cache forgotten, once the transaction around the change commits;
  * - where the page was published at the old address and is reachable at the new one, one prefix redirect 301 old → new
- *   through SiteRedirects::ensure: it answers the old address and every address below it. The address taken up frees it
+ *   through SiteRedirects::ensure: it answers the old address and every address below it. A page of the main language is
+ *   also seen in the other languages' folders while it has no address of its own there, so those get their rule too. The address taken up frees it
  *   from an automatic rule pointing away from it (a rename back). ensure() writes as the person, who must have the site
  *   as their current one and may write its rules; when they may not (or a schedule publishes, with no person), the
  *   change stands and the missing rule is logged: a page must not stay unpublished for a rule's sake;
@@ -64,6 +66,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         private readonly ?LoggerInterface $log = null,
         private readonly ?Translator $translator = null,
         private readonly ?SiteLanguageFolders $folders = null,
+        private readonly ?SiteLanguages $languages = null,
     ) {
     }
 
@@ -92,7 +95,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         $after = $state->isPublished() ? $this->addresses->addressOf($state->schemaId, $state->scopeRef, $state->locale, $state->recordId) : null;
         if ($published && $after !== null && $after !== $before) {
             [$actor, $correlationId] = $this->lastWriter($state);
-            $this->follow($state->scopeRef, $state->locale, $before, $after, $actor, $correlationId);
+            $this->followEverywhere($state->schemaId, $state->recordId, $state->scopeRef, $state->locale, $before, $after, $actor, $correlationId);
         }
         // What stands below moved with it, or went with it, whichever transition this was.
         $this->notify($state->schemaId, $state->scopeRef, $state->locale, $this->tree->descendants($state->schemaId, $state->recordId, self::NOTIFY_LIMIT));
@@ -130,7 +133,7 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         foreach ($before as $place) {
             $after = $this->addresses->addressOf($schemaId, $place['site'], $place['locale'], $recordId);
             if ($place['address'] !== null && $after !== null && $after !== $place['address']) {
-                $this->follow($place['site'], $place['locale'], $place['address'], $after, $actor, $correlationId);
+                $this->followEverywhere($schemaId, $recordId, $place['site'], $place['locale'], $place['address'], $after, $actor, $correlationId);
             }
             $this->notify($schemaId, $place['site'], $place['locale'], $moved);
         }
@@ -178,6 +181,20 @@ final class SitePageAddressChanges implements PublicationGuard, PublicationObser
         $database = $this->tree->connection();
         if ($database->transactionLevel() > 0) {
             $database->afterCommit($forget);
+        }
+    }
+
+    /** The rule in the language it changed in and, for the main language, in those that show the page in its source text. */
+    private function followEverywhere(string $schemaId, string $recordId, string $site, string $locale, ?string $from, string $to, string $actor, ?string $correlationId): void
+    {
+        $this->follow($site, $locale, $from, $to, $actor, $correlationId);
+        if ($this->languages === null || $locale !== $this->languages->main($site) || $this->languages->ownStructure($site)) {
+            return;
+        }
+        foreach ($this->languages->languages($site) as $language) {
+            if ($language !== $locale && $this->addresses->addressOf($schemaId, $site, $language, $recordId) === null) {
+                $this->follow($site, $language, $from, $to, $actor, $correlationId);
+            }
         }
     }
 

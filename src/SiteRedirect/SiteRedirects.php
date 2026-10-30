@@ -51,7 +51,7 @@ final readonly class SiteRedirects
         if (!in_array($code, [301, 302], true)) {
             throw new StorageRejected('site_redirect_code_invalid');
         }
-        if (!in_array($match, [SiteRedirectPath::MATCH_EXACT, SiteRedirectPath::MATCH_PREFIX], true)) {
+        if (!in_array($match, SiteRedirectPath::MATCHES, true)) {
             throw new StorageRejected('site_redirect_match_invalid');
         }
         $from = SiteRedirectPath::from($from);

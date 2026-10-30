@@ -3466,11 +3466,15 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             // under the new schema version, and a translation of an older revision
             // keeps the rule of its own version. Settings that do not touch stored data
             // (an input mask, a placeholder, a step, a unit: Property's descriptors say
-            // which) may change too. Everything else must stay.
+            // which) may change too, and so may a required field become optional. Everything else must stay.
             $stored = $field;
             // Encryption may switch too, on a field without values (assertEncryptionChange checks it).
             unset($stored['localized'], $stored['encrypted']);
             $semantic = $this->semanticField($candidate);
+            // A required field may stop being required: every stored value still fits.
+            if ($semantic['required'] === false) {
+                $stored['required'] = false;
+            }
             if ($this->canonicalJson(['constraints' => null] + $semantic) !== $this->canonicalJson(['constraints' => null] + $stored)
                 || ($this->canonicalJson($semantic['constraints']) !== $this->canonicalJson($stored['constraints'] ?? null)
                     && !self::settingsChangeKeepsData($stored, $semantic))) {
@@ -3609,8 +3613,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             return false;
         }
         $declared = PropertyTypeSettingsCatalog::builtIns()->for($type, $version);
+        $target = $to['constraints'];
+        // An added option leaves every stored value one of the options.
+        if (is_array($from['constraints']['options'] ?? null) && is_array($target['options'] ?? null)
+            && array_diff(array_column($from['constraints']['options'], 'value'), array_column($target['options'], 'value')) === []) {
+            $target['options'] = $from['constraints']['options'];
+        }
 
-        return $declared !== null && $declared->dataChangingKeys($from['constraints'], $to['constraints']) === [];
+        return $declared !== null && $declared->dataChangingKeys($from['constraints'], $target) === [];
     }
 
     /**

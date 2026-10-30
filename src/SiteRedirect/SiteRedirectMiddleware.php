@@ -7,7 +7,9 @@ namespace Larena\Storage\SiteRedirect;
 use Closure;
 use Illuminate\Http\Request;
 use Larena\Core\Site\CurrentSite;
+use Larena\Core\Site\SiteLanguageFolders;
 use Larena\Core\Site\SiteMap;
+use Larena\Core\Site\SiteMapStore;
 use Larena\Storage\Contracts\RequestSiteScope;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -24,7 +26,10 @@ use Symfony\Component\HttpFoundation\Response;
  * SiteRedirectCache: a request answered from the cache reads no database.
  *
  * A rule names an address inside its site, a language's folder included: on a `/shop` domain the rule `/old` answers
- * `/shop/old`, and its target is `/shop/new`. An absolute target goes where it says.
+ * `/shop/old`, and its target is `/shop/new`. An absolute target goes where it says. A rule of a language keeps the
+ * language's folder wherever that language is served: on its own domain the rule `/en/old` answers `/old`, its target
+ * `/en/new` is `/new`, and a target outside the language goes to the site's main domain. So the rules of two languages on
+ * two domains never answer each other's addresses (step 4.7).
  */
 final readonly class SiteRedirectMiddleware
 {
@@ -34,12 +39,16 @@ final readonly class SiteRedirectMiddleware
     /**
      * @param Closure(): string $defaultSite the default site's scope ref
      * @param list<string> $skipped
+     * @param (Closure(string, string): bool)|null $kept whether a site keeps a first segment out of its site-root rule
      */
     public function __construct(
         private SiteRedirectCache $maps,
         private Closure $defaultSite,
         private ?RequestSiteScope $sites = null,
         private array $skipped = self::SKIPPED,
+        private ?Closure $kept = null,
+        private ?SiteLanguageFolders $folders = null,
+        private ?SiteMapStore $domains = null,
     ) {
     }
 
@@ -71,13 +80,19 @@ final readonly class SiteRedirectMiddleware
         }
         $site = $this->sites?->siteScopeRef($request);
         $current = $request->attributes->get(CurrentSite::ATTRIBUTE);
+        $site ??= ($this->defaultSite)();
         $folder = $current instanceof CurrentSite && $current->folder !== '' && SiteMap::inFolder($current->folder, $path) ? $current->folder : '';
-        $hit = $this->maps->map($site ?? ($this->defaultSite)())->resolve($folder === '' ? $path : $current->pathInSite($path));
+        $inSite = $folder === '' ? $path : $current->pathInSite($path);
+        // On a language's own domain the rules of that language keep its folder.
+        $language = $current instanceof CurrentSite && is_string($current->locale) && $current->locale !== '' && $this->folders !== null
+            ? $this->folders->prefix($site, $current->locale) : '';
+        $kept = $this->kept === null ? null : fn (string $segment): bool => ($this->kept)($site, $segment);
+        $hit = $this->maps->map($site)->resolve(SiteLanguageFolders::under($language, $inSite), $kept);
         if ($hit === null) {
             return null;
         }
         $target = $hit['target'];
-        $location = SiteRedirectPath::isAbsolute($target) ? $target : $request->getBaseUrl() . $folder . SiteRedirectPath::location($target);
+        $location = SiteRedirectPath::isAbsolute($target) ? $target : $this->location($request, $current, $site, $folder, $language, $target);
         $query = $request->getQueryString();
         if ($query !== null && $query !== '') {
             [$base, $suffix] = SiteRedirectPath::split($location);
@@ -91,5 +106,22 @@ final readonly class SiteRedirectMiddleware
         }
 
         return new RedirectResponse($location, $hit['code']);
+    }
+
+    private function location(Request $request, mixed $current, string $site, string $folder, string $language, string $target): string
+    {
+        if ($language === '') {
+            return $request->getBaseUrl() . $folder . SiteRedirectPath::location($target);
+        }
+        [$path] = SiteRedirectPath::split($target);
+        if ($path === $language || str_starts_with($path, $language . '/')) {
+            $rest = substr($target, strlen($language));
+
+            return $request->getBaseUrl() . $folder . SiteRedirectPath::location($rest === '' || $rest[0] !== '/' ? '/' . $rest : $rest);
+        }
+        $main = $current instanceof CurrentSite ? $this->domains?->get()->mainOf($current->site, null) : null;
+
+        return $main === null || $main->isWildcard() ? $request->getBaseUrl() . $folder . SiteRedirectPath::location($target)
+            : $request->getScheme() . '://' . $main->host . ($main->folder ?? '') . SiteRedirectPath::location($target);
     }
 }

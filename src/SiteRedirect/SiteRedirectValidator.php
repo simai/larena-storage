@@ -55,15 +55,27 @@ final readonly class SiteRedirectValidator implements StructureRoleRecordValidat
         $to = $values['to_address'] ?? null;
         $match = $values['match'] ?? null;
         // A value of the wrong kind is the field types' to refuse, with their own reason.
-        if (!is_string($from) || !is_string($to) || !in_array($match, [SiteRedirectPath::MATCH_EXACT, SiteRedirectPath::MATCH_PREFIX], true)) {
+        if (!is_string($from) || !is_string($to) || !in_array($match, SiteRedirectPath::MATCHES, true)) {
             return $values;
         }
         $from = SiteRedirectPath::from($from);
         $to = SiteRedirectPath::to($to, $match);
+        if ($match === SiteRedirectPath::MATCH_SITE_ROOT && ($from !== '/' || preg_match('~\A/[^/?#]+\z~', $to) !== 1)) {
+            throw new StorageRejected('site_redirect_to_invalid');
+        }
         if (!SiteRedirectPath::isAbsolute($to) && SiteRedirectPath::split($to)[0] === $from) {
             throw new StorageRejected('site_redirect_same_path');
         }
         $others = $this->others($write->roleScopeRef, $write->schemaId, $write->recordId);
+        if ($match === SiteRedirectPath::MATCH_SITE_ROOT) {
+            foreach ($this->rules->current($write->roleScopeRef) as $other) {
+                if ($other->match === $match && ($other->schemaId !== $write->schemaId || $other->recordId !== $write->recordId)) {
+                    throw new StorageRejected('site_redirect_duplicate');
+                }
+            }
+
+            return ['from_address' => $from, 'to_address' => $to] + $values;
+        }
         foreach ($others as $other) {
             if ($other->from === $from && $other->match === $match) {
                 throw new StorageRejected('site_redirect_duplicate');
@@ -92,10 +104,10 @@ final readonly class SiteRedirectValidator implements StructureRoleRecordValidat
         $siteRef = $write->roleScopeRef;
         SiteRedirectInvalidation::forgetAfterCommit($this->database, $this->cache, $siteRef);
         $rule = SiteRedirectRule::fromValues($write->schemaId, $record->recordId, $record->values);
-        if ($rule === null) {
+        if ($rule === null || $rule->match === SiteRedirectPath::MATCH_SITE_ROOT) {
             return;
         }
-        $current = $this->rules->current($siteRef);
+        $current = self::chained($this->rules->current($siteRef));
         $map = SiteRedirectMap::of($current);
         $storages = [];
         foreach ($this->rules->storages($siteRef) as $storage) {
@@ -134,8 +146,20 @@ final readonly class SiteRedirectValidator implements StructureRoleRecordValidat
     /** @return list<SiteRedirectRule> the site's current rules but the one written */
     private function others(string $siteRef, ?string $schemaId, ?string $recordId): array
     {
-        return array_values(array_filter($this->rules->current($siteRef),
+        return array_values(array_filter(self::chained($this->rules->current($siteRef)),
             static fn (SiteRedirectRule $rule): bool => $recordId === null || $rule->schemaId !== $schemaId || $rule->recordId !== $recordId));
+    }
+
+    /**
+     * The rules a target can be followed through. The site-root rule is not one of them: what it answers depends on the
+     * site's languages and routes, and SiteLanguageScheme moves the rules' targets itself when it comes or goes.
+     *
+     * @param list<SiteRedirectRule> $rules
+     * @return list<SiteRedirectRule>
+     */
+    private static function chained(array $rules): array
+    {
+        return array_values(array_filter($rules, static fn (SiteRedirectRule $rule): bool => $rule->match !== SiteRedirectPath::MATCH_SITE_ROOT));
     }
 
     /** Whether a rule answers a target's path (an absolute URL leaves the site: no rule answers it). */

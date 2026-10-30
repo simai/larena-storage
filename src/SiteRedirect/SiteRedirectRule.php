@@ -35,7 +35,7 @@ final readonly class SiteRedirectRule
         $code = $values['status_code'] ?? null;
         $match = $values['match'] ?? null;
         if (!is_string($from) || !is_string($to) || !in_array($code, ['301', '302'], true)
-            || !in_array($match, [SiteRedirectPath::MATCH_EXACT, SiteRedirectPath::MATCH_PREFIX], true)) {
+            || !in_array($match, SiteRedirectPath::MATCHES, true)) {
             return null;
         }
         $origin = ($values['origin'] ?? null) === self::ORIGIN_AUTO ? self::ORIGIN_AUTO : self::ORIGIN_MANUAL;

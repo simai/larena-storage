@@ -367,7 +367,9 @@
     "src/Contracts/LocalizedValueGuard.php",
     "src/Contracts/StorageWorkbenchLanguages.php",
     "tests/Integration/SitePageLanguagesTest.php",
-    "src/Runtime/RecordOperationHandlers.php"
+    "src/Runtime/RecordOperationHandlers.php",
+    "src/SitePage/SiteLanguageLinks.php",
+    "src/SitePage/SiteLanguageScheme.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

@@ -18,6 +18,8 @@ final class SitePagePath
 
     public const SLUG_FIELD = 'slug';
 
+    public const ORDER_FIELD = 'order_index';
+
     public const HOME_SLUG = 'home';
 
     public const HOME_ADDRESS = '/';

@@ -307,12 +307,12 @@ try {
         && $receipt['content_fields'] === SitePagesStorage::CONTENT_FIELDS, 'the dry run does not plan the adoption and the content fields');
     storageViewExpect(sitePagesCounts($connection) === $before && $before['structures'] === 0, 'the dry run wrote');
 
-    // The adoption: in place, two schema versions more (the adoption, the content fields), no record version; then idempotent.
+    // The adoption: in place, three schema versions more (the adoption, the content fields, what a form no longer asks), no record version; then idempotent.
     [$status, $receipt] = sitePagesCommand($pages, ['--actor' => SITE_PAGES_ACTOR, '--locale' => 'ru']);
     storageViewExpect($status === 0 && $receipt['status'] === 'ready' && $receipt['state'] === DatabaseStorageWorkbench::ADOPTED, 'the command did not adopt the pages');
     $after = sitePagesCounts($connection);
-    storageViewExpect($after === ['structures' => 1, 'schema_versions' => $before['schema_versions'] + 2, 'record_versions' => $before['record_versions']]
-        && $receipt['content_fields'] === SitePagesStorage::CONTENT_FIELDS, 'the adoption wrote more than the structure and two schema versions');
+    storageViewExpect($after === ['structures' => 1, 'schema_versions' => $before['schema_versions'] + 3, 'record_versions' => $before['record_versions']]
+        && $receipt['content_fields'] === SitePagesStorage::CONTENT_FIELDS, 'the adoption wrote more than the structure and three schema versions');
     storageViewExpect(array_keys(sitePagesContentFields($workbench)) === SitePagesStorage::CONTENT_FIELDS, 'the adopted pages lack the content fields');
     $read = $workbench->readRecord(SITE_PAGES_SCOPE, SitePagesStorage::STRUCTURE_ID, $home, SITE_PAGES_ACTOR);
     storageViewExpect($read->values['title'] === 'Home' && $read->state === 'active', 'the adopted Home page does not read with its id');
@@ -340,7 +340,7 @@ try {
         && $receipt['writes']['schema_versions'] === 1 && sitePagesCounts($connection) === $before, 'the dry run does not plan the content fields');
     [$status, $receipt] = sitePagesCommand($earlier['pages'], ['--actor' => SITE_PAGES_ACTOR]);
     storageViewExpect($status === 0 && $receipt['state'] === DatabaseStorageWorkbench::ALREADY_ADOPTED && $receipt['content_fields'] === SitePagesStorage::CONTENT_FIELDS
-        && sitePagesCounts($connection) === ['structures' => 1, 'schema_versions' => $before['schema_versions'] + 1, 'record_versions' => $before['record_versions']],
+        && sitePagesCounts($connection) === ['structures' => 1, 'schema_versions' => $before['schema_versions'] + 2, 'record_versions' => $before['record_versions']],
         'the command did not add the content fields to adopted pages');
     $fields = sitePagesContentFields($workbench);
     storageViewExpect(array_keys($fields) === SitePagesStorage::CONTENT_FIELDS && $fields['content_mode']['options'] === ['text:Text', 'blocks:Blocks']

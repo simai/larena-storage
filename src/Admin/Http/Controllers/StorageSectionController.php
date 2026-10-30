@@ -972,7 +972,10 @@ final readonly class StorageSectionController
     /** @param array<string, mixed> $record @param array<string, mixed> $selected */
     private function recordTitle(array $record, array $selected): string
     {
-        foreach ($this->fields($selected) as $field) {
+        // A field named `title` names the record, wherever it stands; otherwise the first filled one does.
+        $fields = $this->fields($selected);
+        usort($fields, static fn (array $a, array $b): int => (($b['key'] ?? null) === 'title') <=> (($a['key'] ?? null) === 'title'));
+        foreach ($fields as $field) {
             // A record whose title field is encrypted is named by its ID: the value is never shown.
             if (StorageEncryptedFields::isEncrypted($field)) {
                 break;

@@ -4,20 +4,33 @@ declare(strict_types=1);
 
 namespace Larena\Storage\SitePage;
 
+use Larena\Core\Contracts\SiteLanguages;
 use Larena\Storage\Runtime\DatabaseReadContracts;
 
 /**
  * Reads pages' addresses from the database: a whole site's (build(), what SitePageAddressCache keeps) and one page's
  * (addressOf(), for a change being made, never a stale copy). A page is at an address in a language only when it and
- * every page above it are published there: below an unpublished page there is nothing to reach. Two pages at one
- * address are a data defect the checks prevent; neither is served, since either would depend on row order.
+ * every page above it are published there: below an unpublished page there is nothing to reach. In the common structure
+ * a page above that is out only in the main language counts, under its main-language slug: it is seen on every language.
+ * Two pages at one address are a data defect the checks prevent; neither is served, since either would depend on row order.
  */
 final readonly class SitePageAddresses
 {
     private const CHUNK = 1000;
 
-    public function __construct(private SitePageTree $tree, private DatabaseReadContracts $read)
+    public function __construct(private SitePageTree $tree, private DatabaseReadContracts $read, private ?SiteLanguages $languages = null)
     {
+    }
+
+    /** The language a page above stands in when it is not out in $locale; null in the own structure and for the main language. */
+    private function sourceLanguage(string $site, string $locale): ?string
+    {
+        if ($this->languages === null || $this->languages->ownStructure($site)) {
+            return null;
+        }
+        $main = $this->languages->main($site);
+
+        return $main === $locale ? null : $main;
     }
 
     /**
@@ -39,11 +52,24 @@ final readonly class SitePageAddresses
             $after = $heads === [] ? null : $heads[array_key_last($heads)]['record_id'];
         } while (count($heads) === self::CHUNK);
 
+        $own = $slugs;
+        $source = $this->sourceLanguage($site, $locale);
+        $after = null;
+        do {
+            $heads = $source === null ? [] : $this->read->publishedHeadPage($schemaId, $site, $source, self::CHUNK, $after);
+            foreach ($heads === [] ? [] : $this->read->keyValuesAt($schemaId, $heads, $source, SitePagePath::SLUG_FIELD) as $recordId => $slug) {
+                if (SitePagePath::isSlug($slug)) {
+                    $slugs[(string) $recordId] ??= $slug;
+                }
+            }
+            $after = $heads === [] ? null : $heads[array_key_last($heads)]['record_id'];
+        } while (count($heads) === self::CHUNK);
+
         $parents = $this->tree->parents($schemaId);
         /** @var array<string, string|false> $known by record; false: not reachable */
         $known = [];
         $held = [];
-        foreach ($slugs as $recordId => $slug) {
+        foreach ($own as $recordId => $slug) {
             $address = self::address((string) $recordId, $slugs, $parents, $known);
             if ($address !== false) {
                 $held[$address][] = (string) $recordId;
@@ -64,11 +90,20 @@ final readonly class SitePageAddresses
     {
         $chain = [...$this->tree->ancestors($schemaId, $recordId), $recordId];
         $revisions = $this->read->publishedRevisions($schemaId, $site, $locale, $chain);
-        if (count($revisions) !== count($chain)) {
+        if (!isset($revisions[$recordId])) {
             return null;
         }
-        $heads = array_map(static fn (string $id): array => ['record_id' => $id, 'revision' => $revisions[$id]], $chain);
-        $slugs = $this->read->keyValuesAt($schemaId, $heads, $locale, SitePagePath::SLUG_FIELD);
+        $heads = static fn (array $found): array => array_map(static fn (string|int $id, int $revision): array => ['record_id' => (string) $id, 'revision' => $revision], array_keys($found), array_values($found));
+        $slugs = $this->read->keyValuesAt($schemaId, $heads($revisions), $locale, SitePagePath::SLUG_FIELD);
+        $above = array_values(array_diff($chain, array_map('strval', array_keys($revisions))));
+        if ($above !== []) {
+            $source = $this->sourceLanguage($site, $locale);
+            $inSource = $source === null ? [] : $this->read->publishedRevisions($schemaId, $site, $source, $above);
+            if (count($inSource) !== count($above)) {
+                return null;
+            }
+            $slugs += $this->read->keyValuesAt($schemaId, $heads($inSource), (string) $source, SitePagePath::SLUG_FIELD);
+        }
 
         return SitePagePath::of(array_map(static fn (string $id): mixed => $slugs[$id] ?? null, $chain));
     }

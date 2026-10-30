@@ -374,6 +374,8 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
                 $exception->reasonCode === self::VIEW_NOT_READY => self::VIEW_NOT_READY,
                 in_array($exception->reasonCode, self::FIELD_OPTION_REASONS, true) => $exception->reasonCode,
                 in_array($exception->reasonCode, self::ENCRYPTION_REASONS, true) => $exception->reasonCode,
+                // A site page's address refused (SitePageRules): the panel says why in its own words.
+                str_starts_with($exception->reasonCode, 'site_page_') => $exception->reasonCode,
                 default => 'storage_workbench_action_rejected',
             }, $requestedScope);
         } catch (InvalidArgumentException|JsonException $exception) {
@@ -1394,6 +1396,8 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
                 ? $value.':00' : $this->safeScalar($value),
             // A link is {href, text?}; a bare address is its href. Property checks the rest.
             'link' => is_array($value) ? $this->linkValue($value) : $this->safeScalar($value),
+            // Rich text carries markup by design: Property checks it, the site makes it safe when it shows it.
+            'html' => is_string($value) ? $value : throw new InvalidArgumentException('storage_workbench_value_invalid'),
             default => $this->safeScalar($value),
         };
         if ($field['type'] === 'file') {

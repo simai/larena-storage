@@ -157,6 +157,18 @@ final readonly class SitePageRules
         return $this->tree->slugTaken($schemaId, $this->tree->section($schemaId, $parent, $recordId), $slug, $locale, $recordId) ? self::ADDRESS_TAKEN : null;
     }
 
+    /** Whether a first segment of an address is the application's or a language's folder, not a page of the site. */
+    public function keepsSegment(string $site, string $segment): bool
+    {
+        // A page's slug has no dot: `sitemap-pages-1.xml` and `favicon.ico` are files.
+        if (str_contains($segment, '.')) {
+            return true;
+        }
+        $reserved = ($this->reserved)();
+
+        return in_array(strtolower($segment), $this->languages === null ? $reserved : SitePageReservedSlugs::withLanguages($reserved, $this->languages->languages($site)), true);
+    }
+
     private function isReserved(string $schemaId, ?string $parent, string $slug): bool
     {
         if ($slug === SitePagePath::HOME_SLUG || !$this->tree->isTopLevel($schemaId, $parent)) {

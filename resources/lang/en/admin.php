@@ -806,6 +806,7 @@ return [
     // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
     // the name of the site pages' storage and its content fields (Larena\Storage\FirstRun\SitePagesStorage).
     'site_pages' => [
+        'language_folder_note' => 'The main language\'s folder changed.',
         'redirect_note' => 'The page\'s address changed.',
         'refusals' => [
             'site_page_address_taken' => 'This address is already taken by another page in this section',
@@ -827,7 +828,7 @@ return [
         'site_redirect_fields' => [
             'from_address' => 'From', 'to_address' => 'To', 'status_code' => 'Code', 'match' => 'Match', 'origin' => 'Origin', 'note' => 'Note',
             'status_code_301' => '301 — moved permanently', 'status_code_302' => '302 — moved temporarily',
-            'match_exact' => 'This address', 'match_prefix' => 'Addresses starting with it',
+            'match_exact' => 'This address', 'match_prefix' => 'Addresses starting with it', 'match_site_root' => 'Every address of the site',
             'origin_manual' => 'Manual', 'origin_auto' => 'Automatic',
         ],
         'demo_data' => 'Install demo data: a catalog of solutions with every field type, and its sections. They are deleted like any storage.',

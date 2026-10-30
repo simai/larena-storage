@@ -579,7 +579,7 @@ try {
     workbenchExpect($afterMigration->revision === 2 && $afterMigration->schemaVersion === 1, 'adding an optional field rewrote the record');
     workbenchExpect(workbenchCanonicalJson($afterMigration->values) === workbenchCanonicalJson($updated->values), 'the record does not read the same under the new schema version');
     $incompatible = inventoryDescriptor(true, true);
-    $incompatible['fields'][0]['required'] = false;
+    $incompatible['fields'][0]['visibility'] = 'admin';
     $beforeIncompatible = workbenchState($opened['connection']);
     workbenchRejects(
         static fn () => $workbench->updateStructure('scope:tenant-alpha', $inventory->structureId, 3, $incompatible, 'actor:admin:alpha'),

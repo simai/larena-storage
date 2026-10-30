@@ -55,6 +55,9 @@ final readonly class SitePagesStorage
     /** The fields that became per language after a storage may have been made (sites plan, step 4.3). */
     public const LOCALIZED_FIELDS = ['slug', 'content_mode'];
 
+    /** The fields nobody types: a page's write fills them (SitePageRecordValidator), so a form does not ask for them. */
+    public const COMPUTED_FIELDS = ['target', 'order_index'];
+
     public const CONTENT_MODE_TEXT = 'text';
 
     public const CONTENT_MODE_BLOCKS = 'blocks';
@@ -114,8 +117,8 @@ final readonly class SitePagesStorage
     }
 
     /**
-     * Every storage bound to the pages role with `slug` and `content_mode` localized, as a structure version where one
-     * is needed. Each storage reports `localized`, `already` or, where the person may not change it, `refused`: a
+     * Every storage bound to the pages role with `slug` and `content_mode` localized, and `target` and `order_index`
+     * out of the forms (COMPUTED_FIELDS), as a structure version where one is needed. Each storage reports `localized`, `already` or, where the person may not change it, `refused`: a
      * refusal stops nothing, and the command run by someone who may finishes the rest. Without $write it only tells.
      *
      * @return list<array{schema_id: string, state: string, reason_code?: string}>
@@ -131,6 +134,11 @@ final readonly class SitePagesStorage
                 foreach ($structure->fields as $field) {
                     if (in_array($field['key'] ?? null, self::LOCALIZED_FIELDS, true) && ($field['localized'] ?? false) !== true) {
                         $field['localized'] = true;
+                        $changed = true;
+                    }
+                    if (in_array($field['key'] ?? null, self::COMPUTED_FIELDS, true) && (($field['required'] ?? false) !== false || ($field['hidden'] ?? false) !== true)) {
+                        $field['required'] = false;
+                        $field['hidden'] = true;
                         $changed = true;
                     }
                     $fields[] = $field;
@@ -235,8 +243,8 @@ final readonly class SitePagesStorage
             $string('slug', 10, true, 120, true),
             $string('title', 20, true, 191, true),
             ['key' => 'order_index', 'label' => $this->word('order_index', $locale), 'position' => 30, 'type' => 'integer', 'type_version' => 1,
-                'required' => true, 'visibility' => 'public', 'constraints' => []],
-            $string('target', 40, true, 512, false),
+                'required' => false, 'hidden' => true, 'visibility' => 'public', 'constraints' => []],
+            ['hidden' => true] + $string('target', 40, false, 512, false),
             $string('description', 50, false, 2000, true),
             ...$this->contentFields(50, $locale),
         ]];

@@ -180,6 +180,44 @@ final readonly class SitePageTree
         return is_string($slug) ? $slug : null;
     }
 
+    /** A page's order among its siblings, as its current values have it. */
+    public function currentOrder(string $schemaId, string $recordId): ?int
+    {
+        return $this->orders($schemaId, [$recordId])[$recordId] ?? null;
+    }
+
+    /** The order that puts a new page after the others of the section it goes to. */
+    public function nextOrder(string $schemaId, ?string $parent): int
+    {
+        $orders = $this->orders($schemaId, $this->section($schemaId, $parent));
+
+        return $orders === [] ? 0 : max($orders) + 1;
+    }
+
+    /**
+     * @param list<string> $recordIds
+     * @return array<string, int>
+     */
+    private function orders(string $schemaId, array $recordIds): array
+    {
+        $orders = [];
+        foreach (array_chunk($recordIds, 500) as $chunk) {
+            foreach ($this->database->table(self::RECORDS . ' as r')
+                ->join(self::VERSIONS . ' as v', static function ($join): void {
+                    $join->on('v.schema_id', '=', 'r.schema_id')->on('v.record_id', '=', 'r.record_id')->on('v.revision', '=', 'r.current_revision');
+                })
+                ->where('r.schema_id', $schemaId)->whereIn('r.record_id', $chunk)->get(['r.record_id', 'v.values_json']) as $row) {
+                $values = json_decode((string) $row->values_json, true);
+                $order = is_array($values) ? ($values[SitePagePath::ORDER_FIELD] ?? null) : null;
+                if (is_int($order)) {
+                    $orders[(string) $row->record_id] = $order;
+                }
+            }
+        }
+
+        return $orders;
+    }
+
     /**
      * The current slugs of pages, by record: what the admin's address of an unpublished page reads.
      *

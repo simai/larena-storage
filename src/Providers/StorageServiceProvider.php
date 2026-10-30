@@ -86,7 +86,10 @@ use Larena\Storage\Runtime\StorageStructureOptionSource;
 use Larena\Storage\Contracts\StorageSchemaEvolution as StorageSchemaEvolutionContract;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Core\Contracts\SiteLanguages;
+use Larena\Core\Contracts\SiteLanguageStructure;
 use Larena\Core\Site\SiteLanguageFolders;
+use Larena\Core\Site\SiteMapStore;
+use Larena\Storage\SitePage\SiteLanguageScheme;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
 use Larena\Storage\Contracts\VersionedStorage as VersionedStorageContract;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
@@ -910,6 +913,10 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(SiteRedirectCache::class),
             static fn (): string => $app->make(ScopeBaselineInstaller::class)->defaultSiteRef()->toString(),
             $app->bound(RequestSiteScope::class) ? $app->make(RequestSiteScope::class) : null,
+            SiteRedirectMiddleware::SKIPPED,
+            static fn (string $site, string $segment): bool => $app->make(SitePageRules::class)->keepsSegment($site, $segment),
+            $app->bound(SiteLanguageFolders::class) ? $app->make(SiteLanguageFolders::class) : null,
+            $app->bound(SiteMapStore::class) ? $app->make(SiteMapStore::class) : null,
         ));
     }
 
@@ -951,6 +958,17 @@ final class StorageServiceProvider extends ServiceProvider
             $app->bound(SiteLanguages::class) ? $app->make(SiteLanguages::class) : null,
         ));
         $this->app->singleton(SitePageRecordValidator::class);
+        $this->app->bind(SiteLanguageStructure::class, static fn (Application $app): SiteLanguageStructure => new SiteLanguageScheme(
+            $app->make(SitePageTree::class),
+            $app->make(DatabaseReadContracts::class),
+            static fn (): SitePageAddressCache => $app->make(SitePageAddressCache::class),
+            $app->make(SiteLanguages::class),
+            $app->make(SiteRedirects::class),
+            $app->make(SiteRedirectRules::class),
+            $app->make(SiteRedirectsStorage::class),
+            static fn (): ?SitePageAddressObserver => $app->bound(SitePageAddressObserver::class) ? $app->make(SitePageAddressObserver::class) : null,
+            $app->bound('translator') ? $app->make('translator') : null,
+        ));
         $this->app->singleton(SitePageAddressChanges::class, static fn (Application $app): SitePageAddressChanges => new SitePageAddressChanges(
             $app->make(SitePageTree::class),
             $app->make(SitePageAddresses::class),
@@ -961,6 +979,7 @@ final class StorageServiceProvider extends ServiceProvider
             $app->bound('log') ? $app->make('log') : null,
             $app->bound('translator') ? $app->make('translator') : null,
             $app->bound(SiteLanguageFolders::class) ? $app->make(SiteLanguageFolders::class) : null,
+            $app->bound(SiteLanguages::class) ? $app->make(SiteLanguages::class) : null,
         ));
     }
 

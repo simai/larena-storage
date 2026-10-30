@@ -806,6 +806,7 @@ return [
     // «Установить демо-данные» of the first run's site step (Larena\Storage\FirstRun\SiteFirstRunContributor), and
     // the name of the site pages' storage and its content fields (Larena\Storage\FirstRun\SitePagesStorage).
     'site_pages' => [
+        'language_folder_note' => 'Изменилась папка основного языка.',
         'redirect_note' => 'Адрес страницы изменился.',
         'refusals' => [
             'site_page_address_taken' => 'Адрес уже занят другой страницей в этом разделе',
@@ -827,7 +828,7 @@ return [
         'site_redirect_fields' => [
             'from_address' => 'Откуда', 'to_address' => 'Куда', 'status_code' => 'Код', 'match' => 'Совпадение', 'origin' => 'Источник', 'note' => 'Примечание',
             'status_code_301' => '301 — навсегда', 'status_code_302' => '302 — временно',
-            'match_exact' => 'Этот адрес', 'match_prefix' => 'Адреса, которые с него начинаются',
+            'match_exact' => 'Этот адрес', 'match_prefix' => 'Адреса, которые с него начинаются', 'match_site_root' => 'Все адреса сайта',
             'origin_manual' => 'Вручную', 'origin_auto' => 'Автоматически',
         ],
         'demo_data' => 'Установить демо-данные: каталог решений со всеми типами полей и его разделы. Их можно удалить, как любое хранилище.',

@@ -53,7 +53,7 @@ final readonly class SiteRedirectsStorage
     private const DEFAULT_WORDS = [
         'from_address' => 'From', 'to_address' => 'To', 'status_code' => 'Code', 'match' => 'Match', 'origin' => 'Origin', 'note' => 'Note',
         'status_code_301' => '301 — moved permanently', 'status_code_302' => '302 — moved temporarily',
-        'match_exact' => 'This address', 'match_prefix' => 'Addresses starting with it',
+        'match_exact' => 'This address', 'match_prefix' => 'Addresses starting with it', 'match_site_root' => 'Every address of the site',
         'origin_manual' => 'Manual', 'origin_auto' => 'Automatic',
     ];
 
@@ -115,6 +115,35 @@ final readonly class SiteRedirectsStorage
     }
 
     /**
+     * A site's storages of rules offer every way a rule matches: one made before the site-root rule gets it now, as a new
+     * structure version, as the person.
+     */
+    public function offerEveryMatch(string $siteRef, string $actor, ?string $locale = null, ?string $correlationId = null): void
+    {
+        foreach ($this->rules->storages($siteRef) as $storage) {
+            $structure = $this->workbench->readStructure($storage['scope_ref'], $storage['structure_id'], $actor);
+            $changed = false;
+            $fields = [];
+            foreach ($structure->fields as $field) {
+                if (($field['key'] ?? null) === 'match') {
+                    $present = array_column((array) ($field['constraints']['options'] ?? []), 'value');
+                    foreach (SiteRedirectPath::MATCHES as $match) {
+                        if (!in_array($match, $present, true)) {
+                            $field['constraints']['options'][] = ['value' => $match, 'label' => $this->word('match_' . $match, $locale)];
+                            $changed = true;
+                        }
+                    }
+                }
+                $fields[] = $field;
+            }
+            if ($changed) {
+                $this->workbench->updateStructure($storage['scope_ref'], $storage['structure_id'], $structure->version,
+                    ['structure_id' => $storage['structure_id'], 'label' => $structure->label, 'fields' => $fields], $actor, $correlationId);
+            }
+        }
+    }
+
+    /**
      * The workbench descriptor of the storage, labelled in the locale.
      *
      * @return array{structure_id: string, label: string, fields: list<array<string, mixed>>}
@@ -132,7 +161,7 @@ final readonly class SiteRedirectsStorage
             $field('from_address', 10, 'string', 2, true, ['min_length' => 1, 'max_length' => SiteRedirectPath::MAX_LENGTH]),
             $field('to_address', 20, 'string', 2, true, ['min_length' => 1, 'max_length' => SiteRedirectPath::MAX_LENGTH]),
             $field('status_code', 30, 'choice', 1, true, $options('status_code', ['301', '302'])),
-            $field('match', 40, 'choice', 1, true, $options('match', [SiteRedirectPath::MATCH_EXACT, SiteRedirectPath::MATCH_PREFIX])),
+            $field('match', 40, 'choice', 1, true, $options('match', SiteRedirectPath::MATCHES)),
             $field('origin', 50, 'choice', 1, true, $options('origin', [SiteRedirectRule::ORIGIN_MANUAL, SiteRedirectRule::ORIGIN_AUTO])),
             $field('note', 60, 'text', 1, false, ['max_length' => 2000]),
         ]];
