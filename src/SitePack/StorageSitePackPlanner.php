@@ -7,6 +7,10 @@ namespace Larena\Storage\SitePack;
 use Closure;
 use Illuminate\Database\Connection;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
+use Larena\Core\Contracts\SiteBindings;
+use Larena\Core\Exceptions\SiteBindingRejected;
+use Larena\Core\Scope\ScopeRef;
+use Larena\Core\SitePack\SitePackRejected;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
@@ -55,6 +59,9 @@ final class StorageSitePackPlanner
     private const int CHUNK = 500;
 
     /** Plan errors of a pack whose structure adopted a schema (the site pages). */
+    /** Who may change a site's domains, as the site's card asks. */
+    private const string DOMAINS_RIGHT = 'admin.site_settings.write';
+
     public const string SITE_PAGES_NOT_EMPTY = 'storage_sitepack_site_pages_not_empty';
     public const string SITE_PAGES_FIELDS_MISSING = 'storage_sitepack_site_pages_fields_missing';
     public const string SITE_PAGES_NOT_ADOPTED = 'storage_sitepack_site_pages_not_adopted';
@@ -97,6 +104,7 @@ final class StorageSitePackPlanner
         private readonly string $scopeRef,
         private readonly string $siteRef,
         private readonly string $actor,
+        private readonly ?SiteBindings $siteBindings = null,
     ) {
     }
 
@@ -199,6 +207,7 @@ final class StorageSitePackPlanner
             $this->error('files_unavailable', null);
         }
         $source->verifyBlobs($this->tick);
+        [$domains, $domainEntries] = $this->domains($source, $options);
 
         $idMap = $this->idMapDigest();
         $plan = new StorageSitePackPlan(
@@ -223,6 +232,7 @@ final class StorageSitePackPlanner
             self::listed($this->errors),
             $options->toArray(),
             $idMap,
+            $domains,
         );
 
         return [
@@ -235,13 +245,72 @@ final class StorageSitePackPlanner
                 'descriptor' => $descriptor,
                 'history_keep' => $plan->structure['history_keep'],
                 'package_id' => $source->packageId(),
-            ] + ($merge && $target !== null ? [
+            ] + ($domainEntries !== [] ? ['site_bindings' => $domainEntries] : []) + ($merge && $target !== null ? [
                 'merge' => true,
                 'schema_version' => $target['schema']->ref->version,
                 'owner_prefix' => $target['structure']->recordOwnerPrefix ?? $adoption['owner_prefix'],
                 'owner_field' => $target['structure']->recordOwnerField,
             ] : []),
         ];
+    }
+
+    /**
+     * The domains the pack carries; those the import adds when the person asked («Перенести домены»), each checked as
+     * the site's domain list checks it: a domain another site holds is an error naming it, so nothing is half applied.
+     *
+     * @return array{0: array{total: int, transfer: bool, hosts: list<string>}, 1: list<array<string, mixed>>}
+     */
+    private function domains(StorageSitePackSource $source, StorageSitePackImportOptions $options): array
+    {
+        try {
+            $entries = $source->siteBindings();
+        } catch (SitePackRejected) {
+            $this->error('site_domains_invalid', null);
+
+            return [['total' => 0, 'transfer' => $options->transferDomains, 'hosts' => []], []];
+        }
+        $hosts = [];
+        foreach ($entries as $entry) {
+            $hosts[] = (string) $entry['host'] . (is_string($entry['folder'] ?? null) ? $entry['folder'] : '');
+        }
+        $summary = ['total' => count($entries), 'transfer' => $options->transferDomains, 'hosts' => array_values(array_unique($hosts))];
+        if (!$options->transferDomains || $entries === []) {
+            return [$summary, []];
+        }
+        $site = ScopeRef::tryParse($this->siteRef);
+        if ($this->siteBindings === null || $site === null) {
+            $this->error('site_domains_unavailable', null);
+
+            return [$summary, []];
+        }
+        if (!$this->allowed(self::DOMAINS_RIGHT)) {
+            $this->error('site_domains_denied', null);
+
+            return [$summary, []];
+        }
+        $taken = false;
+        foreach ($entries as $entry) {
+            try {
+                $this->siteBindings->planAdd($site, [$entry]);
+            } catch (SiteBindingRejected $refusal) {
+                if ($refusal->reasonCode === SiteBindingRejected::TAKEN) {
+                    $this->error('site_domain_taken', $refusal->host);
+                    $taken = true;
+                }
+            }
+        }
+        if ($taken) {
+            return [$summary, []];
+        }
+        try {
+            $this->siteBindings->planAdd($site, $entries);
+        } catch (SiteBindingRejected) {
+            $this->error('site_domains_invalid', null);
+
+            return [$summary, []];
+        }
+
+        return [$summary, $entries];
     }
 
     private function schemaExists(string $schemaId): bool

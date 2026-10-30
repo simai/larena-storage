@@ -34,7 +34,7 @@ final readonly class StorageSitePackImportPage
     ];
     /** Plan issue codes whose subject names something a person recognises (a language, a storage ID, a role). */
     private const array SUBJECTS = ['locale_not_declared', 'already_imported', 'structure_id_taken', 'role_unknown', 'role_binding_skipped',
-        'encrypted_values_omitted', 'encrypted_values_decrypted', 'storage_sitepack_site_pages_fields_missing', 'storage_sitepack_site_pages_scope_mismatch'];
+        'encrypted_values_omitted', 'encrypted_values_decrypted', 'storage_sitepack_site_pages_fields_missing', 'storage_sitepack_site_pages_scope_mismatch', 'site_domain_taken'];
     /** The value of a reference choice that leaves the storage of the same ID. */
     public const string SAME_ID = '__same__';
 
@@ -231,6 +231,8 @@ final readonly class StorageSitePackImportPage
         $locales = is_array($plan['locales'] ?? null) ? array_values(array_filter($plan['locales'], 'is_string')) : [];
         $localeErrors = array_values(array_filter($errors, static fn (array $issue): bool => $issue['code'] === 'locale_not_declared'));
         $roles = is_array($plan['roles'] ?? null) ? $plan['roles'] : [];
+        $domains = is_array($plan['domains'] ?? null) ? $plan['domains'] : [];
+        $hosts = is_array($domains['hosts'] ?? null) ? array_values(array_filter($domains['hosts'], 'is_string')) : [];
         $parts[] = new AdminElement('dl', ['class' => 'larena-storage-import__summary', 'data-larena-sitepack-import-summary' => null], [
             self::row('target', $this->copy('target'), $targetId === ''
                 ? $this->copy('target_none')
@@ -259,6 +261,8 @@ final readonly class StorageSitePackImportPage
             self::row('users', $this->copy('users'), self::at($users, 'total') === 0 ? $this->copy('users_none') : $this->text('users_text', [
                 'total' => self::number(self::at($users, 'total')), 'missing' => self::number(self::at($users, 'missing')),
             ])),
+            ...($hosts === [] ? [] : [self::row('domains', $this->copy('domains'), $this->text('domains_text', ['hosts' => implode(', ', $hosts)]).' '
+                .$this->copy(($domains['transfer'] ?? false) === true ? 'domains_transfer_on' : 'domains_transfer_off').'.')]),
         ]);
 
         // The person's choices, planned again by «Проверить снова».
@@ -314,6 +318,17 @@ final readonly class StorageSitePackImportPage
         }
         if (($options['copy'] ?? false) === true) {
             $form[] = self::hidden('copy', '1');
+        }
+        // «Перенести домены»: off unless the person turns it on; domains usually differ at the new place.
+        if ($hosts !== []) {
+            $form[] = new AdminElement('fieldset', ['data-larena-sitepack-import-domains' => null], [
+                new AdminElement('legend', [], $this->copy('domains')),
+                new AdminElement('label', [], [
+                    new AdminElement('input', ['type' => 'checkbox', 'name' => 'transfer_domains', 'value' => '1'] + (($options['transfer_domains'] ?? false) === true ? ['checked' => null] : [])),
+                    new AdminText(' '.$this->copy('domains_transfer')),
+                ]),
+                new AdminElement('p', [], $this->copy('domains_transfer_hint')),
+            ]);
         }
         $form[] = AdminControls::submitNode($this->copy('replan'), 'secondary');
         $parts[] = new AdminElement('form', ['method' => 'post', 'action' => $path.'/plan', 'data-larena-sitepack-import-options' => null], $form);
@@ -371,6 +386,9 @@ final readonly class StorageSitePackImportPage
             if (is_string($options[$key] ?? null) && $options[$key] !== '') {
                 $fields[$key] = $options[$key];
             }
+        }
+        if (($options['transfer_domains'] ?? false) === true) {
+            $fields['transfer_domains'] = '1';
         }
         $index = 0;
         foreach (is_array($options['reference_targets'] ?? null) ? $options['reference_targets'] : [] as $from => $to) {

@@ -8,6 +8,9 @@ use Closure;
 use DateTimeImmutable;
 use DateTimeZone;
 use Illuminate\Database\Connection;
+use Larena\Core\Contracts\SiteBindings;
+use Larena\Core\Exceptions\SiteBindingRejected;
+use Larena\Core\Scope\ScopeRef;
 use Larena\Storage\Contracts\LocalizedValues;
 use Larena\Storage\Contracts\PublicationLifecycle;
 use Larena\Storage\Contracts\StorageRecordVersionRef;
@@ -89,6 +92,7 @@ final class StorageSitePackImporter
         private readonly Closure $save,
         private readonly Closure $tick,
         private readonly Closure $emit,
+        private readonly ?SiteBindings $siteBindings = null,
     ) {
         $descriptor = is_array($import['descriptor'] ?? null) ? $import['descriptor'] : [];
         $keys = [];
@@ -709,6 +713,33 @@ final class StorageSitePackImporter
         return $counts;
     }
 
+    /**
+     * The domains the plan said it adds, with the import's last transaction: a domain taken since the plan fails the
+     * whole import, and nothing of it stays.
+     *
+     * @param array<string, int> $counts
+     * @return array<string, int>
+     */
+    private function addDomains(array $counts): array
+    {
+        $entries = $this->import['site_bindings'] ?? null;
+        if (!is_array($entries) || $entries === []) {
+            return $counts;
+        }
+        $site = ScopeRef::tryParse($this->siteRef);
+        if ($this->siteBindings === null || $site === null) {
+            throw new StorageRejected('storage_sitepack_plan_stale');
+        }
+        try {
+            $this->siteBindings->add($site, array_values($entries), $this->actor);
+        } catch (SiteBindingRejected) {
+            throw new StorageRejected('storage_sitepack_site_domains_refused');
+        }
+        $counts['domains_added'] = count($entries);
+
+        return $counts;
+    }
+
     /** @param array<string, int> $counts */
     private function finalize(array $counts, int $done): void
     {
@@ -720,6 +751,7 @@ final class StorageSitePackImporter
             }
             $counts = $this->bindRoles($counts);
             unset($counts['roles_done']);
+            $counts = $this->addDomains($counts);
             if ($this->merges()) {
                 $this->assertMergeTarget();
             } elseif (!$this->workbench->finishImportingStructure($this->scopeRef, (string) $this->import['structure_id'], $this->runRef)) {

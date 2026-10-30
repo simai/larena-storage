@@ -11,7 +11,9 @@ use Larena\Storage\Console\Commands\StorageBenchCommand;
 use Larena\Storage\Console\Commands\StorageDemoCommand;
 use Larena\Storage\Console\Commands\StorageSitePagesAdoptCommand;
 use Larena\Storage\Console\Commands\StorageSiteRedirectsCommand;
+use Larena\Core\Contracts\SiteBindings;
 use Larena\Storage\Contracts\RequestSiteScope;
+use Larena\Storage\Contracts\StructureRoleChoice;
 use Larena\Storage\SiteRedirect\PublicationObserverChain;
 use Larena\Storage\SiteRedirect\SiteRedirectCache;
 use Larena\Storage\SiteRedirect\SiteRedirectInvalidation;
@@ -96,6 +98,7 @@ use Larena\Core\Contracts\FirstRunContributor;
 use Larena\Core\Starter\ScopeBaselineInstaller;
 use Larena\Storage\FirstRun\SiteFirstRunContributor;
 use Larena\Storage\Demo\StorageDemoData;
+use Larena\Storage\FirstRun\NewSiteStorages;
 use Larena\Storage\FirstRun\SitePagesStorage;
 use Larena\Storage\FirstRun\StarterSite;
 use Larena\Storage\Registry\StorageOperationProvider;
@@ -312,6 +315,9 @@ final class StorageServiceProvider extends ServiceProvider
                 is_string($app->make('config')->get('app.key')) ? $app->make('config')->get('app.key') : '',
                 // A host may bind its own counter (a threshold, a time budget); the default counts as decided.
                 $app->bound(StorageViewCounter::class) ? $app->make(StorageViewCounter::class) : null,
+                DatabaseReadContracts::LIST_FALLBACK_LIMIT,
+                // A host may say which storage answers a role where a site has several bound.
+                $app->bound(StructureRoleChoice::class) ? $app->make(StructureRoleChoice::class) : null,
             );
         });
         // The reader holds the connection only; it reads at the first public read. A rebuild it asks
@@ -377,6 +383,15 @@ final class StorageServiceProvider extends ServiceProvider
             static fn (string $actor, string $locale): array => $app->make(SiteRedirectsStorage::class)->create($actor, null, $locale),
         ));
         $this->app->tag(SiteFirstRunContributor::class, FirstRunContributor::class);
+        // A new site's storages («Создать сайт», sites plan step 2.9): its pages, a Home page and its redirects.
+        $this->app->singleton(NewSiteStorages::class, static fn (Application $app): NewSiteStorages => new NewSiteStorages(
+            $app->make(DatabaseManager::class)->connection(),
+            $app->make(StorageWorkbenchContract::class),
+            $app->make(StructureRoleRegistry::class),
+            $app->make(StarterStructureRoles::class),
+            $app->make(SitePagesStorage::class),
+            $app->make(SiteRedirectsStorage::class),
+        ));
         $this->registerSiteRedirects();
 
         $this->app->bindIf(BlockDocumentService::class, static fn (Application $app): BlockDocumentService => new StorageBackedBlockDocumentService(
@@ -676,6 +691,7 @@ final class StorageServiceProvider extends ServiceProvider
                 localized: $app->make(LocalizedValues::class),
                 publication: $app->make(PublicationLifecycle::class),
                 roles: $app->make(StructureRoleRegistry::class),
+                siteBindings: $app->bound(SiteBindings::class) ? $app->make(SiteBindings::class) : null,
                 // A user@1 value keeps its user when Access knows it (larena_admin_identities); without Access every
                 // user counts as missing.
                 userExists: static function (string $userRef) use ($app): bool {

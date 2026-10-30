@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Larena\Storage\SitePack;
 
+use Larena\Core\Contracts\SiteBindings;
+use Larena\Core\Scope\ScopeRef;
+use Larena\Core\Site\SiteBindingsArtifact;
+use Larena\Storage\FirstRun\StarterSite;
 use DateTimeImmutable;
 use DateTimeZone;
 use Illuminate\Database\Connection;
@@ -75,6 +79,8 @@ final class StorageSitePackExporter
         // null leaves them out.
         private readonly ?StorageDataKeys $plaintextKeys = null,
         private readonly StorageFieldCipher $cipher = new StorageFieldCipher(),
+        // A site's page tree carries the site's domains (sites plan, step 2.8).
+        private readonly ?SiteBindings $siteBindings = null,
     ) {
         foreach ($structure->fields as $field) {
             $this->fields[(string) $field['key']] = $field;
@@ -454,6 +460,15 @@ final class StorageSitePackExporter
             } while (count($rows) === 1000);
             $writer->endLines(StorageSitePackFormat::REFERENCES);
 
+            $domains = $this->siteDomains();
+            if ($domains !== []) {
+                $writer->beginLines(SiteBindingsArtifact::ID, SiteBindingsArtifact::PATH);
+                foreach ($domains as $domain) {
+                    $writer->appendLine(SiteBindingsArtifact::PATH, $domain);
+                }
+                $writer->endLines(SiteBindingsArtifact::PATH);
+            }
+
             $writer->beginLines(StorageSitePackFormat::ASSET_INDEX_ID, StorageSitePackFormat::ASSET_INDEX);
             if ($assets['lines'] > 0) {
                 $this->feed($writer, StorageSitePackFormat::ASSET_INDEX, $this->staging . '/assets/index.jsonl', $assets['bytes']);
@@ -489,6 +504,24 @@ final class StorageSitePackExporter
         }
 
         return ['envelope' => $envelope, 'references' => $references];
+    }
+
+    /**
+     * The domains of the site whose page tree this structure is; none for any other structure.
+     *
+     * @return list<array<string, ?string>>
+     */
+    private function siteDomains(): array
+    {
+        $site = ScopeRef::tryParse($this->siteRef);
+        if ($this->siteBindings === null || $site === null || !$this->hasTable(self::BINDINGS)
+            || !$this->database->table(self::BINDINGS)->where('role_ref', StarterSite::ROLE_REF)
+                ->where('schema_id', $this->structure->schema->schemaId)->where('scope_ref', $this->siteRef)
+                ->where('status', 'active')->exists()) {
+            return [];
+        }
+
+        return array_map(SiteBindingsArtifact::line(...), $this->siteBindings->list($site));
     }
 
     /**

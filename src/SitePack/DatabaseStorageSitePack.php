@@ -11,6 +11,7 @@ use DateTimeZone;
 use Illuminate\Database\Connection;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Access\Contracts\QueryScopeProvider;
+use Larena\Core\Contracts\SiteBindings;
 use Larena\Core\SitePack\SitePackEnvelope;
 use Larena\Core\SitePack\SitePackLimits;
 use Larena\Core\SitePack\SitePackRejected;
@@ -145,6 +146,8 @@ final class DatabaseStorageSitePack implements StorageSitePack
         // Opens the encrypted values of an export that asks for them in plaintext (include_encrypted_plaintext);
         // without it such an export is refused (storage_field_encryption_unavailable).
         private readonly ?StorageDataKeys $keys = null,
+        // A site's domains, for a pack of its page tree (sites plan, step 2.8).
+        private readonly ?SiteBindings $siteBindings = null,
     ) {
         $this->runs = new StorageSitePackRuns($database);
         $this->files = $files ?? new UnavailableStorageSitePackFiles();
@@ -576,6 +579,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
                 $scopeRef,
                 (string) $row->site_ref,
                 $actor,
+                $this->siteBindings,
             );
             $result = $planner->plan($source, $options);
         } finally {
@@ -652,6 +656,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
                     /** @var array<string, int|string|null> $details */
                     $this->emit($type, $current, $current->correlationId, ['package_id' => $current->packageId] + $details);
                 },
+                $this->siteBindings,
             );
             $importer->walk($source, $run->phase, self::decode($row->cursor), self::ints(self::decode($row->counts_json)), (int) $row->done);
         } finally {
@@ -852,6 +857,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
             $structure,
             $this->stagingPath($runRef),
             $plaintext ? $this->keys : null,
+            siteBindings: $this->siteBindings,
         );
         $cursor = self::decode($row->cursor);
         $counts = self::decode($row->counts_json);

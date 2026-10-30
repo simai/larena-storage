@@ -19,6 +19,7 @@ use Larena\Storage\Exceptions\StorageRejected;
  * - `roles`: [{role_ref, action: bind|skip}].
  * - `publication`: {mode: draft|keep, published, scheduled}: the publication states the pack carries.
  * - `users`: {total, missing}: user@1 values and how many name a user this installation does not have.
+ * - `domains`: {total, transfer, hosts}: the domains the pack carries and whether the import adds them to the site.
  * - `replay`: null, or {run_ref, structure_id, imported_at} when this site already imported this package.
  * - `warnings` / `errors`: [{code, count, subject}]; any error refuses apply(). Codes: see StorageSitePack.
  * - `options`: the StorageSitePackImportOptions it was planned with; `id_map`: {rows, sha256} of the run's id map.
@@ -39,6 +40,7 @@ final readonly class StorageSitePackPlan
      * @param list<array{code: string, count: int, subject: ?string}> $errors
      * @param array<string, mixed> $options
      * @param array{rows: int, sha256: string} $idMap
+     * @param array{total: int, transfer: bool, hosts: list<string>} $domains
      */
     public function __construct(
         public array $structure,
@@ -54,6 +56,7 @@ final readonly class StorageSitePackPlan
         public array $errors,
         public array $options,
         public array $idMap,
+        public array $domains = ['total' => 0, 'transfer' => false, 'hosts' => []],
     ) {
     }
 
@@ -91,6 +94,7 @@ final readonly class StorageSitePackPlan
             'errors' => $this->errors,
             'options' => $this->options,
             'id_map' => $this->idMap,
+            'domains' => $this->domains,
         ];
     }
 
@@ -166,6 +170,23 @@ final readonly class StorageSitePackPlan
             $issues($plan['errors']),
             $options,
             ['rows' => (int) ($plan['id_map']['rows'] ?? 0), 'sha256' => (string) ($plan['id_map']['sha256'] ?? '')],
+            self::domains($plan['domains'] ?? null),
         );
+    }
+
+    /**
+     * A stored plan from before it knew the domains has none.
+     *
+     * @return array{total: int, transfer: bool, hosts: list<string>}
+     */
+    private static function domains(mixed $domains): array
+    {
+        $domains = is_array($domains) ? $domains : [];
+
+        return [
+            'total' => is_int($domains['total'] ?? null) ? $domains['total'] : 0,
+            'transfer' => ($domains['transfer'] ?? false) === true,
+            'hosts' => is_array($domains['hosts'] ?? null) ? array_values(array_filter($domains['hosts'], 'is_string')) : [],
+        ];
     }
 }

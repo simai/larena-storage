@@ -54,6 +54,7 @@ final readonly class SitePagesStorage
 
     /** The words when no translator answers, by key. */
     private const DEFAULT_FIELD_LABELS = [
+        'slug' => 'Address', 'title' => 'Title', 'order_index' => 'Order', 'target' => 'Target', 'description' => 'Description',
         'content_mode' => 'Content form', 'body' => 'Text', 'blocks' => 'Blocks',
         'content_mode_text' => 'Text', 'content_mode_blocks' => 'Blocks',
     ];
@@ -151,6 +152,30 @@ final readonly class SitePagesStorage
         }
 
         return $fields;
+    }
+
+    /**
+     * The workbench descriptor of a new site's pages (NewSiteStorages): an ordinary storage with the fields the
+     * site page role asks for, as the starter site's schema has them, and the content fields.
+     *
+     * @return array{structure_id: string, label: string, fields: list<array<string, mixed>>}
+     */
+    public function descriptor(?string $locale = null): array
+    {
+        $string = fn (string $key, int $position, bool $required, int $max, bool $localized): array => [
+            'key' => $key, 'label' => $this->word($key, $locale), 'position' => $position, 'type' => 'string', 'type_version' => 2,
+            'required' => $required, 'visibility' => 'public', 'localized' => $localized, 'constraints' => ['max_length' => $max],
+        ];
+
+        return ['structure_id' => self::STRUCTURE_ID, 'label' => $this->label($locale), 'fields' => [
+            $string('slug', 10, true, 120, false),
+            $string('title', 20, true, 191, true),
+            ['key' => 'order_index', 'label' => $this->word('order_index', $locale), 'position' => 30, 'type' => 'integer', 'type_version' => 1,
+                'required' => true, 'visibility' => 'public', 'constraints' => []],
+            $string('target', 40, true, 512, false),
+            $string('description', 50, false, 2000, true),
+            ...$this->contentFields(50, $locale),
+        ]];
     }
 
     /**

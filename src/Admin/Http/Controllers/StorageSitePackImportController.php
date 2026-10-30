@@ -160,9 +160,10 @@ final readonly class StorageSitePackImportController
 
     /**
      * What the person chose on the plan: the storage's id and name, the publication, a local storage for each storage
-     * of the source site (pairs `reference_from_<n>` → `reference_to_<n>`; «the same ID» maps nothing), a copy.
+     * of the source site (pairs `reference_from_<n>` → `reference_to_<n>`; «the same ID» maps nothing), a copy, whether
+     * the site's domains move with it.
      *
-     * @return array{target_structure_id: ?string, target_label: ?string, publication: string, reference_targets: array<string, string>, copy: bool}
+     * @return array{target_structure_id: ?string, target_label: ?string, publication: string, reference_targets: array<string, string>, copy: bool, transfer_domains: bool}
      */
     public static function choices(Request $request): array
     {
@@ -187,6 +188,7 @@ final readonly class StorageSitePackImportController
             'publication' => $request->input('publication') === 'keep' ? 'keep' : 'draft',
             'reference_targets' => $targets,
             'copy' => $request->input('copy') === '1',
+            'transfer_domains' => $request->input('transfer_domains') === '1',
         ];
     }
 

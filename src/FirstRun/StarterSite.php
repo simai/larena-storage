@@ -140,6 +140,16 @@ final readonly class StarterSite
      */
     private function values(string $siteName, string $locale): array
     {
+        return self::homeValues($siteName, $locale);
+    }
+
+    /**
+     * The values of a new site's Home page in its language.
+     *
+     * @return array<string, int|string>
+     */
+    public static function homeValues(string $siteName, string $locale): array
+    {
         $name = trim($siteName);
         $russian = $locale === 'ru';
 

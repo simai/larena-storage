@@ -7,6 +7,7 @@ namespace Larena\Storage\SitePack;
 use Generator;
 use Larena\Core\SitePack\SitePackArchiveReader;
 use Larena\Core\SitePack\SitePackLimits;
+use Larena\Core\Site\SiteBindingsArtifact;
 use Larena\Core\SitePack\SitePackRejected;
 use Larena\Storage\Exceptions\StorageRejected;
 
@@ -110,6 +111,29 @@ final class StorageSitePackSource
             'owner_prefix' => (string) $adoption['owner_prefix'],
             'owner_field' => is_string($adoption['owner_field'] ?? null) ? $adoption['owner_field'] : null,
         ];
+    }
+
+    /**
+     * The domains the pack carries, as entries core's SiteBindings takes (minor 2): none in any other pack.
+     *
+     * @return list<array<string, mixed>>
+     *
+     * @throws SitePackRejected
+     */
+    public function siteBindings(): array
+    {
+        if (!$this->reader->envelope->has(SiteBindingsArtifact::PATH)) {
+            return [];
+        }
+        $entries = [];
+        foreach ($this->reader->lines(SiteBindingsArtifact::PATH) as $line) {
+            if (count($entries) >= SiteBindingsArtifact::MAX_LINES) {
+                throw new SitePackRejected('sitepack_site_bindings_invalid');
+            }
+            $entries[] = SiteBindingsArtifact::entry($line);
+        }
+
+        return $entries;
     }
 
     public function packageId(): string

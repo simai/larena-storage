@@ -100,7 +100,7 @@ final readonly class StorageSitePackImports
      * Plans the run again with what the person chose: the storage's id and name, the publication, a local storage
      * for each storage of the source site, a copy.
      *
-     * @param array{target_structure_id?: ?string, target_label?: ?string, publication?: string, reference_targets?: array<string, string>, copy?: bool} $choices
+     * @param array{target_structure_id?: ?string, target_label?: ?string, publication?: string, reference_targets?: array<string, string>, copy?: bool, transfer_domains?: bool} $choices
      * @return array{run: array<string, mixed>|null, reason: string|null}
      */
     public function plan(string $actor, string $runRef, array $choices, ?string $correlationId = null): array
@@ -112,6 +112,8 @@ final readonly class StorageSitePackImports
                 $choices['publication'] ?? StorageSitePackImportOptions::PUBLICATION_DRAFT,
                 $choices['reference_targets'] ?? [],
                 $choices['copy'] ?? false,
+                null,
+                $choices['transfer_domains'] ?? false,
             );
 
             return $this->inline($actor, $this->sitePack->plan($runRef, $options, $actor, $correlationId));

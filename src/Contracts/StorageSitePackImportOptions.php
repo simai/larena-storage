@@ -18,6 +18,8 @@ use Larena\Storage\Exceptions\StorageRejected;
  *   not mapped maps to the structure of the same id in the target scope, when there is one.
  * - `copy`: remap every record id (and import a pack this site already imported again).
  * - `declaredLocales`: the locales the target site declares; null asks the application (the site's locales).
+ * - `transferDomains`: «Перенести домены»: add the domains the pack carries to the target site. Off by default,
+ *   because a new place usually has other domains.
  */
 final readonly class StorageSitePackImportOptions
 {
@@ -43,6 +45,7 @@ final readonly class StorageSitePackImportOptions
         array $referenceTargets = [],
         public bool $copy = false,
         ?array $declaredLocales = null,
+        public bool $transferDomains = false,
     ) {
         $structure = '/\Aworkbench\.[a-z][a-z0-9_.:-]{0,109}\z/D';
         if (($targetStructureId !== null && preg_match($structure, $targetStructureId) !== 1)
@@ -86,10 +89,10 @@ final readonly class StorageSitePackImportOptions
     /** The same options with the locales the application declares, when the person named none. @param list<string> $locales */
     public function withDeclaredLocales(array $locales): self
     {
-        return new self($this->targetStructureId, $this->targetLabel, $this->publication, $this->referenceTargets, $this->copy, array_values(array_unique($locales)));
+        return new self($this->targetStructureId, $this->targetLabel, $this->publication, $this->referenceTargets, $this->copy, array_values(array_unique($locales)), $this->transferDomains);
     }
 
-    /** @return array{target_structure_id: ?string, target_label: ?string, publication: string, reference_targets: array<string, string>, copy: bool, declared_locales: ?list<string>} */
+    /** @return array{target_structure_id: ?string, target_label: ?string, publication: string, reference_targets: array<string, string>, copy: bool, declared_locales: ?list<string>, transfer_domains: bool} */
     public function toArray(): array
     {
         $targets = $this->referenceTargets;
@@ -106,6 +109,7 @@ final readonly class StorageSitePackImportOptions
             'reference_targets' => $targets,
             'copy' => $this->copy,
             'declared_locales' => $locales,
+            'transfer_domains' => $this->transferDomains,
         ];
     }
 
@@ -118,9 +122,9 @@ final readonly class StorageSitePackImportOptions
         $label = $options['target_label'] ?? null;
         $publication = $options['publication'] ?? self::PUBLICATION_DRAFT;
         if (!is_array($targets) || ($locales !== null && !is_array($locales)) || ($structure !== null && !is_string($structure))
-            || ($label !== null && !is_string($label)) || !is_string($publication) || !is_bool($options['copy'] ?? false)) {
+            || ($label !== null && !is_string($label)) || !is_string($publication) || !is_bool($options['copy'] ?? false) || !is_bool($options['transfer_domains'] ?? false)) {
             throw new StorageRejected('storage_sitepack_import_options_invalid');
         }
-        return new self($structure, $label, $publication, $targets, (bool) ($options['copy'] ?? false), $locales);
+        return new self($structure, $label, $publication, $targets, (bool) ($options['copy'] ?? false), $locales, (bool) ($options['transfer_domains'] ?? false));
     }
 }

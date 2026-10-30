@@ -692,7 +692,7 @@ $controller->plan($request($admin, '/admin/storage/sitepack/import/'.$runRef.'/p
 ]), $runRef);
 import_assert($flash()['status'] === 'Архив проверен снова с вашими настройками.', 'The plan is made again.');
 import_assert($storage->planned->toArray() === ['target_structure_id' => 'workbench.staff', 'target_label' => 'Сотрудники', 'publication' => 'keep',
-    'reference_targets' => ['workbench.cities' => 'workbench.cities'], 'copy' => true, 'declared_locales' => null], 'Every choice reaches Storage; «the same ID» maps nothing.');
+    'reference_targets' => ['workbench.cities' => 'workbench.cities'], 'copy' => true, 'declared_locales' => null, 'transfer_domains' => false], 'Every choice reaches Storage; «the same ID» maps nothing.');
 $html = $controller->show($request($admin, '/admin/storage/sitepack/import/'.$runRef), $runRef)->render();
 foreach (['value="Сотрудники"', 'value="workbench.staff"', 'name="publication" value="keep" checked', 'name="copy" value="1"',
     'Выбрана загрузка копией: все записи получат новые ID.', 'Публикация сохранится: опубликовано 7, запланировано 1'] as $needle) {

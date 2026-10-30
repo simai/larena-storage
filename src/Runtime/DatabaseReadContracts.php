@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Runtime;
 
+use Larena\Storage\Contracts\StructureRoleChoice;
 use Illuminate\Database\Connection;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
@@ -134,6 +135,8 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
         ?StorageViewCounter $counter = null,
         // Up to this many published records a list is answered from them when its slot cannot answer.
         private readonly int $listFallbackLimit = self::LIST_FALLBACK_LIMIT,
+        // Which storage answers a role where a scope has several bound (a site's «Дерево страниц»).
+        private readonly ?StructureRoleChoice $roleChoice = null,
     ) {
         $this->keys = new PublishedKeyTable($connection);
         $this->converter = $converter ?? new StorageRecordConverter($connection);
@@ -154,7 +157,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
             $this->assertSchema();
             LocaleFallbackChain::assertLocale($locale);
 
-            $schemaId = $this->schemaId($roleRefOrSchemaId);
+            $schemaId = $this->schemaId($roleRefOrSchemaId, $scopeRef);
             $candidates = $this->keyHolders($schemaId, $scopeRef, $locale, $keyField, $keyValue, 2);
 
             if ($candidates === []) {
@@ -205,7 +208,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
             LocaleFallbackChain::assertLocale($locale);
 
             $limit = $this->budget($budget);
-            $schemaId = $this->schemaId($roleRefOrSchemaId);
+            $schemaId = $this->schemaId($roleRefOrSchemaId, $scopeRef);
 
             $site = $this->siteRead(
                 $schemaId,
@@ -270,7 +273,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
             $this->assertSchema();
             LocaleFallbackChain::assertLocale($locale);
 
-            $schemaId = $this->schemaId($roleRefOrSchemaId);
+            $schemaId = $this->schemaId($roleRefOrSchemaId, $scopeRef);
             $site = $this->siteRead(
                 $schemaId,
                 $scopeRef,
@@ -348,7 +351,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
         if ($query->limit < 1 || $query->limit > PublishedListQuery::MAX_LIMIT) {
             throw self::invalidQuery();
         }
-        $schemaId = $this->schemaId($query->target);
+        $schemaId = $this->schemaId($query->target, $query->scopeRef);
         // The answering slot and the schema it was checked against, in one query; without it the schema is read alone.
         $answering = $this->siteViews?->answering($schemaId, $query->scopeRef, $query->locale, $this->localeChainKey($query->locale));
         $list = $answering === null
@@ -765,7 +768,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
 
         return array_map(
             static fn (array $candidate): string => $candidate['head']['record_id'],
-            $this->keyHolders($this->schemaId($roleRefOrSchemaId), $scopeRef, $locale, $keyField, $keyValue, PHP_INT_MAX),
+            $this->keyHolders($this->schemaId($roleRefOrSchemaId, $scopeRef), $scopeRef, $locale, $keyField, $keyValue, PHP_INT_MAX),
         );
     }
 
@@ -941,7 +944,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
             }
 
             $times = [];
-            foreach ($this->publishedStates($this->schemaId($roleRefOrSchemaId), $scopeRef, $locale, $recordIds) as $recordId => $state) {
+            foreach ($this->publishedStates($this->schemaId($roleRefOrSchemaId, $scopeRef), $scopeRef, $locale, $recordIds) as $recordId => $state) {
                 $time = self::isoUtc($state['published_at']);
                 if ($time !== null) {
                     $times[$recordId] = $time;
@@ -1000,7 +1003,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
     {
         $this->assertSchema();
 
-        $schemaId = $this->schemaId($roleRefOrSchemaId);
+        $schemaId = $this->schemaId($roleRefOrSchemaId, $scopeRef);
         [$visible, $total] = $this->siteCount($schemaId, $scopeRef, $locale, $visibilityFilter) ?? [null, null];
         if ($visible === null || $total === null) {
             // The exact path counts the first page of published records.
@@ -1603,7 +1606,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
         return $public;
     }
 
-    private function schemaId(string $roleRefOrSchemaId): string
+    private function schemaId(string $roleRefOrSchemaId, string $scopeRef): string
     {
         // A role reference carries an @v suffix; a schema id never does. Accepting both
         // keeps the caller from having to know which it holds.
@@ -1611,20 +1614,29 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
             return $roleRefOrSchemaId;
         }
 
-        $binding = $this->connection->table(DatabaseStructureRoleRegistry::BINDINGS_TABLE)
+        // Each site has its own storage for a role: the binding of this scope answers, never another site's.
+        $bound = array_map('strval', $this->connection->table(DatabaseStructureRoleRegistry::BINDINGS_TABLE)
             ->where('role_ref', $roleRefOrSchemaId)
+            ->where('scope_ref', $scopeRef)
             ->where('status', 'active')
             ->orderBy('schema_id')
-            ->first();
+            ->pluck('schema_id')
+            ->all());
 
-        if ($binding === null) {
+        if ($bound === []) {
             throw new ReadContractRejected(
                 'unknown_role_binding',
-                'No active structure is bound to ' . $roleRefOrSchemaId . '.',
+                'No active structure is bound to ' . $roleRefOrSchemaId . ' in this scope.',
             );
         }
+        if (count($bound) > 1 && $this->roleChoice !== null) {
+            $chosen = $this->roleChoice->chosenSchema($roleRefOrSchemaId, $scopeRef);
+            if ($chosen !== null && in_array($chosen, $bound, true)) {
+                return $chosen;
+            }
+        }
 
-        return (string) ((array) $binding)['schema_id'];
+        return $bound[0];
     }
 
     private function budget(?int $budget): int

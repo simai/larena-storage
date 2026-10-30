@@ -23,6 +23,9 @@ final class StarterStructureRoles
 
     public const SITE_NODE = 'site_node';
 
+    /** The tree edge of a site's pages. */
+    public const SITE_TREE_RELATION = 'site_tree_parent';
+
     public const REDIRECT = 'redirect';
 
     /** A site's redirect rule (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, step 2.4). */

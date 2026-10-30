@@ -20,6 +20,7 @@ use Larena\Storage\Exceptions\StorageRejected;
  *   … --publication=keep keeps the pack's publication states (needs the publish rights); draft by default
  *   … --copy             gives every record a new id (and imports a pack this site already has again)
  *   … --target=workbench.items_copy  the structure id to import into
+ *   … --with-domains     adds the domains the pack carries to the site (a domain another site holds refuses the plan)
  *
  * A plan with errors is printed and nothing is imported.
  */
@@ -33,7 +34,8 @@ final class StorageSitePackImportCommand extends Command
         {--sync : Import in this process instead of the queue}
         {--publication=draft : draft (every record unpublished) or keep (the pack\'s publication states)}
         {--copy : Give every record a new id}
-        {--target= : The structure id to import into}';
+        {--target= : The structure id to import into}
+        {--with-domains : Add the domains the pack carries to the site}';
 
     protected $description = 'Import a Larena Storage structure with its records, translations, relations and files from a SitePack archive.';
 
@@ -66,6 +68,8 @@ final class StorageSitePackImportCommand extends Command
                 $publication,
                 [],
                 (bool) $this->option('copy'),
+                null,
+                (bool) $this->option('with-domains'),
             );
             $run = $sitePack->receive($scope, $archive, $actor);
             $run = $sitePack->plan($run->runRef, $options, $actor, null, false);
