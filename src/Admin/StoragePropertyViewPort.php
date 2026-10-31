@@ -176,7 +176,7 @@ final class StoragePropertyViewPort extends PropertyViewPort
     protected function relatedHref(string $collection, string $recordId): ?string
     {
         return preg_match('/^[a-z][a-z0-9_.:-]{0,119}$/', $collection) === 1 && preg_match('/^record-[0-9a-f]{32}$/', $recordId) === 1
-            ? '/admin/storage/'.rawurlencode($collection).'?'.http_build_query(['record_id' => $recordId, 'record_mode' => 'view'], '', '&', PHP_QUERY_RFC3986).'#minimal-cms-record-view'
+            ? '/admin/storage/'.rawurlencode($collection).'?'.http_build_query(['record_id' => $recordId, 'record_mode' => 'view'], '', '&', PHP_QUERY_RFC3986).'#admin-record-view'
             : null;
     }
 

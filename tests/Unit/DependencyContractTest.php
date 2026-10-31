@@ -37,4 +37,4 @@ foreach ([
     }
 }
 
-echo "MinimalCmsDependencyContractTest passed.\n";
+echo "DependencyContractTest passed.\n";

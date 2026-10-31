@@ -142,7 +142,7 @@
     "monitoring.yaml",
     "src/Runtime/StorageMetrics.php",
     "src/Console/Commands/StorageViewCheckCommand.php",
-    "tests/Unit/MinimalCmsDependencyContractTest.php",
+    "tests/Unit/DependencyContractTest.php",
     "tests/Support/storage-monitoring-stubs.php",
     "tests/Support/storage-view-queue-fixture.php",
     "tests/Integration/StorageViewRebuildJobTest.php",
@@ -376,7 +376,12 @@
     "tests/Unit/SiteRecordRoleTest.php",
     "src/SitePage/SitePageMenu.php",
     "src/SitePage/SitePageSeo.php",
-    "src/Compatibility/Rest/SiteReadApiHandlers.php"
+    "src/Compatibility/Rest/SiteReadApiHandlers.php",
+    "tests/Integration/HierarchyFixtureTest.php",
+    "tests/Integration/MinimalCmsHierarchyFixtureTest.php",
+    "tests/Support/HierarchyFixtures.php",
+    "tests/Support/MinimalCmsHierarchyFixtures.php",
+    "tests/Unit/MinimalCmsDependencyContractTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

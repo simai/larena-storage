@@ -30,9 +30,9 @@ $baseline = [
  * Stage 2 (heading buttons and marks as AdminPageHeading, drawn by AdminElementDocumentRenderer::heading and
  * printed with {{ }}): 245. Stage 3 (the storage pages and the shared record panel as typed trees — AdminRecordPanelView,
  * the alerts, the structure forms, SitePack, encryption and the field change holder — drawn by
- * AdminElementDocumentRenderer::tree()): 223. Stage 4 (the Minimal CMS work area — the collection's settings, fields, records with
- * their forms, integrations and constructors — described by MinimalCmsWorkbenchPresenter and drawn by tree(), split into
- * several Documents when a page is larger than one may be): minimal-cms.blade.php 108 -> 0, in all 115. Stage 5 (the forms: the user's
+ * AdminElementDocumentRenderer::tree()): 223. Stage 4 (the Larena CMS work area — the collection's settings, fields, records with
+ * their forms, integrations and constructors — described by CmsWorkbenchPresenter and drawn by tree(), split into
+ * several Documents when a page is larger than one may be): cms.blade.php 108 -> 0, in all 115. Stage 5 (the forms: the user's
  * create and edit page by AdminUserFormPresenter, the storage field editor StorageFieldEditor, the CSV import StorageImportPage,
  * the jobs page and panel StorageJobsPanel, the SitePack import StorageSitePackImportPage and the settings' drafts notices and
  * record panel, all drawn by tree()): users/form 18, storage/_field 12 and storage/_jobs 1 (both gone), storage/import 9,

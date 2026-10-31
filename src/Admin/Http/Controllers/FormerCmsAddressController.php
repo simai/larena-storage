@@ -11,7 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Redirector;
 
 /**
- * The address of the removed Minimal CMS demo screen (/admin/cms, owner decision 2026-10-29) answers with a
+ * The address of the removed Larena CMS demo screen (/admin/cms, owner decision 2026-10-29) answers with a
  * permanent redirect into the storage section: to the storage its ?structure_id named, else to the storages.
  * It reads nothing; the section then checks who may open what.
  */

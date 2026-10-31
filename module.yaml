@@ -29,12 +29,12 @@ features:
   - storage.workbench_typed_query_cursor
   - storage.workbench_revision_history
   - storage.workbench_bounded_bulk_archive
-  - minimal_cms_universal_storage
+  - cms_universal_storage
   - storage.restore_lifecycle
   - storage.mutation_receipt
   - storage.optional_audit_adapter
-  - minimal_cms_named_site_hierarchy
-  - minimal_cms_named_organization_hierarchy
+  - cms_named_site_hierarchy
+  - cms_named_organization_hierarchy
   - storage.no_parallel_content_owner
   - storage.choice_option_constraints
   - storage.choices_record_values

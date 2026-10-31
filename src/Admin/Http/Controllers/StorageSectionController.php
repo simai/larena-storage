@@ -129,7 +129,7 @@ final readonly class StorageSectionController
                     writeFields: ['_token' => $request->hasSession() ? $request->session()->token() : '', 'action' => 'structure.create'],
                     submitLabel: $this->copy('create_storage'),
                     heading: $this->copy('create_storage'),
-                    closeLabel: $this->translated('minimal_cms.close'),
+                    closeLabel: $this->translated('record_list.close'),
                     // The field list of the new storage is a structured value with its own registered editor.
                     structuredEditors: [[
                         'key' => 'fields',
@@ -177,8 +177,8 @@ final readonly class StorageSectionController
                 createLink: $canCreate ? $base.'?'.($showArchived ? 'archived=1&' : '').'create=1' : null,
                 settings: true,
                 actions: $canCreate,
-                countLabel: $this->translated('minimal_cms.record_count'),
-                tableViewLabel: $this->translated('minimal_cms.table_view'),
+                countLabel: $this->translated('record_list.record_count'),
+                tableViewLabel: $this->translated('record_list.table_view'),
                 headerActions: [[
                     'text' => $this->copy($showArchived ? 'hide_archive' : 'show_archive'),
                     'href' => $base.($showArchived ? '' : '?archived=1'),
@@ -312,12 +312,12 @@ final readonly class StorageSectionController
                     total: count($archiveRows),
                     pageId: 'page.admin.storage-records',
                     rows: $archiveRows,
-                    rowLinks: ['view' => '?record_id=__ID__&record_mode=view#minimal-cms-record-view'],
+                    rowLinks: ['view' => '?record_id=__ID__&record_mode=view#admin-record-view'],
                     // Restore and permanent deletion straight from the row menu, without opening the record.
                     rowWrites: $this->archiveRowWrites($request, $recordsPath, $permissions, $structureArchived),
                     settings: true,
-                    countLabel: $this->translated('minimal_cms.record_count'),
-                    tableViewLabel: $this->translated('minimal_cms.table_view'),
+                    countLabel: $this->translated('record_list.record_count'),
+                    tableViewLabel: $this->translated('record_list.table_view'),
                     headerActions: $headerActions,
                 )
                 : new AdminDataviewPage(
@@ -334,15 +334,15 @@ final readonly class StorageSectionController
                     createItems: $createItems,
                     bulkActions: $bulk ? ['bulk_delete' => $this->copy('bulk_archive')] : [],
                     // «For all»: everything the list's filters and search find, read again and counted by the host.
-                    forAllLabel: $bulk ? $this->translated('minimal_cms.for_all') : null,
+                    forAllLabel: $bulk ? $this->translated('record_list.for_all') : null,
                     applyText: $this->copy('apply'),
                     capabilities: $capabilities,
                     rowLinks: [
-                        'view' => '?record_id=__ID__&record_mode=view#minimal-cms-record-view',
-                        'edit' => '?record_id=__ID__&record_mode=edit#minimal-cms-record-editor',
+                        'view' => '?record_id=__ID__&record_mode=view#admin-record-view',
+                        'edit' => '?record_id=__ID__&record_mode=edit#admin-record-editor',
                     ],
-                    countLabel: $this->translated('minimal_cms.record_count'),
-                    tableViewLabel: $this->translated('minimal_cms.table_view'),
+                    countLabel: $this->translated('record_list.record_count'),
+                    tableViewLabel: $this->translated('record_list.table_view'),
                     headerActions: $headerActions,
                     // The first query as the page's query form holds it (the shared data view page: its pagination query
                     // from the address; no other query field), so the list declares the call it sends first.
@@ -461,16 +461,16 @@ final readonly class StorageSectionController
             createItems: $createItems,
             bulkActions: $bulk,
             // «For all»: everything the list's filters and search find, read again and counted by the host.
-            forAllLabel: $bulk !== [] ? $this->translated('minimal_cms.for_all') : null,
+            forAllLabel: $bulk !== [] ? $this->translated('record_list.for_all') : null,
             applyText: $this->copy('apply'),
-            countLabel: $this->translated('minimal_cms.record_count'),
-            tableViewLabel: $this->translated('minimal_cms.table_view'),
+            countLabel: $this->translated('record_list.record_count'),
+            tableViewLabel: $this->translated('record_list.table_view'),
             headerActions: $headerActions,
             firstQuery: $firstQuery,
             portKind: 'host',
             portCapabilities: StorageSectionPublicationPortController::capabilities($permissions),
-            hostPanels: ['view' => '?record_id=__ID__&record_mode=view#minimal-cms-record-view', 'edit' => '?record_id=__ID__&record_mode=edit#minimal-cms-record-editor']
-                + ($canCreate ? ['create' => '?record_mode=create#minimal-cms-record-editor'] : []),
+            hostPanels: ['view' => '?record_id=__ID__&record_mode=view#admin-record-view', 'edit' => '?record_id=__ID__&record_mode=edit#admin-record-editor']
+                + ($canCreate ? ['create' => '?record_mode=create#admin-record-editor'] : []),
         );
     }
 
@@ -498,10 +498,10 @@ final readonly class StorageSectionController
             }
             $createItems[$target] = ['id' => 'field-'.str_replace('_', '-', (string) $field['key']),
                 'name' => is_string($field['label'] ?? null) && trim($field['label']) !== '' ? trim($field['label']) : (string) $field['key'],
-                'href' => $this->sectionPath().'/'.rawurlencode($target).'?record_mode=create#minimal-cms-record-editor'];
+                'href' => $this->sectionPath().'/'.rawurlencode($target).'?record_mode=create#admin-record-editor'];
         }
 
-        return $createItems === [] ? [] : [['id' => 'record', 'name' => $this->translated('minimal_cms.create_item_record')], ...array_values($createItems)];
+        return $createItems === [] ? [] : [['id' => 'record', 'name' => $this->translated('record_list.create_item_record')], ...array_values($createItems)];
     }
 
     /**
@@ -635,7 +635,7 @@ final readonly class StorageSectionController
     }
 
     /**
-     * The list opened with a search and filters from its address, in the shape the Minimal CMS list
+     * The list opened with a search and filters from its address, in the shape the Larena CMS list
      * reads: `search` as text and `filters` as one JSON object of field => list of values or
      * {operator, value|values}. The list's port checks every filter against its fields and reports
      * what it drops; an address that does not fit opens the plain list.
@@ -687,20 +687,20 @@ final readonly class StorageSectionController
             'closeUrl' => $listPath,
             'writeUrl' => $writeUrl,
             'heading' => $this->copy('record'),
-            'closeLabel' => $this->translated('minimal_cms.close'),
+            'closeLabel' => $this->translated('record_list.close'),
             'editLabel' => $this->copy('edit'),
-            'cancelLabel' => $this->translated('minimal_cms.cancel'),
+            'cancelLabel' => $this->translated('record_list.cancel'),
             'hiddenFieldsLabel' => $this->copy('hidden_fields'),
             'historyLabel' => $this->copy('history'),
             'context' => ($recordPage ? ['inline' => true] : []) + [
                 'copy' => ['yes' => $this->copy('yes'), 'no' => $this->copy('no'),
-                    'user_unavailable' => $this->translated('minimal_cms.user_unavailable'),
-                    'file_unavailable' => $this->translated('minimal_cms.file_unavailable'),
-                    'record_unavailable' => $this->translated('minimal_cms.record_unavailable'),
-                    'relation_unavailable' => $this->translated('minimal_cms.relation_unavailable'),
-                    'reference_choose' => $this->translated('minimal_cms.reference_choose'),
-                    'reference_load_more' => $this->translated('minimal_cms.reference_load_more'),
-                    'choose_record' => $this->translated('minimal_cms.choose_record')],
+                    'user_unavailable' => $this->translated('record_list.user_unavailable'),
+                    'file_unavailable' => $this->translated('record_list.file_unavailable'),
+                    'record_unavailable' => $this->translated('record_list.record_unavailable'),
+                    'relation_unavailable' => $this->translated('record_list.relation_unavailable'),
+                    'reference_choose' => $this->translated('record_list.reference_choose'),
+                    'reference_load_more' => $this->translated('record_list.reference_load_more'),
+                    'choose_record' => $this->translated('record_list.choose_record')],
                 'locale' => (string) $this->translator->getLocale(),
                 // The foot bar's delete moves the record to the archive, and says so.
                 'delete_text' => $this->copy('archive'),
@@ -791,8 +791,8 @@ final readonly class StorageSectionController
                     + ($recordPage ? ['record_page' => '1'] : []),
                 'recordId' => $recordId,
                 'revision' => $revision,
-                'editUrl' => $canEdit ? $base.'record_id='.rawurlencode($recordId).'&record_mode=edit#minimal-cms-record-editor' : null,
-                'cancelUrl' => $base.'record_id='.rawurlencode($recordId).'&record_mode=view#minimal-cms-record-view',
+                'editUrl' => $canEdit ? $base.'record_id='.rawurlencode($recordId).'&record_mode=edit#admin-record-editor' : null,
+                'cancelUrl' => $base.'record_id='.rawurlencode($recordId).'&record_mode=view#admin-record-view',
                 'submitLabel' => $this->copy('save_record'),
                 'lifecycle' => $lifecycle,
                 'versions' => $versions,
@@ -1014,7 +1014,7 @@ final readonly class StorageSectionController
             'scope_ref' => $scope,
             'structure_id' => $structure,
             'actor_ref' => $this->actor($request),
-            'record_href' => $this->sectionPath().'/{structure}?record_id={record}&record_mode=view#minimal-cms-record-view',
+            'record_href' => $this->sectionPath().'/{structure}?record_id={record}&record_mode=view#admin-record-view',
             // The Framework property view reads and saves the record through the section's port, when switched on.
             'property_port' => $this->config->get('larena-admin.property_view.enabled', false) === true ? $this->sectionPath().'/property-port' : null,
         ];
@@ -1288,8 +1288,8 @@ final readonly class StorageSectionController
             total: count($fieldRows),
             pageId: 'page.admin.storage-schema',
             portUrl: $this->sectionPath().'/'.rawurlencode($structure).'/schema-port',
-            countLabel: $this->translated('minimal_cms.record_count'),
-            tableViewLabel: $this->translated('minimal_cms.table_view'),
+            countLabel: $this->translated('record_list.record_count'),
+            tableViewLabel: $this->translated('record_list.table_view'),
             // The table's toolbar carries «Create» and the search; it is shown for the list of fields.
             actions: true,
             portKind: 'host',
@@ -1701,7 +1701,7 @@ final readonly class StorageSectionController
                 recordId: $mode === 'create' ? null : (string) $recordId,
                 revision: (int) ($selected['version'] ?? 0),
                 heading: $title,
-                closeLabel: $this->translated('minimal_cms.close'),
+                closeLabel: $this->translated('record_list.close'),
                 context: ['locale' => (string) $this->translator->getLocale(), 'structure_id' => $collection, 'scope_ref' => $scopeRef,
                     'property_port' => $this->sectionPath().'/property-port', 'view_settings' => true],
             ), AdminProductAssetManifest::dataviewActivation());

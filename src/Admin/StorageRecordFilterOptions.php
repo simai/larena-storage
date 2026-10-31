@@ -18,7 +18,7 @@ use Larena\Storage\Contracts\StorageWorkbench;
 
 /**
  * Scope-bound choices for reference fields (user, file, record) of any records list, for the
- * owners installed in this composition: the Storage section and the Minimal CMS demo.
+ * owners installed in this composition: the Storage section and the Larena CMS demo.
  */
 final readonly class StorageRecordFilterOptions implements RecordFilterOptionsGateway
 {

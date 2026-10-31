@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Tests\Support;
 
-final readonly class MinimalCmsHierarchyFixtures
+final readonly class HierarchyFixtures
 {
     /** @return array<string, mixed> */
     public static function siteStructure(): array

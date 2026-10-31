@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Facade;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
-use Larena\Storage\Tests\Support\MinimalCmsHierarchyFixtures;
+use Larena\Storage\Tests\Support\HierarchyFixtures;
 
 require __DIR__ . '/StorageWorkbenchTest.php';
 
@@ -56,19 +56,19 @@ try {
     ]));
     $workbench = $runtime['workbench'];
 
-    $site = $workbench->createStructure('scope:minimal-cms', MinimalCmsHierarchyFixtures::siteStructure(), 'actor:admin:minimal-cms');
-    $organization = $workbench->createStructure('scope:minimal-cms', MinimalCmsHierarchyFixtures::organizationStructure(), 'actor:admin:minimal-cms');
+    $site = $workbench->createStructure('scope:minimal-cms', HierarchyFixtures::siteStructure(), 'actor:admin:minimal-cms');
+    $organization = $workbench->createStructure('scope:minimal-cms', HierarchyFixtures::organizationStructure(), 'actor:admin:minimal-cms');
     workbenchExpect($site->schema->schemaId !== $organization->schema->schemaId, 'named hierarchies share a schema');
 
-    hierarchyCreateRecords($workbench, $site->structureId, MinimalCmsHierarchyFixtures::siteRecords());
-    hierarchyCreateRecords($workbench, $organization->structureId, MinimalCmsHierarchyFixtures::organizationRecords());
+    hierarchyCreateRecords($workbench, $site->structureId, HierarchyFixtures::siteRecords());
+    hierarchyCreateRecords($workbench, $organization->structureId, HierarchyFixtures::organizationRecords());
 
     workbenchExpect(
-        workbenchCanonicalJson(hierarchyRoundTrip($workbench, $site->structureId)) === workbenchCanonicalJson(hierarchyCanonical(MinimalCmsHierarchyFixtures::siteRecords())),
+        workbenchCanonicalJson(hierarchyRoundTrip($workbench, $site->structureId)) === workbenchCanonicalJson(hierarchyCanonical(HierarchyFixtures::siteRecords())),
         'site hierarchy round-trip mismatch',
     );
     workbenchExpect(
-        workbenchCanonicalJson(hierarchyRoundTrip($workbench, $organization->structureId)) === workbenchCanonicalJson(hierarchyCanonical(MinimalCmsHierarchyFixtures::organizationRecords())),
+        workbenchCanonicalJson(hierarchyRoundTrip($workbench, $organization->structureId)) === workbenchCanonicalJson(hierarchyCanonical(HierarchyFixtures::organizationRecords())),
         'organization hierarchy round-trip mismatch',
     );
 
@@ -86,4 +86,4 @@ try {
     }
 }
 
-echo "MinimalCmsHierarchyFixtureTest passed.\n";
+echo "HierarchyFixtureTest passed.\n";

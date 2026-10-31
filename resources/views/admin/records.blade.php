@@ -66,7 +66,7 @@
             @endif
             {{-- A large list sorted by a field without an index: a hint, never a refusal. The list's port answer refreshes it in place. --}}
             <p class="larena-muted" role="status" data-larena-storage-sort-hint @if (!is_array($sortHint ?? null)) hidden @endif>@if (is_array($sortHint ?? null)){{ $sortHint['text'] }}@if (is_array($sortHint['link'] ?? null)) <a href="{{ $sortHint['link']['href'] }}" data-larena-storage-sort-hint-link>{{ $sortHint['link']['text'] }}</a>@endif @endif</p>
-            {{-- The records list: the same composite and element structure as the Minimal CMS list. --}}
+            {{-- The records list: the same composite and element structure as the Larena CMS list. --}}
             @include('larena-admin::dataview.page', ['dataview' => $dataview, 'owner' => 'larena/storage',
                 'ariaLabel' => __('larena-storage::admin.section.records'), 'queryUrl' => $recordsUrl, 'portUrl' => $portUrl,
                 'filterFields' => $dataViewFilterFields, 'capabilities' => $portCapabilities ?? ['row-actions'], 'openViewInQuery' => true,

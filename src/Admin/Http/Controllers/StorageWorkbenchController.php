@@ -334,8 +334,8 @@ final readonly class StorageWorkbenchController
                 'integer', 'number' => ['control' => 'number', 'defaultOperator' => 'eq', 'operators' => ['eq']],
                 'date' => ['control' => 'date', 'defaultOperator' => 'eq', 'operators' => ['eq']],
                 'boolean' => ['control' => 'single-select', 'defaultOperator' => 'eq', 'operators' => ['eq'],
-                    'options' => [['value' => 'true', 'label' => (string) $this->translator->get('larena-admin::admin.minimal_cms.yes')],
-                        ['value' => 'false', 'label' => (string) $this->translator->get('larena-admin::admin.minimal_cms.no')]]],
+                    'options' => [['value' => 'true', 'label' => (string) $this->translator->get('larena-admin::admin.record_list.yes')],
+                        ['value' => 'false', 'label' => (string) $this->translator->get('larena-admin::admin.record_list.no')]]],
                 default => null,
             };
             if ($filter !== null) {
