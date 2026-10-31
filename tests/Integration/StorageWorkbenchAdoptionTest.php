@@ -68,7 +68,7 @@ function storageAdoptionSnapshot(Connection $connection): array
 
 try {
     $actor = 'actor:admin:alpha';
-    $scope = 'scope:minimal-cms';
+    $scope = 'scope:main';
     storageViewInstall($connection);
     $root = __DIR__ . '/../../database/migrations';
     foreach ([

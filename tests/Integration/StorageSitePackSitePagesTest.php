@@ -38,7 +38,7 @@ require_once __DIR__ . '/../Support/storage-sitepack-import-fixture.php';
 // - a cancelled merge removes only the records it wrote; the adopted structure stays.
 
 const SITE_PAGES_PACK_ADMIN = 'user:admin_identity:1';
-const SITE_PAGES_PACK_SCOPE = 'scope:minimal-cms';
+const SITE_PAGES_PACK_SCOPE = 'scope:main';
 const SITE_PAGES_PACK_SITE = 'site:main';
 
 /**

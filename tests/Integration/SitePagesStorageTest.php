@@ -47,7 +47,7 @@ require_once __DIR__ . '/../Support/storage-view-fixture.php';
 //   its JSON (empty params `{}`); an optional html or content field is a safe schema addition.
 
 const SITE_PAGES_ACTOR = 'user:admin_identity:1';
-const SITE_PAGES_SCOPE = 'scope:minimal-cms';
+const SITE_PAGES_SCOPE = 'scope:main';
 
 /** @return array{connection: Connection, workbench: DatabaseStorageWorkbench, views: StorageViewSync, starter: StarterSite, pages: SitePagesStorage, path: string} */
 function sitePagesInstallation(): array

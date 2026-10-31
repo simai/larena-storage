@@ -13,7 +13,7 @@ function hierarchyCreateRecords(object $workbench, string $structureId, array $r
 {
     foreach ($records as $index => $record) {
         $workbench->createRecord(
-            'scope:minimal-cms',
+            'scope:main',
             $structureId,
             $record,
             'actor:admin:minimal-cms',
@@ -26,7 +26,7 @@ function hierarchyCreateRecords(object $workbench, string $structureId, array $r
 function hierarchyRoundTrip(object $workbench, string $structureId): array
 {
     $page = $workbench->listRecords(new StorageWorkbenchRecordQuery(
-        'scope:minimal-cms',
+        'scope:main',
         $structureId,
         sort: [['field' => 'code', 'direction' => 'asc']],
         limit: 100,
@@ -52,12 +52,12 @@ $opened = workbenchOpen($path);
 try {
     workbenchInstall();
     $runtime = workbenchRuntime($opened['connection'], new WorkbenchScopeProvider([
-        'actor:admin:minimal-cms' => 'scope:minimal-cms',
+        'actor:admin:minimal-cms' => 'scope:main',
     ]));
     $workbench = $runtime['workbench'];
 
-    $site = $workbench->createStructure('scope:minimal-cms', HierarchyFixtures::siteStructure(), 'actor:admin:minimal-cms');
-    $organization = $workbench->createStructure('scope:minimal-cms', HierarchyFixtures::organizationStructure(), 'actor:admin:minimal-cms');
+    $site = $workbench->createStructure('scope:main', HierarchyFixtures::siteStructure(), 'actor:admin:minimal-cms');
+    $organization = $workbench->createStructure('scope:main', HierarchyFixtures::organizationStructure(), 'actor:admin:minimal-cms');
     workbenchExpect($site->schema->schemaId !== $organization->schema->schemaId, 'named hierarchies share a schema');
 
     hierarchyCreateRecords($workbench, $site->structureId, HierarchyFixtures::siteRecords());

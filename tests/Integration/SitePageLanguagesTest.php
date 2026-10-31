@@ -43,7 +43,7 @@ require_once __DIR__ . '/../Support/storage-encryption-fixture.php';
 //   `home` in every language; a translated slug is refused on a revision that is out.
 
 const SITE_LANGUAGES_ADMIN = 'user:admin_identity:1';
-const SITE_LANGUAGES_SCOPE = 'scope:minimal-cms';
+const SITE_LANGUAGES_SCOPE = 'scope:main';
 const SITE_LANGUAGES_SITE = 'site:main';
 
 /** @return array<string, mixed> */

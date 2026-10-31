@@ -17,7 +17,7 @@ use Larena\Storage\Runtime\StarterStructureRoles;
 
 /**
  * Each site's «Переадресации» / "Redirects" (larena-specs docs/architecture/2026-10-29-sites-work-plan.md, step 2.6): an
- * ordinary storage, `workbench.site_redirects`, in the site's workbench scope (its data scope: `scope:minimal-cms` for
+ * ordinary storage, `workbench.site_redirects`, in the site's workbench scope (its data scope: `scope:main` for
  * Root's main site), bound to site_redirect@v1 in the site. A new installation gets it once its first run has
  * committed, after the site pages (SiteFirstRunContributor); an existing one with larena:storage:site-redirects.
  *

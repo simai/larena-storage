@@ -63,11 +63,11 @@ require_once __DIR__ . '/../Support/storage-sitepack-import-fixture.php';
 // - a pack of the storage moves the rules into another installation as ordinary records with their publication.
 
 const SITE_REDIRECTS_ADMIN = 'user:admin_identity:1';
-const SITE_REDIRECTS_SCOPE = 'scope:minimal-cms';
+const SITE_REDIRECTS_SCOPE = 'scope:main';
 const SITE_REDIRECTS_SITE = 'site:main';
 
 /**
- * One installation on its own SQLite file: the site (site:main, data scope scope:minimal-cms), the workbench with
+ * One installation on its own SQLite file: the site (site:main, data scope scope:main), the workbench with
  * the site redirect checks, the publication lifecycle telling the maps, and the SitePack runtime.
  *
  * @return array<string, mixed>

@@ -903,7 +903,7 @@ final class StorageServiceProvider extends ServiceProvider
 
                 return $sites !== [] ? $sites : [$app->make(ScopeBaselineInstaller::class)->defaultSiteRef()->toString()];
             },
-            // A site's storages live in its data scope (scope:minimal-cms for Root's main site).
+            // A site's storages live in its data scope (scope:main for Root's main site on a new installation).
             static function (string $siteRef, string $actor) use ($app): string {
                 $ref = ScopeRef::tryParse($siteRef) ?? throw new StorageRejected('site_redirects_site_unknown');
                 $site = $app->make(DatabaseScopeRegistry::class)->read($ref) ?? throw new StorageRejected('site_redirects_site_unknown');

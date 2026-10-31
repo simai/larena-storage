@@ -20,7 +20,7 @@ use Throwable;
  * belongs to the scope they work in (or --scope), the one the storage section lists. A system actor has no scope.
  *
  *   larena:storage:adopt-site-pages --actor=user:admin_identity:1 [--dry-run]
- *   … --scope=scope:minimal-cms   another scope of that administrator
+ *   … --scope=scope:main   another scope of that administrator
  *   … --locale=en                 the language of the storage's name (the application's by default)
  *   … --json                      the machine-readable receipt only
  */

@@ -77,7 +77,7 @@ function severalSitesInstallation(array $denied = []): array
     $scopes = new DatabaseScopeRegistry($connection);
     $starter = new StarterSite($connection, $runtime['storage'], $roles, new StarterStructureRoles($roles),
         new ScopeBaselineInstaller($connection, $scopes, new DatabasePlaneRegistry($connection, $scopes)));
-    $pages = new SitePagesStorage($connection, $runtime['workbench'], static fn (string $actor): string => 'scope:minimal-cms');
+    $pages = new SitePagesStorage($connection, $runtime['workbench'], static fn (string $actor): string => 'scope:main');
     $redirects = new SiteRedirectsStorage($connection, $runtime['workbench'], $roles, new StarterStructureRoles($roles), new SiteRedirectRules($connection),
         static fn (): array => [], static fn (string $site, string $actor): string => (string) $scopes->read(ScopeRef::parse($site))?->dataRef());
 
@@ -120,7 +120,7 @@ try {
     $one = severalSitesInstallation();
     $paths[] = $one['path'];
     $one['starter']->apply(SEVERAL_SITES_ADMIN, 'Main', 'en');
-    $one['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:minimal-cms');
+    $one['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:main');
     severalSitesSite($one, 'shop');
     $made = $one['new']->create('site:shop', 'scope:shop', 'Shop', 'ru', SEVERAL_SITES_ADMIN);
     $shopSchema = $made['schema_id'];
@@ -137,7 +137,7 @@ try {
         && $one['connection']->table('larena_storage_records')->where('schema_id', $shopSchema)->count() === 1, 'running again changes nothing');
 
     // ===== Roles read in their scope; one address on two sites. =====
-    severalSitesPage($one, 'site:main', 'scope:minimal-cms', StarterSite::SCHEMA_ID, 'about', 'Main about');
+    severalSitesPage($one, 'site:main', 'scope:main', StarterSite::SCHEMA_ID, 'about', 'Main about');
     severalSitesPage($one, 'site:shop', 'scope:shop', $shopSchema, 'about', 'Shop about');
     $read = new DatabaseReadContracts($one['connection'], $one['runtime']['localized']);
     $title = static fn (DatabaseReadContracts $reader, string $site): ?string => $reader->resolveKey(StarterSite::ROLE_REF, $site, 'en', 'slug', 'about')?->values['title'] ?? null;
@@ -172,7 +172,7 @@ try {
     // ===== A site's domains in its pack. =====
     $one['bindings']->replace(ScopeRef::parse('site:main'), [['host' => 'example.ru'], ['host' => 'www.example.ru', 'role' => 'redirect']], SEVERAL_SITES_ADMIN);
     $exporter = ($one['runtime']['sitePack'])(['siteBindings' => $one['bindings']]);
-    $run = $exporter->startExport('scope:minimal-cms', SitePagesStorage::STRUCTURE_ID, SEVERAL_SITES_ADMIN, null, false);
+    $run = $exporter->startExport('scope:main', SitePagesStorage::STRUCTURE_ID, SEVERAL_SITES_ADMIN, null, false);
     $run = $exporter->run($run->runRef, SEVERAL_SITES_ADMIN);
     storageViewExpect($run->isDone(), 'the export ended: ' . json_encode($run->toArray()));
     $pack = tempnam(sys_get_temp_dir(), 'larena-several-sites-pack-') . '.zip';
@@ -188,16 +188,16 @@ try {
     $clean = severalSitesInstallation();
     $paths[] = $clean['path'];
     $clean['starter']->apply(SEVERAL_SITES_ADMIN, 'Main', 'en');
-    $clean['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:minimal-cms');
+    $clean['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:main');
     $site = ScopeRef::parse('site:main');
-    $plan = severalSitesPlan($clean, $pack, 'scope:minimal-cms', 'site:main', new StorageSitePackImportOptions())->plan;
+    $plan = severalSitesPlan($clean, $pack, 'scope:main', 'site:main', new StorageSitePackImportOptions())->plan;
     storageViewExpect($plan?->domains === ['total' => 2, 'transfer' => false, 'hosts' => ['example.ru', 'www.example.ru']], 'the plan names them, off');
     storageViewExpect($plan->errors === [], 'without the domains nothing is wrong: ' . json_encode($plan->errors));
 
     // A domain another site holds is an error naming it; apply is refused.
     severalSitesSite($clean, 'other');
     $clean['bindings']->replace(ScopeRef::parse('site:other'), [['host' => 'www.example.ru']], SEVERAL_SITES_ADMIN);
-    $taken = severalSitesPlan($clean, $pack, 'scope:minimal-cms', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
+    $taken = severalSitesPlan($clean, $pack, 'scope:main', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
     storageViewExpect($taken->plan?->errors === [['code' => 'site_domain_taken', 'count' => 1, 'subject' => 'www.example.ru']], 'named: ' . json_encode($taken->plan?->errors));
     $sitePack = ($clean['runtime']['sitePack'])(['siteBindings' => $clean['bindings']]);
     try {
@@ -210,7 +210,7 @@ try {
 
     // Free again: asked for, the domains come with the import.
     $clean['bindings']->replace(ScopeRef::parse('site:other'), [], SEVERAL_SITES_ADMIN);
-    $asked = severalSitesPlan($clean, $pack, 'scope:minimal-cms', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
+    $asked = severalSitesPlan($clean, $pack, 'scope:main', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
     storageViewExpect($asked->plan?->ok() === true && $asked->plan->domains['transfer'] === true, 'the plan may go: ' . json_encode($asked->plan?->errors));
     $sitePack->apply($asked->runRef, (string) $asked->planDigest, SEVERAL_SITES_ADMIN, null, false);
     $done = $sitePack->run($asked->runRef, SEVERAL_SITES_ADMIN);
@@ -222,9 +222,9 @@ try {
     $late = severalSitesInstallation();
     $paths[] = $late['path'];
     $late['starter']->apply(SEVERAL_SITES_ADMIN, 'Main', 'en');
-    $late['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:minimal-cms');
+    $late['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:main');
     severalSitesSite($late, 'other');
-    $racing = severalSitesPlan($late, $pack, 'scope:minimal-cms', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
+    $racing = severalSitesPlan($late, $pack, 'scope:main', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
     $late['bindings']->replace(ScopeRef::parse('site:other'), [['host' => 'example.ru']], SEVERAL_SITES_ADMIN);
     $lateSitePack = ($late['runtime']['sitePack'])(['siteBindings' => $late['bindings']]);
     $lateSitePack->apply($racing->runRef, (string) $racing->planDigest, SEVERAL_SITES_ADMIN, null, false);
@@ -240,8 +240,8 @@ try {
     $denied = severalSitesInstallation(['admin.site_settings.write']);
     $paths[] = $denied['path'];
     $denied['starter']->apply(SEVERAL_SITES_ADMIN, 'Main', 'en');
-    $denied['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:minimal-cms');
-    $refused = severalSitesPlan($denied, $pack, 'scope:minimal-cms', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
+    $denied['pages']->adopt(SEVERAL_SITES_ADMIN, 'scope:main');
+    $refused = severalSitesPlan($denied, $pack, 'scope:main', 'site:main', new StorageSitePackImportOptions(transferDomains: true));
     storageViewExpect($refused->plan?->errorCodes() === ['site_domains_denied'], 'denied: ' . json_encode($refused->plan?->errors));
 
     fwrite(STDOUT, "SeveralSitesStorageTest passed\n");
