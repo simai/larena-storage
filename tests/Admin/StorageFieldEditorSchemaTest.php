@@ -371,7 +371,7 @@ try {
         PropertySettingKind::Integer->value => 'integer', PropertySettingKind::Decimal->value => 'number', PropertySettingKind::Date->value => 'date',
         PropertySettingKind::DateTime->value => 'datetime', PropertySettingKind::String->value => 'string', PropertySettingKind::StringList->value => 'text',
         PropertySettingKind::Options->value => 'text', PropertySettingKind::StructureReference->value => 'lookup', PropertySettingKind::OptionSource->value => 'choice',
-        PropertySettingKind::Boolean->value => 'boolean',
+        PropertySettingKind::Boolean->value => 'boolean', PropertySettingKind::Columns->value => 'text',
     ];
     $settingLabels = require dirname(__DIR__, 3) . '/property/resources/lang/ru/settings.php';
     $catalog = PropertyTypeSettingsCatalog::builtIns();
@@ -396,13 +396,13 @@ try {
     assert(!isset($createdRecord['larena_field_types']) && !isset($createdRecord['larena_field_type']));
     // The fields every type has carry no condition; search and the index go while «Шифровать» is on.
     assert(!isset($created['label']['when']) && !isset($created['type']['when']) && !isset($created['required']['when']));
-    assert($shownFor($created['searchable']) === ['string', 'text', 'phone'] && $created['searchable']['when']['visible']['all'][1]
+    assert($shownFor($created['searchable']) === ['string', 'text', 'phone', 'ru.inn'] && $created['searchable']['when']['visible']['all'][1]
         === ['not' => ['field' => 'encrypted', 'op' => 'eq', 'value' => true]]);
     assert($shownFor($created['localized']) === ['string', 'text'] && $shownFor($created['encrypted']) === $map['encrypted']);
     // One key with different kinds is one editor field a kind (min: a whole number, a decimal, a date, a date-time).
-    assert($map['min__integer'] === ['integer'] && $map['min__decimal'] === ['number'] && $map['min__date'] === ['date'] && $map['min__datetime'] === ['datetime']);
+    assert($map['min__integer'] === ['integer'] && $map['min__decimal'] === ['number', 'percent', 'money'] && $map['min__date'] === ['date'] && $map['min__datetime'] === ['datetime']);
     assert($map['max_length'] === ['string', 'text', 'html'] && $map['options_text'] === ['choice', 'choices'] && $map['source'] === ['lookup'] && $map['target_structure_id'] === ['record']);
-    assert($map['searchable'] === ['string', 'text', 'phone'] && $map['localized'] === ['string', 'text'] && $map['indexed'] === ['string']);
+    assert($map['searchable'] === ['string', 'text', 'phone', 'ru.inn'] && $map['localized'] === ['string', 'text'] && $map['indexed'] === ['string']);
     // A lookup chooses among the registered sources; a «Storage record» field picks a storage with search.
     assert(array_column($created['source']['options'], 'label', 'value') === ['storage.structures' => 'Хранилища', 'test.zones' => 'Часовые пояса']);
     assert($created['target_structure_id']['source'] === 'storage.structures');

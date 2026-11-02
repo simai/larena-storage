@@ -102,6 +102,13 @@ final readonly class SchemaDefinitionNormalizer
                     }
                     continue;
                 }
+                // The columns of a rows field: a list of column objects, which Property checks below.
+                if ($kind === PropertySettingKind::Columns) {
+                    if (!is_array($constraintValue) || !array_is_list($constraintValue)) {
+                        throw new StorageRejected('storage_schema_constraint_invalid');
+                    }
+                    continue;
+                }
                 if (!is_scalar($constraintValue)) {
                     throw new StorageRejected('storage_schema_constraint_invalid');
                 }

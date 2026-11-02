@@ -618,6 +618,7 @@ final class StorageFieldPropertyViewPort extends PropertyViewPort
             $settings[$key] = match ($setting->kind) {
                 Kind::Options => self::optionsText(is_array($value) ? $value : []),
                 Kind::StringList => is_array($value) ? implode("\n", array_filter($value, 'is_string')) : null,
+                Kind::Columns => PropertyTypeSettingsForm::columnsText($value),
                 default => is_scalar($value) ? $value : null,
             };
         }

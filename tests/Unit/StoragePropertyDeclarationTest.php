@@ -28,7 +28,7 @@ foreach ($catalog->typeKeys() as $type) {
     $expect(StorageViewFieldOptions::indexedKind($type) === $catalog->can($type, 'indexable'), 'indexable ' . $type);
     $expect(StorageEncryptionPolicy::encryptable($type) === $catalog->can($type, 'encryptable'), 'encryptable ' . $type);
 }
-$expect(StorageEncryptionPolicy::encryptableTypes() === ['string', 'text', 'integer', 'number', 'date', 'datetime'], 'the encryptable types');
+$expect(StorageEncryptionPolicy::encryptableTypes() === ['string', 'text', 'integer', 'number', 'date', 'datetime', 'percent', 'ru.inn'], 'the encryptable types');
 $expect(!StorageViewFieldOptions::searchableKind('') && !StorageEncryptionPolicy::encryptable('unknown'), 'an unknown type takes nothing');
 
 $expect(StorageViewFieldOptions::indexableLength(['type' => 'string', 'constraints' => ['max_length' => 255]]) === 255, 'a 255 string is indexable');
