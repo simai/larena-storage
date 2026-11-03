@@ -688,6 +688,59 @@ try {
     background_jobs_assert($reasons === ['НДС:value_not_number', 'Сумма:value_invalid', 'Сбор:value_currency_missing', 'ИНН:value_invalid', 'Плательщик:value_not_requisites'],
         'A wrong percent, a sum in another currency than the field\'s, a sum without one, a wrong INN and requisites are said in the plan: '.json_encode($reasons, JSON_UNESCAPED_UNICODE));
 
+    // ── References: a person, a file and a record by the name the export writes or by the stored ID, found among the
+    // record form's choices; a name two choices share, an unknown one and content (relation) are said in the plan. ──
+    $workbench->createStructure('scope:alpha', ['structure_id' => 'workbench.tasks', 'label' => 'Задачи', 'fields' => [
+        ['key' => 'name', 'label' => 'Имя', 'type' => 'string', 'required' => true],
+        ['key' => 'owner', 'label' => 'Ответственный', 'type' => 'user'],
+        ['key' => 'scan', 'label' => 'Скан', 'type' => 'file'],
+        ['key' => 'person', 'label' => 'Человек', 'type' => 'record', 'constraints' => ['target_structure_id' => 'workbench.people']],
+        ['key' => 'page', 'label' => 'Страница', 'type' => 'relation'],
+    ]], $admin);
+    $personId = $existing['workbench.people'][0];
+    $choices = new class($personId) implements \Larena\Admin\Contracts\RecordFilterOptionsGateway {
+        public int $pages = 0;
+        public function __construct(private string $personId) {}
+        public function page(string $actorRef, string $scopeRef, string $structureId, string $fieldKey, ?string $cursor, int $limit, array $selectedValues): array
+        {
+            $all = match ($fieldKey) {
+                'owner' => [['value' => 'user:admin_identity:1', 'label' => 'Анна Админ'], ['value' => 'user:admin_identity:2', 'label' => 'Борис'],
+                    ['value' => 'user:admin_identity:3', 'label' => 'Борис']],
+                'scan' => [['value' => '0f8fad5b-d9cb-469f-a165-70867728950e', 'label' => 'Договор.pdf']],
+                'person' => [['value' => $this->personId, 'label' => 'Иван']],
+                default => throw new \InvalidArgumentException('record_filter_options_field_invalid'),
+            };
+            if ($selectedValues === []) {
+                $this->pages++;
+            }
+
+            return ['items' => $all, 'next_cursor' => null, 'searchable' => false,
+                'selected' => array_values(array_filter($all, static fn (array $item): bool => in_array($item['value'], $selectedValues, true)))];
+        }
+    };
+    $referenced = new StorageCsvImport($workbench, $scopes, $connection, \Larena\Property\Runtime\PropertyTypeRegistry::builtIns(), $choices);
+    $tasks = $referenced->plan($admin, 'workbench.tasks', "Имя,Ответственный,Скан,Человек,Страница\n"
+        ."Задача 1,анна админ,Договор.pdf,Иван,Главная\n"
+        ."Задача 2,user:admin_identity:2,0F8FAD5B-D9CB-469F-A165-70867728950E,{$personId},\n"
+        ."Задача 3,,,,\n", $gateway->permissions($admin));
+    $skippedTasks = array_values(array_filter(array_map(static fn (array $column): ?string => $column['skipped'], $tasks['columns'])));
+    $planned = array_map(static fn (array $row): array => $row['values'], $tasks['rows']);
+    background_jobs_assert($tasks['errors'] === [] && $tasks['counts']['create'] === 3 && $skippedTasks === ['column_reference'],
+        'References by name and by ID are planned; content stays skipped: '.json_encode($tasks, JSON_UNESCAPED_UNICODE));
+    $scan = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    background_jobs_assert($planned === [['name' => 'Задача 1', 'owner' => 'user:admin_identity:1', 'person' => $personId, 'scan' => $scan],
+        ['name' => 'Задача 2', 'owner' => 'user:admin_identity:2', 'person' => $personId, 'scan' => $scan], ['name' => 'Задача 3']],
+        'A name becomes the stored ID; an ID in capitals is stored in lower case: '.json_encode($planned, JSON_UNESCAPED_UNICODE));
+    background_jobs_assert($choices->pages === 3, 'The choices are read once per field and plan: '.$choices->pages);
+    $wrongTasks = $referenced->plan($admin, 'workbench.tasks', "Имя,Ответственный,Скан,Человек\n"
+        ."Задача 4,Борис,Чужой.pdf,record-".str_repeat('0', 32)."\n", $gateway->permissions($admin));
+    $taskReasons = array_map(static fn (array $found): string => $found['column'].':'.$found['reason'], $wrongTasks['errors']);
+    background_jobs_assert($taskReasons === ['Ответственный:value_reference_ambiguous', 'Скан:value_reference_unknown', 'Человек:value_reference_unknown'],
+        'A shared name, an unknown name and an unknown ID are said in the plan: '.json_encode($taskReasons, JSON_UNESCAPED_UNICODE));
+    $withoutChoices = $typed->plan($admin, 'workbench.tasks', "Имя,Ответственный\nЗадача 5,Борис\n", $gateway->permissions($admin));
+    background_jobs_assert(array_column($withoutChoices['columns'], 'skipped') === [null, 'column_reference'] && $withoutChoices['errors'] === [],
+        'Without the record form\'s choices a reference is skipped as before.');
+
     // ── Access refusal: a person without the import right gets no job run, and reaches no one else's job. ──
     $readerToken = bin2hex(random_bytes(16));
     $files->keepUpload($reader, $readerToken, $staleCsv);

@@ -6,6 +6,7 @@ namespace Larena\Storage\Admin;
 
 use Illuminate\Database\ConnectionInterface;
 use Larena\Storage\Admin\Contracts\StorageSectionScope;
+use Larena\Admin\Contracts\RecordFilterOptionsGateway;
 use Larena\Admin\Runtime\RecordFilterFields;
 use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
@@ -36,8 +37,12 @@ use Throwable;
  * writes them: an option by its label or value, «Да» / «Нет», numbers and dates as a Russian spreadsheet shows them,
  * a percent with or without its sign, a sum with its currency sign or code («2 499,99 ₽», «10 USD»; a field with its
  * own currency takes the bare amount), requisites as «ИНН …, КПП …, р/с …». Each value is then checked by its
- * Property type, so a wrong INN or phone is said in the plan, not refused at the write. Fields that point at a person,
- * a file or another record, and the rows of a document (items), are not imported; the plan says so.
+ * Property type, so a wrong INN or phone is said in the plan, not refused at the write.
+ *
+ * A field that points at a person, a file or another record takes what the export writes, its name, or the ID it
+ * stores; the name is looked up among the choices the record form offers, and a name two of them share is refused
+ * («value_reference_ambiguous»). A field that points at content (relation), and the rows of a document (items), are
+ * not imported; the plan says so.
  */
 final readonly class StorageCsvImport
 {
@@ -50,6 +55,11 @@ final readonly class StorageCsvImport
     /** A storage of at most this many records per wanted ID is read page by page rather than record by record. */
     private const SCAN_FACTOR = 20;
     private const SCAN_PAGE = 100;
+    /** A reference field's choices read to find names: at most this many pages of {@see SCAN_PAGE}; beyond, the ID is asked for. */
+    private const REFERENCE_PAGES = 50;
+    /** The IDs each reference type stores (Property: user@1, file@1, record@1). */
+    private const REFERENCE_IDS = ['user' => '/\Auser:[a-z][a-z0-9_]{0,63}:[1-9][0-9]{0,19}\z/D',
+        'file' => '/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/D', 'record' => '/\Arecord-[0-9a-fA-F]{32}\z/D'];
     private const RECORD_ID = '/\Arecord-[a-f0-9]{32}\z/D';
     /** The signs the export writes after a sum (Property's PropertyDisplayProjector), back to their codes. */
     private const CURRENCY_SIGNS = ['₽' => 'RUB', 'руб' => 'RUB', 'р' => 'RUB', '$' => 'USD', '€' => 'EUR', '₸' => 'KZT', 'Br' => 'BYN', '¥' => 'CNY'];
@@ -63,6 +73,7 @@ final readonly class StorageCsvImport
         private StorageSectionScope $scopes,
         private ConnectionInterface $database,
         private ?PropertyTypeRegistry $propertyTypes = null,
+        private ?RecordFilterOptionsGateway $references = null,
     ) {
     }
 
@@ -292,6 +303,10 @@ final readonly class StorageCsvImport
         $line = 0;
         $header = null;
         $window = [];
+        $choices = [];
+        $reference = function (string $key, string $cell) use (&$choices, $actor, $scope, $structureId, $fields): array {
+            return $this->reference($actor, $scope, $structureId, $key, (string) $fields[$key]['type'], $cell, $choices);
+        };
         $snapshot = static function () use (&$line, &$rows, &$counts, &$errors, &$errorCount, $digest, $fingerprint): array {
             return ['line' => $line, 'rows' => $rows, 'structure' => $fingerprint, 'counts' => $counts, 'errors' => $errors,
                 'error_count' => $errorCount, 'digest' => base64_encode(serialize(hash_copy($digest)))];
@@ -301,7 +316,7 @@ final readonly class StorageCsvImport
                 $line++;
                 if ($header === null) {
                     $header = $cells;
-                    [$columns, $idColumn] = self::columns($cells, $fields);
+                    [$columns, $idColumn] = self::columns($cells, $fields, $this->references !== null);
                     continue;
                 }
                 if ($line - 1 > self::MAX_ROWS) {
@@ -321,7 +336,7 @@ final readonly class StorageCsvImport
                 }
                 $window[] = [$line, $cells];
                 if (count($window) >= self::PLAN_WINDOW) {
-                    $this->window($scope, $structureId, $actor, $window, $columns, $idColumn, $fields, $permissions, $seen, $counts, $size, $digest, $error, $onRow);
+                    $this->window($scope, $structureId, $actor, $window, $columns, $idColumn, $fields, $permissions, $seen, $counts, $size, $digest, $error, $onRow, $reference);
                     $window = [];
                     if ($checkpoint !== null) {
                         $checkpoint($snapshot());
@@ -329,7 +344,7 @@ final readonly class StorageCsvImport
                 }
             }
             if ($window !== []) {
-                $this->window($scope, $structureId, $actor, $window, $columns, $idColumn, $fields, $permissions, $seen, $counts, $size, $digest, $error, $onRow);
+                $this->window($scope, $structureId, $actor, $window, $columns, $idColumn, $fields, $permissions, $seen, $counts, $size, $digest, $error, $onRow, $reference);
             }
         } finally {
             fclose($stream['stream']);
@@ -353,9 +368,10 @@ final readonly class StorageCsvImport
      * @param array{create: int, update: int, same: int} $counts
      * @param callable(array{line: int, column: string, reason: string}): void $error
      * @param callable(array{line: int, action: string, record_id: ?string, revision: ?int, values: array<string, mixed>}): void $onRow
+     * @param callable(string, string): array{0: ?string, 1: ?string} $reference a reference cell as its field stores it
      */
     private function window(string $scope, string $structureId, string $actor, array $window, array $columns, ?int $idColumn, array $fields,
-        array $permissions, array &$seen, array &$counts, ?int &$size, \HashContext $digest, callable $error, callable $onRow): void
+        array $permissions, array &$seen, array &$counts, ?int &$size, \HashContext $digest, callable $error, callable $onRow, callable $reference): void
     {
         $ids = [];
         foreach ($window as [, $cells]) {
@@ -366,7 +382,7 @@ final readonly class StorageCsvImport
         }
         $records = $this->records($scope, $structureId, $actor, array_keys($ids), $size);
         foreach ($window as [$line, $cells]) {
-            $row = $this->row($line, $cells, $columns, $idColumn, $fields, $permissions, $seen, $records, $error);
+            $row = $this->row($line, $cells, $columns, $idColumn, $fields, $permissions, $seen, $records, $error, $reference);
             if ($row === null) {
                 continue;
             }
@@ -475,9 +491,10 @@ final readonly class StorageCsvImport
      *
      * @param list<string> $header
      * @param array<string, array<string, mixed>> $fields
+     * @param bool $references whether a person, a file or a record can be found by its name or ID
      * @return array{0: array<int, array{header: string, key: ?string, field: ?string, skipped: ?string}>, 1: ?int}
      */
-    private static function columns(array $header, array $fields): array
+    private static function columns(array $header, array $fields, bool $references): array
     {
         $columns = [];
         $idColumn = null;
@@ -499,8 +516,9 @@ final readonly class StorageCsvImport
             }
             $skipped = match (true) {
                 $key === null => 'column_unknown',
-                // A reference (Property: reference) names something the file cannot.
-                RecordFilterFields::referenceType($fields[$key]['type'] ?? null) => 'column_reference',
+                // A reference is found by its name or ID among the record form's choices; content (relation) is not.
+                RecordFilterFields::referenceType($fields[$key]['type'] ?? null)
+                    && !($references && self::referenceTypeImported($fields[$key])) => 'column_reference',
                 // An encrypted field is not imported: the import cannot compare what it would overwrite, and its
                 // values never appear in a plan. The record keeps the value it has.
                 StorageEncryptedFields::isEncrypted($fields[$key]) => 'column_encrypted',
@@ -530,10 +548,11 @@ final readonly class StorageCsvImport
      * @param array<string, bool> $seen
      * @param array<string, StorageWorkbenchRecord> $records the window's records by their IDs
      * @param callable(array{line: int, column: string, reason: string}): void $error
+     * @param callable(string, string): array{0: ?string, 1: ?string} $reference
      * @return array{line: int, action: string, record_id: ?string, revision: ?int, values: array<string, mixed>}|null
      */
     private function row(int $line, array $cells, array $columns, ?int $idColumn, array $fields, array $permissions, array &$seen,
-        array $records, callable $error): ?array
+        array $records, callable $error, callable $reference): ?array
     {
         $id = $idColumn !== null ? trim($cells[$idColumn] ?? '') : '';
         $current = null;
@@ -562,7 +581,10 @@ final readonly class StorageCsvImport
             if ($column['key'] === null) {
                 continue;
             }
-            [$value, $reason] = self::value($fields[$column['key']], self::unescape(trim($cells[$index] ?? '')));
+            $cell = self::unescape(trim($cells[$index] ?? ''));
+            [$value, $reason] = $cell !== '' && self::referenceTypeImported($fields[$column['key']])
+                ? $reference($column['key'], $cell)
+                : self::value($fields[$column['key']], $cell);
             if ($reason === null && $value !== null) {
                 [$value, $reason] = $this->checked($fields[$column['key']], $value);
             }
@@ -594,6 +616,74 @@ final readonly class StorageCsvImport
 
         return ['line' => $line, 'action' => $action, 'record_id' => $current?->recordId,
             'revision' => $current?->revision, 'values' => $values];
+    }
+
+    /** @param array<string, mixed> $field */
+    private static function referenceTypeImported(array $field): bool
+    {
+        return isset(self::REFERENCE_IDS[$field['type'] ?? '']) && ($field['type_version'] ?? 1) === 1;
+    }
+
+    /**
+     * A reference cell as its field stores it: the ID it stores, checked to be one of the field's choices, or a name
+     * found among them. The choices are read once per field and plan, and an ID once per value.
+     *
+     * @param array<string, array{ids: array<string, ?string>, names: ?array<string, list<string>>, complete: bool, failed: bool}> $choices
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function reference(string $actor, string $scope, string $structureId, string $key, string $type, string $cell, array &$choices): array
+    {
+        if ($this->references === null) {
+            return [null, 'value_reference_unavailable'];
+        }
+        $choices[$key] ??= ['ids' => [], 'names' => null, 'complete' => false, 'failed' => false];
+        $known = &$choices[$key];
+        if (preg_match(self::REFERENCE_IDS[$type], $cell) === 1) {
+            $id = $type === 'user' ? $cell : strtolower($cell);
+            if (!array_key_exists($id, $known['ids'])) {
+                try {
+                    $selected = $this->references->page($actor, $scope, $structureId, $key, null, 1, [$id])['selected'];
+                    $known['ids'][$id] = in_array($id, array_column($selected, 'value'), true) ? $id : null;
+                } catch (Throwable) {
+                    return [null, 'value_reference_unavailable'];
+                }
+            }
+
+            return $known['ids'][$id] !== null ? [$id, null] : [null, 'value_reference_unknown'];
+        }
+        if ($known['names'] === null && !$known['failed']) {
+            $names = [];
+            try {
+                $cursor = null;
+                $pages = 0;
+                do {
+                    $page = $this->references->page($actor, $scope, $structureId, $key, $cursor, self::SCAN_PAGE, []);
+                    foreach ($page['items'] as $item) {
+                        $name = mb_strtolower(trim((string) $item['label']));
+                        if (!in_array((string) $item['value'], $names[$name] ?? [], true)) {
+                            $names[$name][] = (string) $item['value'];
+                        }
+                    }
+                    $cursor = $page['next_cursor'];
+                } while ($cursor !== null && ++$pages < self::REFERENCE_PAGES);
+                $known['names'] = $names;
+                $known['complete'] = $cursor === null;
+            } catch (Throwable) {
+                $known['failed'] = true;
+            }
+        }
+        if ($known['failed']) {
+            return [null, 'value_reference_unavailable'];
+        }
+        $found = $known['names'][mb_strtolower($cell)] ?? [];
+
+        return match (true) {
+            count($found) === 1 => [$found[0], null],
+            count($found) > 1 => [null, 'value_reference_ambiguous'],
+            // Not among the choices read: there may be more than were read, then only the ID finds it.
+            $known['complete'] => [null, 'value_reference_unknown'],
+            default => [null, 'value_reference_by_id'],
+        };
     }
 
     /** @return array{columns: list<never>, errors: list<array{line: int, column: string, reason: string}>, error_count: int, counts: array{create: int, update: int, same: int}, digest: string} */
