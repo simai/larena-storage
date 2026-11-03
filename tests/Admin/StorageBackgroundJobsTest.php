@@ -664,6 +664,30 @@ try {
     background_jobs_assert($stale?->status === JobStatus::Failed && $stale->failureReason === 'storage_import_changed_meanwhile', 'A changed plan is refused.');
     background_jobs_assert(is_string($staleRef) && !$jobs->jobs($admin, 'workbench.people')[0]['can_retry'], 'A refused plan offers no retry.');
 
+    // ── The document types, read as the export writes them (percent, sum, INN, requisites), each checked by its Property
+    // type in the plan; the rows of a document are not imported. ──
+    $workbench->createStructure('scope:alpha', ['structure_id' => 'workbench.documents', 'label' => 'Документы', 'fields' => [
+        ['key' => 'name', 'label' => 'Имя', 'type' => 'string', 'required' => true],
+        ['key' => 'vat', 'label' => 'НДС', 'type' => 'percent'],
+        ['key' => 'total', 'label' => 'Сумма', 'type' => 'money', 'constraints' => ['currency' => 'RUB']],
+        ['key' => 'fee', 'label' => 'Сбор', 'type' => 'money'],
+        ['key' => 'inn', 'label' => 'ИНН', 'type' => 'ru.inn'],
+        ['key' => 'payer', 'label' => 'Плательщик', 'type' => 'ru.requisites'],
+        ['key' => 'lines', 'label' => 'Строки', 'type' => 'items', 'constraints' => ['columns' => [['key' => 'title', 'label' => 'Наименование', 'type' => 'string']]]],
+    ]], $admin);
+    $typed = new StorageCsvImport($workbench, $scopes, $connection, \Larena\Property\Runtime\PropertyTypeRegistry::builtIns());
+    $documents = $typed->plan($admin, 'workbench.documents', "Имя,НДС,Сумма,Сбор,ИНН,Плательщик,Строки\n"
+        ."Счёт 1,\"20,5 %\",\"2\u{00A0}499,99\u{00A0}₽\",10 USD,7707083893,\"ИНН 7707083893, КПП 773601001\",\"2 строки\"\n"
+        ."Счёт 2,20,1500,\"10,00 $\",,7707083893,\n", $gateway->permissions($admin));
+    $skipped = array_values(array_filter(array_map(static fn (array $column): ?string => $column['skipped'], $documents['columns'])));
+    background_jobs_assert($documents['errors'] === [] && $documents['counts']['create'] === 2 && $skipped === ['column_rows'],
+        'Percent, sums, INN and requisites as the export writes them are planned; the rows of a document are skipped: '.json_encode($documents, JSON_UNESCAPED_UNICODE));
+    $wrong = $typed->plan($admin, 'workbench.documents', "Имя,НДС,Сумма,Сбор,ИНН,Плательщик\n"
+        ."Счёт 3,двадцать,\"10 €\",15,7707083894,\"ИНН 7707083893, адрес 1\"\n", $gateway->permissions($admin));
+    $reasons = array_map(static fn (array $found): string => $found['column'].':'.$found['reason'], $wrong['errors']);
+    background_jobs_assert($reasons === ['НДС:value_not_number', 'Сумма:value_invalid', 'Сбор:value_currency_missing', 'ИНН:value_invalid', 'Плательщик:value_not_requisites'],
+        'A wrong percent, a sum in another currency than the field\'s, a sum without one, a wrong INN and requisites are said in the plan: '.json_encode($reasons, JSON_UNESCAPED_UNICODE));
+
     // ── Access refusal: a person without the import right gets no job run, and reaches no one else's job. ──
     $readerToken = bin2hex(random_bytes(16));
     $files->keepUpload($reader, $readerToken, $staleCsv);

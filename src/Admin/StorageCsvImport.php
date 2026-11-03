@@ -13,6 +13,7 @@ use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Property\Runtime\PropertyTypeRegistry;
 use InvalidArgumentException;
 use Throwable;
 
@@ -32,8 +33,11 @@ use Throwable;
  * the request would show.
  *
  * Columns are matched to fields by their name or key, an «ID» column to records. Values are read as the export
- * writes them: an option by its label or value, «Да» / «Нет», numbers and dates as a Russian spreadsheet shows them.
- * Fields that point at a person, a file or another record are not imported yet; the plan says so.
+ * writes them: an option by its label or value, «Да» / «Нет», numbers and dates as a Russian spreadsheet shows them,
+ * a percent with or without its sign, a sum with its currency sign or code («2 499,99 ₽», «10 USD»; a field with its
+ * own currency takes the bare amount), requisites as «ИНН …, КПП …, р/с …». Each value is then checked by its
+ * Property type, so a wrong INN or phone is said in the plan, not refused at the write. Fields that point at a person,
+ * a file or another record, and the rows of a document (items), are not imported; the plan says so.
  */
 final readonly class StorageCsvImport
 {
@@ -47,11 +51,18 @@ final readonly class StorageCsvImport
     private const SCAN_FACTOR = 20;
     private const SCAN_PAGE = 100;
     private const RECORD_ID = '/\Arecord-[a-f0-9]{32}\z/D';
+    /** The signs the export writes after a sum (Property's PropertyDisplayProjector), back to their codes. */
+    private const CURRENCY_SIGNS = ['₽' => 'RUB', 'руб' => 'RUB', 'р' => 'RUB', '$' => 'USD', '€' => 'EUR', '₸' => 'KZT', 'Br' => 'BYN', '¥' => 'CNY'];
+    /** The names the export writes before each part of requisites, in Russian and English, lower case. */
+    private const REQUISITE_NAMES = ['инн' => 'inn', 'inn' => 'inn', 'кпп' => 'kpp', 'kpp' => 'kpp', 'огрн' => 'ogrn', 'огрнип' => 'ogrn',
+        'ogrn' => 'ogrn', 'ogrnip' => 'ogrn', 'бик' => 'bik', 'bic' => 'bik', 'bik' => 'bik', 'р/с' => 'account', 'account' => 'account',
+        'к/с' => 'corr_account', 'corr. account' => 'corr_account'];
 
     public function __construct(
         private StorageWorkbench $workbench,
         private StorageSectionScope $scopes,
         private ConnectionInterface $database,
+        private ?PropertyTypeRegistry $propertyTypes = null,
     ) {
     }
 
@@ -493,6 +504,8 @@ final readonly class StorageCsvImport
                 // An encrypted field is not imported: the import cannot compare what it would overwrite, and its
                 // values never appear in a plan. The record keeps the value it has.
                 StorageEncryptedFields::isEncrypted($fields[$key]) => 'column_encrypted',
+                // The rows of a document are a table in one cell: the export writes how many and their total.
+                ($fields[$key]['type'] ?? null) === 'items' => 'column_rows',
                 isset($taken[$key]) => 'column_repeated',
                 default => null,
             };
@@ -550,6 +563,9 @@ final readonly class StorageCsvImport
                 continue;
             }
             [$value, $reason] = self::value($fields[$column['key']], self::unescape(trim($cells[$index] ?? '')));
+            if ($reason === null && $value !== null) {
+                [$value, $reason] = $this->checked($fields[$column['key']], $value);
+            }
             if ($reason !== null) {
                 $rowErrors[] = ['line' => $line, 'column' => $column['header'], 'reason' => $reason];
             } elseif ($value === null) {
@@ -675,10 +691,111 @@ final readonly class StorageCsvImport
             },
             'date' => self::date($cell),
             'datetime' => self::dateTime($cell),
+            'percent' => self::decimal(str_replace(',', '.', rtrim($plain, '%'))),
+            'money' => self::money($field, $cell),
+            'ru.requisites' => self::requisites($cell),
             'choice' => ($value = $option($cell)) !== null ? [$value, null] : [null, 'value_not_an_option'],
             'choices' => self::choices($cell, $option),
             default => [$cell, null],
         };
+    }
+
+    /**
+     * A value as its Property type keeps it, or the reason it is refused: a wrong INN, phone or address is said in the
+     * plan. A type Property does not know here is left to the write.
+     *
+     * @param array<string, mixed> $field
+     * @return array{0: mixed, 1: ?string}
+     */
+    private function checked(array $field, mixed $value): array
+    {
+        $type = $field['type'] ?? null;
+        if ($this->propertyTypes === null || !is_string($type)) {
+            return [$value, null];
+        }
+        $version = is_int($field['type_version'] ?? null) ? $field['type_version'] : 1;
+        try {
+            $result = $this->propertyTypes->normalizeAndValidate($type, $version, $value,
+                is_array($field['constraints'] ?? null) ? $field['constraints'] : []);
+        } catch (InvalidArgumentException) {
+            return [$value, null];
+        }
+
+        return $result->valid ? [$result->normalizedValue, null] : [null, 'value_invalid'];
+    }
+
+    /**
+     * A sum as the export writes it, «2 499,99 ₽» or «10.5 USD»: the amount in a Russian or plain spreadsheet's way,
+     * then a currency sign or code. A field with its own currency takes the bare amount.
+     *
+     * @param array<string, mixed> $field
+     * @return array{0: ?array{amount: string, currency: string}, 1: ?string}
+     */
+    private static function money(array $field, string $cell): array
+    {
+        $text = trim((string) preg_replace('/[\x{00A0}\x{202F}]/u', ' ', $cell));
+        if (preg_match('/^(?<before>[^\d\s+\-.,]+)?\s*(?<amount>[+-]?\d[\d .,]*?)\s*(?<after>[^\d\s.,][^\d]*)?$/u', $text, $m) !== 1) {
+            return [null, 'value_not_money'];
+        }
+        $sign = trim($m['before'] !== '' ? $m['before'] : ($m['after'] ?? ''));
+        $sign = rtrim($sign, '.');
+        $fixed = is_string($field['constraints']['currency'] ?? null) ? $field['constraints']['currency'] : null;
+        $currency = match (true) {
+            $sign === '' => $fixed,
+            isset(self::CURRENCY_SIGNS[$sign]) => self::CURRENCY_SIGNS[$sign],
+            isset(self::CURRENCY_SIGNS[mb_strtolower($sign)]) => self::CURRENCY_SIGNS[mb_strtolower($sign)],
+            preg_match('/^[A-Za-z]{3}$/', $sign) === 1 => strtoupper($sign),
+            default => false,
+        };
+        if ($currency === false) {
+            return [null, 'value_not_money'];
+        }
+        if ($currency === null) {
+            return [null, 'value_currency_missing'];
+        }
+        $digits = str_replace(' ', '', $m['amount']);
+        // A comma is the decimal mark; a point too when there is no comma.
+        if (str_contains($digits, ',') && str_contains($digits, '.')) {
+            return [null, 'value_not_money'];
+        }
+        [$amount, $reason] = self::decimal(str_replace(',', '.', $digits));
+
+        return $reason === null ? [['amount' => $amount, 'currency' => $currency], null] : [null, 'value_not_money'];
+    }
+
+    /**
+     * Requisites as the export writes them, «ИНН 7707083893, КПП 773601001, р/с …»; a bare number of 10 or 12 digits
+     * is an INN.
+     *
+     * @return array{0: ?array<string, string>, 1: ?string}
+     */
+    private static function requisites(string $cell): array
+    {
+        if (preg_match('/^\d{10}(?:\d{2})?$/', trim($cell)) === 1) {
+            return [['inn' => trim($cell)], null];
+        }
+        $parts = [];
+        foreach (array_filter(array_map('trim', explode(',', $cell)), static fn (string $part): bool => $part !== '') as $part) {
+            if (preg_match('/^(?<name>.+?)\s*(?<digits>\d+)$/u', $part, $m) !== 1) {
+                return [null, 'value_not_requisites'];
+            }
+            $name = self::REQUISITE_NAMES[mb_strtolower(trim($m['name']))] ?? null;
+            if ($name === null || isset($parts[$name])) {
+                return [null, 'value_not_requisites'];
+            }
+            $parts[$name] = $m['digits'];
+        }
+        if ($parts === []) {
+            return [null, 'value_not_requisites'];
+        }
+        $ordered = [];
+        foreach (['inn', 'kpp', 'ogrn', 'bik', 'account', 'corr_account'] as $name) {
+            if (isset($parts[$name])) {
+                $ordered[$name] = $parts[$name];
+            }
+        }
+
+        return [$ordered, null];
     }
 
     /**

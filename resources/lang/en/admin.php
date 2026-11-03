@@ -54,6 +54,7 @@ return [
                 'column_reference' => 'a reference field, not imported yet',
                 'column_encrypted' => 'an encrypted field, not imported',
                 'column_repeated' => 'the field is already in another column, skipped',
+                'column_rows' => 'rows of a document, not imported',
             ],
             'reasons' => [
                 'file_unreadable' => 'The file does not read as CSV (UTF-8 or Windows-1251, up to 50 MB).',
@@ -69,6 +70,10 @@ return [
                 'value_not_date' => 'A date is needed: DD.MM.YYYY.',
                 'value_not_datetime' => 'A date and time are needed: DD.MM.YYYY HH:MM.',
                 'value_not_an_option' => 'There is no such option.',
+                'value_not_money' => 'A sum is needed, such as «2 499,99 ₽» or «10 USD».',
+                'value_currency_missing' => 'Give the currency: a sign or a code, such as «₽» or «RUB».',
+                'value_not_requisites' => 'Requisites are needed: «INN …, KPP …, account …».',
+                'value_invalid' => 'The value does not fit this field.',
                 'create_denied' => 'You may not add records.',
                 'update_denied' => 'You may not change records.',
                 'changed_meanwhile' => 'The record changed after the file was checked — the row was not written.',
