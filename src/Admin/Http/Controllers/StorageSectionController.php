@@ -63,6 +63,10 @@ use Illuminate\Support\HtmlString;
  */
 final readonly class StorageSectionController
 {
+    /** The words of a sum's and requisites' fields and of the read-only rows in the record form. */
+    private const COMPOUND_COPY = ['money_currency', 'items_readonly', 'requisites_inn', 'requisites_kpp', 'requisites_ogrn', 'requisites_bik',
+        'requisites_account', 'requisites_corr_account'];
+
     private const MAX_INPUT_BYTES = 1048576;
     private const RECORD_PATTERN = '/\Arecord-[a-f0-9]{32}\z/D';
     private const ACTIONS = [
@@ -700,7 +704,8 @@ final readonly class StorageSectionController
                     'relation_unavailable' => $this->translated('record_list.relation_unavailable'),
                     'reference_choose' => $this->translated('record_list.reference_choose'),
                     'reference_load_more' => $this->translated('record_list.reference_load_more'),
-                    'choose_record' => $this->translated('record_list.choose_record')],
+                    'choose_record' => $this->translated('record_list.choose_record'),
+                    ...array_combine(self::COMPOUND_COPY, array_map(fn (string $key): string => $this->translated('record_list.'.$key), self::COMPOUND_COPY))],
                 'locale' => (string) $this->translator->getLocale(),
                 // The foot bar's delete moves the record to the archive, and says so.
                 'delete_text' => $this->copy('archive'),
