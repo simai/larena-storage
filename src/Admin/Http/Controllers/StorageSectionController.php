@@ -1196,6 +1196,7 @@ final readonly class StorageSectionController
 
         $jobItems = $jobs === null ? [] : $panel->items($jobs->jobs($this->actor($request), $structure), $jobsPath, $csrf, true, $importPath);
         $recordsPath = $this->sectionPath().'/'.rawurlencode($structure);
+        $this->breadcrumbTail($request, $selected, $structure, $this->copy('import.title'));
 
         return $this->views->make('larena-storage::admin.import', [
             'structureId' => $structure, 'selected' => $selected, 'plan' => $plan, 'checking' => $checking, 'apply' => $apply, 'queued' => $queued,
@@ -1530,12 +1531,22 @@ final readonly class StorageSectionController
      */
     private function breadcrumbTail(Request $request, ?array $selected, string $structure, ?string $leaf): void
     {
+        self::breadcrumbs($request, $selected, $structure, $this->sectionPath(), $leaf);
+    }
+
+    /**
+     * The breadcrumbs of a storage's page: «Хранилища», the storage, and the page under it (its import, its jobs).
+     *
+     * @param array<string, mixed>|null $selected
+     */
+    public static function breadcrumbs(Request $request, ?array $selected, string $structure, string $sectionPath, ?string $leaf): void
+    {
         if ($selected === null) {
             return;
         }
         $label = is_string($selected['label'] ?? null) && trim($selected['label']) !== '' ? $selected['label'] : $structure;
-        $request->attributes->set(\Larena\Admin\View\AdminShellViewComposer::BREADCRUMB_TAIL, ['parent_href' => $this->sectionPath(),
-            'items' => [['label' => $label, 'href' => $this->sectionPath().'/'.rawurlencode($structure)], ...($leaf !== null ? [['label' => $leaf]] : [])]]);
+        $request->attributes->set(\Larena\Admin\View\AdminShellViewComposer::BREADCRUMB_TAIL, ['parent_href' => $sectionPath,
+            'items' => [['label' => $label, 'href' => $sectionPath.'/'.rawurlencode($structure)], ...($leaf !== null ? [['label' => $leaf]] : [])]]);
     }
 
     /** A kept UTC moment in the site's time zone, «UTC» named while the site keeps UTC. */

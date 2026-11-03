@@ -85,6 +85,9 @@ final readonly class StorageJobsController
         $parts[] = new AdminLiveRegionPart(StorageLiveRegions::JOBS, StorageLiveRegions::jobsActive($listed), $this->jobsPath($structure),
             StorageLiveRegions::jobsSaid($items), [$panel->describe($items)]);
 
+        StorageSectionController::breadcrumbs($request, $state['selected'], $structure, $this->sectionPath(),
+            (string) $this->translator->get('larena-storage::admin.section.jobs.title'));
+
         return $this->views->make('larena-storage::admin.jobs', [
             'structureId' => $structure,
             'selected' => $state['selected'],
