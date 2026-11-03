@@ -342,7 +342,7 @@ final readonly class StorageSitePackImportPage
         } else {
             $apply[] = new AdminElement('p', [], $this->copy('apply_blocked'));
             $apply[] = new AdminElement('div', ['class' => 'larena-form-submit'], [new AdminSfElement('sf-button', [
-                'text' => $this->copy('apply'), 'scheme' => 'primary', 'type' => 'default', 'native-type' => 'submit', 'disabled' => true,
+                'text' => $this->copy('apply'), 'scheme' => 'primary', 'appearance' => 'default', 'native-type' => 'submit', 'disabled' => true,
             ])]);
         }
         $parts[] = new AdminElement('form', ['method' => 'post', 'action' => $path.'/apply', 'data-larena-sitepack-import-apply' => null], $apply);
