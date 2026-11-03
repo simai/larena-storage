@@ -1301,7 +1301,7 @@ final readonly class StorageSectionController
             portCapabilities: $configure ? ['row-actions', 'row-reorder', 'inline-edit', 'create-record'] : ['row-actions'],
             // The list creates a field, so its toolbar button says so.
             createText: $this->copy('add_field'),
-            // A field opens in the record panel (sf-property-view over the field's port): its name, edit from the row, create.
+            // A field opens in the record panel (sf-view-properties over the field's port): its name, edit from the row, create.
             hostPanels: ['view' => $here.'?record_id=__ID__&record_mode=view']
                 + ($configure ? ['edit' => $here.'?record_id=__ID__&record_mode=edit', 'create' => $here.'?record_mode=create'] : []),
             headerActions: [

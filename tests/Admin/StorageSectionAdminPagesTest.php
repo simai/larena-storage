@@ -24,10 +24,10 @@ foreach (['src/Admin', 'resources/views/admin'] as $directory) {
 sort($files);
 assert($files !== []);
 
-// Nobody here draws the sf-data-view element, its slots or its table: the admin's AdminDataviewPagePresenter does.
+// Nobody here draws the sf-view element, its slots or its table: the admin's AdminDataviewPagePresenter does.
 foreach ($files as $file) {
     $source = (string) file_get_contents($root.'/'.$file);
-    assert(preg_match("/render\\(\\s*'sf-data-view'|'type'\\s*=>\\s*'sf-data-view'|, 'sf-data-view'[,)]|<sf-data-view|slot=\\\\?\"(content|pagination)\\\\?\"|'<sf-table slot=/", $source) !== 1,
+    assert(preg_match("/render\\(\\s*'sf-view'|'type'\\s*=>\\s*'sf-view'|, 'sf-view'[,)]|<sf-view|slot=\\\\?\"(content|pagination)\\\\?\"|'<sf-view-table slot=/", $source) !== 1,
         'Data view assembled outside the admin\'s shared presenter: '.$file);
     // One record panel: the admin's AdminRecordPanelPresenter draws it.
     assert(!str_contains($source, 'data-larena-record-drawer'), 'Record panel drawn outside the admin\'s shared presenter: '.$file);
@@ -35,7 +35,7 @@ foreach ($files as $file) {
 foreach (['src/Admin/Http/Controllers/StorageSectionController.php', 'src/Admin/Http/Controllers/StorageWorkbenchController.php'] as $user) {
     $source = (string) file_get_contents($root.'/'.$user);
     assert(str_contains($source, 'new AdminDataviewPage('), $user.' does not describe its data view');
-    assert(!str_contains($source, 'staticTableHtml') && !str_contains($source, "render('sf-table'"), $user.' renders a bare table');
+    assert(!str_contains($source, 'staticTableHtml') && !str_contains($source, "render('sf-view-table'"), $user.' renders a bare table');
 }
 foreach (['index', 'records', 'settings'] as $view) {
     $source = (string) file_get_contents($root.'/resources/views/admin/'.$view.'.blade.php');

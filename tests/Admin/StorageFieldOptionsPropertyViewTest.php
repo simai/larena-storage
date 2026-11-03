@@ -13,7 +13,7 @@ use Larena\Storage\Admin\StorageSectionGateway;
 use Larena\Admin\Record\AdminRecordLayoutStore;
 use Larena\Setting\Persistence\DatabaseSettingValueRepository;
 
-// The field editor of a storage (sf-property-view over storage.fields.<structure>) offers a field's search and
+// The field editor of a storage (sf-view-properties over storage.fields.<structure>) offers a field's search and
 // index options as it offers «Hidden»: «Участвует в поиске» on a string or text (on unless the field says
 // otherwise), «Быстрая сортировка и фильтр» on a string, open to change only while its maximum length is at
 // most 255. They go to the storage's change only for a field that can take them, and Storage's refusals of

@@ -389,7 +389,7 @@ $englishState = new StorageFieldChangeState(new FieldChangeTranslator('en'));
 assert($englishState->refusal(StorageSectionGateway::FIELD_CHANGE_RUNNING, $running) === 'The field «Цена» is being changed now. Wait until it ends.');
 assert($englishState->cancelOffer($running) === ['label' => 'Cancel the change', 'question' => 'Cancel the change of the field «Цена»? The records stay as they are.']);
 
-// The field and storage panels (sf-property-view over their ports) say the same and refuse to change meanwhile.
+// The field and storage panels (sf-view-properties over their ports) say the same and refuse to change meanwhile.
 $database = tempnam(sys_get_temp_dir(), 'larena-field-change-');
 assert(is_string($database));
 try {

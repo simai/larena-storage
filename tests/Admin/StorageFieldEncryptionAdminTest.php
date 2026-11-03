@@ -484,7 +484,7 @@ try {
     \Larena\Setting\Persistence\DatabaseViewSettingsStore::createSchema($connection->getSchemaBuilder());
     $layouts = new AdminRecordLayoutStore(\Larena\Setting\Runtime\ViewSettings::on($connection));
 
-    // 6. The record panel (sf-property-view): an encrypted field is a write-only field that is set or not, with the
+    // 6. The record panel (sf-view-properties): an encrypted field is a write-only field that is set or not, with the
     // section's words; the answer holds no envelope, no ciphertext and no plaintext.
     $port = new StoragePropertyViewPort($gateway, $workbench, $layouts);
     $drawn = static function (array $answer): array {
