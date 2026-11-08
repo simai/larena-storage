@@ -126,6 +126,36 @@ final class StorageViewCounter
         return 0;
     }
 
+    /**
+     * One read of a витрина under the counter's time budget on MySQL/MariaDB (as an approximate count runs): its rows,
+     * or null when the budget ran out. Elsewhere (SQLite in tests and local development) the read runs as it is.
+     * $sql is a plain SELECT; MySQL takes its budget as an optimizer hint after the SELECT keyword.
+     *
+     * @param list<mixed> $bindings
+     * @return list<stdClass>|null
+     */
+    public function budgetedSelect(Connection $connection, string $sql, array $bindings): ?array
+    {
+        $mysql = in_array($connection->getDriverName(), ['mysql', 'mariadb'], true);
+        if ($mysql) {
+            $sql = $this->mariaDb($connection)
+                ? 'SET STATEMENT max_statement_time=' . number_format($this->budgetMs / 1000, 3, '.', '') . ' FOR ' . $sql
+                : (string) preg_replace('/\Aselect\b/i', 'select /*+ MAX_EXECUTION_TIME(' . $this->budgetMs . ') */', $sql, 1);
+        }
+        try {
+            /** @var list<stdClass> $rows */
+            $rows = array_values(array_filter($connection->select($sql, $bindings), static fn (mixed $row): bool => $row instanceof stdClass));
+
+            return $rows;
+        } catch (QueryException $exception) {
+            if (!$mysql || !self::timedOut($exception)) {
+                throw $exception;
+            }
+
+            return null;
+        }
+    }
+
     private function mariaDb(Connection $connection): bool
     {
         if ($this->mariaDb === null) {

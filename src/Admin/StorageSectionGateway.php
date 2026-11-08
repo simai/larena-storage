@@ -21,6 +21,7 @@ use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchEncryption;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
+use Larena\Storage\Contracts\StorageWorkbenchRecordActivity;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
@@ -198,6 +199,28 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
         }
 
         return $found;
+    }
+
+    /**
+     * New records of one storage per day over the last days, for the chart on its records page: the actor's own scope,
+     * the right to list its records. Null when Storage cannot say (no витрина yet, the read over its budget, the
+     * workbench without it) or the actor may not list the records: the page then shows no chart and nothing else
+     * changes.
+     *
+     * @return list<array{day: string, created: int}>|null
+     */
+    public function recordsCreatedPerDay(string $actor, string $structureId, int $days = StorageWorkbenchRecordActivity::DAYS): ?array
+    {
+        if (!$this->workbench instanceof StorageWorkbenchRecordActivity) {
+            return null;
+        }
+        try {
+            $this->authorizer->assertAllowed($actor, 'admin.frontend.read');
+
+            return $this->workbench->recordsCreatedPerDay($this->scope($actor, null), $structureId, $actor, $days);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     public function menuStructures(string $actor): array

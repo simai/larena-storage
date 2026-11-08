@@ -750,6 +750,14 @@ return [
         'storage_archived_notice' => 'Хранилище в архиве: записи можно просматривать, но не менять.',
         'count_approximate' => 'Найдено примерно ~:count записей.',
         'count_exactly' => 'Посчитать точно',
+        // The chart under a storage's records: new records per day (SIMAI Chart, sf-chart-line).
+        'created_chart' => [
+            'title' => 'Новые записи за 30 дней',
+            'label' => 'Новые записи по дням за 30 дней',
+            'series' => 'Новые записи',
+            'axis' => 'Записей',
+            'note' => 'Сколько записей добавили в это хранилище за каждый день. Архивные записи тоже считаются, удалённые насовсем — нет. Дни по UTC.',
+        ],
         // The list refuses a longer search with these words instead of a bare refusal.
         'search_too_long' => 'Поиск не длиннее :max символов. Сократите запрос.',
         // What the list says about its sort (StorageSortHint): a large list sorted by a field without an index of its own,

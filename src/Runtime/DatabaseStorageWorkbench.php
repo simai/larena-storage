@@ -30,6 +30,7 @@ use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
 use Larena\Storage\Contracts\StorageWorkbenchLanguages;
 use Larena\Storage\Contracts\StorageWorkbenchPurgeReceipt;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
+use Larena\Storage\Contracts\StorageWorkbenchRecordActivity;
 use Larena\Storage\Contracts\StorageWorkbenchRecordPage;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
@@ -60,6 +61,7 @@ use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 use Larena\Storage\View\StorageRecordQueryNormalizer;
 use Larena\Storage\View\StorageViewColumn;
 use Larena\Storage\View\StorageViewCounter;
+use Larena\Storage\View\StorageViewCreatedPerDay;
 use Larena\Storage\View\StorageViewFieldOptions;
 use Larena\Storage\View\StorageViewKeyset;
 use Larena\Storage\View\StorageViewNaming;
@@ -71,7 +73,7 @@ use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
-final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages
+final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages, StorageWorkbenchRecordActivity
 {
     private const STRUCTURE_RESOURCE = 'storage.workbench.structure';
     private const RECORD_RESOURCE = 'storage.workbench.record';
@@ -866,6 +868,32 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         }
 
         return $this->changeStructure($scopeRef, $structureId, $expectedVersion, $normalized, $actor, $this->correlationId($correlationId), true, $confirmed);
+    }
+
+    /**
+     * New records per day, from the storage's витрина (StorageViewCreatedPerDay): null while it is not ready for the
+     * storage's current schema version (the list builds it; this read never does), or when the read ran past the
+     * counter's budget.
+     */
+    public function recordsCreatedPerDay(string $scopeRef, string $structureId, string $actor, int $days = StorageWorkbenchRecordActivity::DAYS, ?string $today = null): ?array
+    {
+        $this->assertStructureId($structureId);
+        $this->assertScope($actor, 'storage.workbench.record.list', $scopeRef, self::RECORD_RESOURCE);
+        if ($days < 1 || $days > StorageViewCreatedPerDay::MAX_DAYS) {
+            throw new StorageRejected('storage_workbench_activity_days_invalid');
+        }
+        $structure = $this->readStructureInternal($scopeRef, $structureId);
+        $view = $this->listView($structure);
+        if ($view === null) {
+            return null;
+        }
+        try {
+            return (new StorageViewCreatedPerDay($this->counter))->count($this->viewConnection(), $view->tableName, $today ?? gmdate('Y-m-d'), $days);
+        } catch (InvalidArgumentException) {
+            throw new StorageRejected('storage_workbench_activity_days_invalid');
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
     }
 
     /**

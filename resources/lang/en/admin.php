@@ -750,6 +750,14 @@ return [
         'storage_archived_notice' => 'This storage is archived: records can be viewed but not changed.',
         'count_approximate' => 'About ~:count records found.',
         'count_exactly' => 'Count exactly',
+        // The chart under a storage's records: new records per day (SIMAI Chart, sf-chart-line).
+        'created_chart' => [
+            'title' => 'New records in the last 30 days',
+            'label' => 'New records per day, last 30 days',
+            'series' => 'New records',
+            'axis' => 'Records',
+            'note' => 'How many records were added to this storage each day. Archived records count too; records deleted for good do not. Days are in UTC.',
+        ],
         // The list refuses a longer search with these words instead of a bare refusal.
         'search_too_long' => 'Search is limited to :max characters. Shorten the query.',
         // What the list says about its sort (StorageSortHint): a large list sorted by a field without an index of its own,

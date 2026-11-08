@@ -22,6 +22,7 @@ use Larena\Storage\Admin\StorageEncryptionKeyStatus;
 use Larena\Storage\Admin\StorageEncryptionRunState;
 use Larena\Storage\Admin\StorageFieldChangeState;
 use Larena\Storage\Admin\StorageSectionBindings;
+use Larena\Storage\Admin\StorageCreatedChart;
 use Larena\Storage\Admin\StorageSectionGateway;
 use Larena\Storage\Admin\StorageSectionPublication;
 use Larena\Storage\Admin\StorageSectionPublicationActions;
@@ -378,8 +379,15 @@ final readonly class StorageSectionController
 
         $this->breadcrumbTail($request, $selected, $structure, $recordPage && $current !== null && $selected !== null ? $this->recordTitle($current, $selected) : null);
 
+        // Under a ready list: new records per day over the last 30 days (SIMAI Chart), read from the storage's витрина.
+        $createdChart = !$archiveView && !$recordPage && is_array($dataview) && ($state['status'] ?? null) === 'ok'
+            && $this->gateway instanceof StorageSectionGateway
+            ? (new StorageCreatedChart($this->translator))->markup($this->gateway->recordsCreatedPerDay($this->actor($request), $structure))
+            : null;
+
         return $this->render('larena-storage::admin.records', $state, [
             'dataview' => $dataview,
+            'createdChart' => $createdChart,
             'recordPanel' => $panel,
             'recordPage' => $recordPage && $panel !== null,
             // An archived storage says so above its records: a Framework alert drawn by the shared renderer.

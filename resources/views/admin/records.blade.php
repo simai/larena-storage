@@ -74,6 +74,13 @@
                 'confirmBulkAll' => __('larena-storage::admin.section.confirm_bulk_all'), 'bulkAll' => $bulkAll ?? false,
                 'matchedCount' => $matchedCount, 'source' => 'storage_section_projection', 'addressQuery' => $addressQuery ?? [],
                 'hidden' => ['scope_ref' => $scopeRef, 'structure_id' => $structureId]])
+            {{-- New records per day over the last 30 days: the SIMAI Chart line chart, drawn by the shared Smart renderer. --}}
+            @if (($createdChart ?? null) !== null)
+                <section class="larena-panel" aria-labelledby="storage-created-chart-title" data-larena-storage-created>
+                    <h2 id="storage-created-chart-title">{{ __('larena-storage::admin.section.created_chart.title') }}</h2>
+                    {{ $createdChart }}
+                </section>
+            @endif
         @endif
 
         {{-- Viewing, editing and creating a record: the shared record panel over the list. --}}

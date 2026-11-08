@@ -153,6 +153,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageFieldEncryptionRunTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageFieldEncryptionRunMySqlTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageMetricsTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageCreatedPerDayTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublishedReadBatchingTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublishedSiteViewMaintenanceTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationPendingRevisionTest.php",
@@ -287,6 +288,17 @@
             "providers": [
                 "Larena\\Storage\\Providers\\StorageServiceProvider"
             ]
+        },
+        "larena": {
+            "component_packages": {
+                "chart": {
+                    "releases": "*",
+                    "release_repository": "simai/ui-chart",
+                    "source_repositories": [
+                        "simai/ui-chart"
+                    ]
+                }
+            }
         }
     },
     "minimum-stability": "dev",
