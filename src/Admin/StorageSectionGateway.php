@@ -1443,6 +1443,13 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
             'link' => is_array($value) ? $this->linkValue($value) : $this->safeScalar($value),
             // Rich text carries markup by design: Property checks it, the site makes it safe when it shows it.
             'html' => is_string($value) ? $value : throw new InvalidArgumentException('storage_workbench_value_invalid'),
+            // A percent is the percent as decimal digits («12,5» or «12.5»), never a float: a float's digits are not the
+            // ones a person typed (property-view-port 1.18.0).
+            'percent' => $this->decimalDigits($value),
+            // An amount {amount, currency} (a bare amount where the field fixes the currency), a block of requisites and
+            // the rows of a document are the value itself; Property checks their shape, digits and computed cells.
+            'money' => is_array($value) ? $this->structured($value) : $this->decimalDigits($value),
+            'ru.requisites', 'items' => is_array($value) ? $this->structured($value) : throw new InvalidArgumentException('storage_workbench_value_invalid'),
             default => $this->safeScalar($value),
         };
         if ($field['type'] === 'file') {
@@ -1773,6 +1780,51 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
         return $link;
     }
 
+    /**
+     * A decimal typed by a person, as digits: an integer, or a string with one decimal comma or point, spaces between
+     * thousands and a trailing «%» left out. A float is refused: an amount or a percent is never read through one.
+     */
+    private function decimalDigits(mixed $value): string
+    {
+        if (is_int($value)) {
+            return (string) $value;
+        }
+        if (!is_string($value) || strlen($value) > 1000) {
+            throw new InvalidArgumentException('storage_workbench_number_invalid');
+        }
+        $text = rtrim((string) preg_replace('/[\s\x{00A0}\x{202F}]+/u', '', $value), '%');
+        if (substr_count($text, ',') === 1 && !str_contains($text, '.')) {
+            $text = str_replace(',', '.', $text);
+        }
+
+        return $text;
+    }
+
+    /**
+     * A structured value (an amount, requisites, rows) as plain data: string keys or a list, scalars other than floats,
+     * at most three levels deep (rows, a row, a cell's amount). Property checks what the data means.
+     *
+     * @param array<array-key, mixed> $value
+     * @return array<array-key, mixed>
+     */
+    private function structured(array $value, int $depth = 1): array
+    {
+        if ($depth > 3) {
+            throw new InvalidArgumentException('storage_workbench_value_invalid');
+        }
+        foreach ($value as $key => $item) {
+            if (is_array($item)) {
+                $value[$key] = $this->structured($item, $depth + 1);
+            } elseif (is_string($item)) {
+                $value[$key] = $this->text($item, 0, 65_536);
+            } elseif ($item !== null && !is_int($item) && !is_bool($item)) {
+                throw new InvalidArgumentException(is_float($item) ? 'storage_workbench_number_invalid' : 'storage_workbench_value_invalid');
+            }
+        }
+
+        return $value;
+    }
+
     private function safeScalar(mixed $value): string|int|float|bool
     {
         if (!is_string($value) && !is_int($value) && !is_float($value) && !is_bool($value)) {
@@ -1875,8 +1927,17 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
             $reason === 'storage_workbench_required_field_missing' => 'required',
             $reason === 'storage_workbench_number_invalid', str_starts_with($reason, 'property_number_not_canonical') => 'number',
             $reason === 'storage_workbench_integer_invalid', in_array($reason, ['property_integer_not_canonical', 'property_integer_type_mismatch', 'property_integer_out_of_range'], true) => 'integer',
-            (bool) preg_match('/^property_(?:number|integer|date|datetime)_min$/', $reason) => 'too_small',
-            (bool) preg_match('/^property_(?:number|integer|date|datetime)_max$/', $reason) => 'too_large',
+            (bool) preg_match('/^property_(?:number|integer|date|datetime|percent|money)_min$/', $reason) => 'too_small',
+            (bool) preg_match('/^property_(?:number|integer|date|datetime|percent|money)_max$/', $reason) => 'too_large',
+            $reason === 'property_percent_not_canonical' => 'number',
+            $reason === 'property_money_invalid' => 'money',
+            $reason === 'property_money_currency' => 'currency',
+            $reason === 'property_money_precision' => 'precision',
+            $reason === 'property_items_min_rows' => 'rows_min',
+            $reason === 'property_items_max_rows' => 'rows_max',
+            str_starts_with($reason, 'property_items_cell_required') => 'cell_required',
+            str_starts_with($reason, 'property_items_') => 'rows',
+            str_starts_with($reason, 'property_ru_requisites_') => 'requisites',
             (bool) preg_match('/^property_(?:string|text)_max_length$/', $reason) => 'too_long',
             (bool) preg_match('/^property_(?:string|text)_min_length$/', $reason) => 'too_short',
             $reason === 'storage_workbench_text_invalid' => 'text',

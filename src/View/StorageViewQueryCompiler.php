@@ -54,7 +54,7 @@ final class StorageViewQueryCompiler
     public const SORT_CREATED_AT = '_created_at';
     private const ESCAPE = '!';
     private const STRING_KINDS = ['string', 'text'];
-    private const SCALAR_KINDS = ['string', 'text', 'integer', 'number', 'date', 'datetime', 'boolean', 'choice', 'user', 'file', 'relation', 'record', 'lookup', 'color', 'phone', 'url'];
+    private const SCALAR_KINDS = ['string', 'text', 'integer', 'number', 'percent', 'date', 'datetime', 'boolean', 'choice', 'user', 'file', 'relation', 'record', 'lookup', 'color', 'phone', 'url'];
     private const STATE_ACTIVE = 'active';
 
     /** @var WeakMap<PDO, true> SQLite connections that have the lowercase function. */
@@ -128,7 +128,7 @@ final class StorageViewQueryCompiler
                 };
                 continue;
             }
-            if ($column->multiValued() || !in_array($type, self::SCALAR_KINDS, true)) {
+            if ($column->multiValued() || !in_array($type, self::SCALAR_KINDS, true) || !self::comparesByValue($column)) {
                 return null;
             }
             $name = $alias . '.' . $column->column;
@@ -264,7 +264,7 @@ final class StorageViewQueryCompiler
             }
             $column = $columns[$field] ?? null;
             if ($column === null || $column->multiValued() || $column->kind !== (string) ($fields[$field]['type'] ?? '')
-                || !in_array($column->kind, self::SCALAR_KINDS, true)) {
+                || !in_array($column->kind, self::SCALAR_KINDS, true) || !self::comparesByValue($column)) {
                 return null;
             }
             $sort[] = ['column' => (string) $column->column, 'direction' => $direction];
@@ -351,5 +351,15 @@ final class StorageViewQueryCompiler
             }
             $this->lowered[$pdo] = true;
         }
+    }
+
+    /**
+     * Whether the database compares a column's values as Property does. A percent laid out before it became a decimal
+     * column is long text, which sorts «100» before «20»: such a list waits for the витрина's rebuild, which lays the
+     * percent out as a decimal, rather than answer in the wrong order.
+     */
+    private static function comparesByValue(StorageViewColumn $column): bool
+    {
+        return $column->kind !== 'percent' || $column->sqlType === StorageViewColumn::SQL_DECIMAL;
     }
 }

@@ -603,6 +603,48 @@ assert($hostile['field'] === 'more' && $hostile['field_reason'] === 'property_li
 $nested = $gateway->dispatch($admin, null, 'record.create', ['structure_id' => 'workbench.contacts', 'values' => ['title' => 'D', 'more' => ['href' => ['x']]]]);
 assert($nested['field'] === 'more' && $nested['reason_code'] === StorageSectionGateway::FIELD_VALUE_INVALID);
 
+// Documents and forms (property-view-port 1.18.0): an amount, a percent, rows and requisites reach Storage as the
+// values they are, never refused as «not a scalar»; a percent typed with a comma is its digits, a float never is; what
+// Property refuses is named under its field in the section's words.
+$gateway->dispatch($admin, null, 'structure.create', ['structure_id' => 'workbench.invoices', 'label' => 'Invoices', 'fields' => [
+    ['key' => 'title', 'label' => 'Title', 'position' => 0, 'type' => 'string'],
+    ['key' => 'price', 'label' => 'Price', 'position' => 1, 'type' => 'money'],
+    ['key' => 'fee', 'label' => 'Fee', 'position' => 2, 'type' => 'money', 'constraints' => ['currency' => 'RUB']],
+    ['key' => 'discount', 'label' => 'Discount', 'position' => 3, 'type' => 'percent'],
+    ['key' => 'lines', 'label' => 'Lines', 'position' => 4, 'type' => 'items', 'constraints' => ['max_rows' => 2, 'columns' => [
+        ['key' => 'name', 'label' => 'Name', 'type' => 'string', 'required' => true],
+        ['key' => 'qty', 'label' => 'Qty', 'type' => 'number'],
+        ['key' => 'price', 'label' => 'Price', 'type' => 'money', 'settings' => ['currency' => 'RUB']],
+        ['key' => 'sum', 'label' => 'Sum', 'type' => 'money', 'settings' => ['currency' => 'RUB'], 'compute' => ['op' => 'multiply', 'of' => ['qty', 'price']], 'total' => 'sum'],
+    ]]],
+    ['key' => 'party', 'label' => 'Party', 'position' => 5, 'type' => 'ru.requisites'],
+]]);
+$rows = [['name' => 'Ручка', 'qty' => '3', 'price' => ['amount' => '33.33', 'currency' => 'RUB'], 'sum' => ['amount' => '99.99', 'currency' => 'RUB']]];
+$invoiced = $gateway->dispatch($admin, null, 'record.create', ['structure_id' => 'workbench.invoices', 'values' => ['title' => 'A',
+    'price' => ['amount' => '1500.50', 'currency' => 'RUB'], 'fee' => '10', 'discount' => '12,5 %', 'lines' => $rows, 'party' => ['inn' => '7707083893']]]);
+assert($invoiced['status'] === 'ok', json_encode($invoiced));
+$invoiceValues = $workbench->records['workbench.invoices'][$invoiced['redirect']['record_id']]->values;
+assert($invoiceValues['price'] === ['amount' => '1500.50', 'currency' => 'RUB'] && $invoiceValues['fee'] === '10' && $invoiceValues['discount'] === '12.5'
+    && $invoiceValues['lines'] === $rows && $invoiceValues['party'] === ['inn' => '7707083893'], json_encode($invoiceValues));
+$invoiceRefusal = static function (array $values) use ($gateway, $admin): array {
+    $receipt = $gateway->dispatch($admin, null, 'record.create', ['structure_id' => 'workbench.invoices', 'values' => ['title' => 'B'] + $values]);
+    assert($receipt['reason_code'] === StorageSectionGateway::FIELD_VALUE_INVALID, json_encode($receipt));
+
+    return [$receipt['field'], StorageSectionGateway::valueErrorKey($receipt['field_reason'])];
+};
+assert($invoiceRefusal(['discount' => 12.5]) === ['discount', 'number']);
+assert($invoiceRefusal(['discount' => '120']) === ['discount', 'too_large']);
+assert($invoiceRefusal(['price' => ['amount' => 0.1, 'currency' => 'RUB']]) === ['price', 'number']);
+assert($invoiceRefusal(['price' => ['amount' => '1.005', 'currency' => 'RUB']]) === ['price', 'precision']);
+assert($invoiceRefusal(['fee' => ['amount' => '1', 'currency' => 'USD']]) === ['fee', 'currency']);
+assert($invoiceRefusal(['price' => 'много']) === ['price', 'money']);
+assert($invoiceRefusal(['lines' => [$rows[0], $rows[0], $rows[0]]]) === ['lines', 'rows_max']);
+assert($invoiceRefusal(['lines' => [['qty' => '1']]]) === ['lines', 'cell_required']);
+assert($invoiceRefusal(['lines' => [$rows[0] + ['note' => 'x']]]) === ['lines', 'rows']);
+assert($invoiceRefusal(['lines' => 'one row']) === ['lines', 'invalid']);
+assert($invoiceRefusal(['lines' => [[[[['deep']]]]]]) === ['lines', 'invalid']);
+assert($invoiceRefusal(['party' => ['inn' => '7707083894']]) === ['party', 'requisites']);
+
 // «Максимальная длина» of a string field: given with a new one, changed on an existing one through the migration, refused
 // out of range in its own words; a «Storage record» field without a storage to point at says so (QA 2026-10-22).
 $configure = static fn (array $fields): array => $gateway->dispatch($admin, null, 'structure.configure', ['structure_id' => 'workbench.prices',

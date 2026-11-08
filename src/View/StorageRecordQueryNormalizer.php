@@ -43,6 +43,7 @@ final readonly class StorageRecordQueryNormalizer
         'text' => ['eq', 'in', 'contains', 'starts_with'],
         'integer' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
         'number' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
+        'percent' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
         'date' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
         'datetime' => ['eq', 'in', 'gt', 'gte', 'lt', 'lte', 'between'],
         'boolean' => ['eq'],

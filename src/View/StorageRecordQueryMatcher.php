@@ -96,7 +96,7 @@ final class StorageRecordQueryMatcher
     {
         return match ($type) {
             'integer' => self::int($left) <=> self::int($right),
-            'number' => self::compareDecimals(self::text($left), self::text($right)),
+            'number', 'percent' => self::compareDecimals(self::text($left), self::text($right)),
             default => strcmp(self::text($left), self::text($right)),
         };
     }
@@ -116,7 +116,7 @@ final class StorageRecordQueryMatcher
         if ($type === 'integer' || is_int($left) && is_int($right)) {
             return self::int($left) <=> self::int($right);
         }
-        if ($type === 'number' && is_string($left) && is_string($right)) {
+        if (($type === 'number' || $type === 'percent') && is_string($left) && is_string($right)) {
             return self::compareDecimals($left, $right);
         }
         if (is_bool($left) && is_bool($right)) {

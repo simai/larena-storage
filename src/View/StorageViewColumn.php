@@ -40,6 +40,12 @@ final readonly class StorageViewColumn
     public const STATE_DROPPING = 'dropping';
     public const STATES = [self::STATE_ADDING, self::STATE_READY, self::STATE_BACKFILLING, self::STATE_DROPPING];
 
+    /**
+     * A column's kind is its field's Property type key, which may be namespaced by its standard (`ru.inn`,
+     * `ru.requisites`): words of at most 63 characters joined by points, as Property writes them.
+     */
+    public const KIND_PATTERN = '/\A(?=.{1,64}\z)[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*\z/D';
+
     public function __construct(
         public string $fieldKey,
         public ?string $column,
@@ -49,7 +55,7 @@ final readonly class StorageViewColumn
         public string $state,
     ) {
         if (preg_match('/\A[a-z][a-z0-9_]{0,63}\z/D', $fieldKey) !== 1
-            || preg_match('/\A[a-z][a-z0-9_]{0,63}\z/D', $kind) !== 1
+            || preg_match(self::KIND_PATTERN, $kind) !== 1
             || (!in_array($sqlType, self::SQL_TYPES, true) && self::varcharLength($sqlType) === null)
             || !in_array($state, self::STATES, true)
             || ($sqlType === self::SQL_SIDE) !== ($column === null)

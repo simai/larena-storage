@@ -750,7 +750,7 @@ final class DatabaseReadContracts implements ReadContracts, PublishedListReads
                 $left === null => -1,
                 $right === null => 1,
                 in_array($type, ['integer', 'boolean'], true) => (int) $left <=> (int) $right,
-                $type === 'number' => StorageRecordQueryMatcher::compareDecimals((string) $left, (string) $right),
+                $type === 'number' || $type === 'percent' => StorageRecordQueryMatcher::compareDecimals((string) $left, (string) $right),
                 default => strcmp((string) $left, (string) $right),
             };
             if ($comparison !== 0) {

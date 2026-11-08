@@ -310,7 +310,8 @@ final readonly class StorageViewLayoutPlanner
 
         return match ($kind) {
             'integer' => StorageViewColumn::SQL_BIGINT,
-            'number' => StorageViewColumn::SQL_DECIMAL,
+            // A percent is a decimal string as a number is ("12.5" is 12.5 %), so it sorts and filters by value.
+            'number', 'percent' => StorageViewColumn::SQL_DECIMAL,
             'date' => StorageViewColumn::SQL_DATE,
             'datetime' => StorageViewColumn::SQL_DATETIME,
             'boolean' => StorageViewColumn::SQL_TINYINT,
