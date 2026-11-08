@@ -23,6 +23,7 @@ use Larena\Storage\Admin\StorageEncryptionRunState;
 use Larena\Storage\Admin\StorageFieldChangeState;
 use Larena\Storage\Admin\StorageSectionBindings;
 use Larena\Storage\Admin\StorageCreatedChart;
+use Larena\Storage\Admin\StorageRecordsCreatedReader;
 use Larena\Storage\Admin\StorageSectionGateway;
 use Larena\Storage\Admin\StorageSectionPublication;
 use Larena\Storage\Admin\StorageSectionPublicationActions;
@@ -381,7 +382,7 @@ final readonly class StorageSectionController
 
         // Under a ready list: new records per day over the last 30 days (SIMAI Chart), read from the storage's витрина.
         $createdChart = !$archiveView && !$recordPage && is_array($dataview) && ($state['status'] ?? null) === 'ok'
-            && $this->gateway instanceof StorageSectionGateway
+            && $this->gateway instanceof StorageRecordsCreatedReader
             ? (new StorageCreatedChart($this->translator))->markup($this->gateway->recordsCreatedPerDay($this->actor($request), $structure))
             : null;
 

@@ -42,7 +42,7 @@ use Throwable;
  * snapshot for another surface is rejected and their actions are unknown here. A product
  * that offers them decorates this gateway and delegates the section paths to it.
  */
-final readonly class StorageSectionGateway implements StorageWorkbenchGateway, StorageStructureSearch, StorageRecordSearch, \Larena\Admin\Contracts\StorageMenuStructures
+final readonly class StorageSectionGateway implements StorageWorkbenchGateway, StorageStructureSearch, StorageRecordSearch, \Larena\Admin\Contracts\StorageMenuStructures, StorageRecordsCreatedReader
 {
     public const SURFACE = 'storage_section';
 

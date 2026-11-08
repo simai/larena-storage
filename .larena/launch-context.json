@@ -385,7 +385,8 @@
     "tests/Integration/MinimalCmsHierarchyFixtureTest.php",
     "tests/Support/HierarchyFixtures.php",
     "tests/Support/MinimalCmsHierarchyFixtures.php",
-    "tests/Unit/MinimalCmsDependencyContractTest.php"
+    "tests/Unit/MinimalCmsDependencyContractTest.php",
+    "src/Admin/StorageRecordsCreatedReader.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
