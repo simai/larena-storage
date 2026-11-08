@@ -139,7 +139,10 @@ try {
         && $chart->markup(null) === null, 'an empty period drew a chart');
     // With records the pinned runtime draws sf-chart-line, or (a runtime that does not pin the Chart set) nothing.
     $markup = $chart->markup($days);
-    storageViewExpect($markup === null || str_contains($markup->toHtml(), '<sf-chart-line'), 'the chart is not sf-chart-line');
+    // The pinned larena/ui renders the Chart set: the chart is drawn, its data in the settings island, the note after it.
+    storageViewExpect($markup !== null && str_contains($markup->toHtml(), '<sf-chart-line'), 'the chart is not sf-chart-line');
+    storageViewExpect(str_contains($markup->toHtml(), 'data-sf-settings') && !str_contains($markup->toHtml(), 'slot="description"')
+        && str_ends_with($markup->toHtml(), '</p>'), 'the chart data or its note is out of place');
 } finally {
     Facade::clearResolvedInstances();
     foreach ([$path, $path . '-wal', $path . '-shm', $path . '-journal'] as $file) {

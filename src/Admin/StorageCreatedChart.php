@@ -60,9 +60,10 @@ final readonly class StorageCreatedChart
             return null;
         }
         try {
-            $description = '<p slot="description">' . htmlspecialchars($this->copy('note'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
+            // sf-chart-line has no description slot: the note follows the chart as its own paragraph.
+            $note = '<p data-larena-storage-created-chart="note">' . htmlspecialchars($this->copy('note'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
 
-            return new HtmlString(Smart::render(self::TAG, $this->props($days), null, ['data-larena-storage-created-chart' => 'chart'], $description)->html);
+            return new HtmlString(Smart::render(self::TAG, $this->props($days), null, ['data-larena-storage-created-chart' => 'chart'])->html . $note);
         } catch (Throwable) {
             return null;
         }
