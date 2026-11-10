@@ -13,6 +13,8 @@ use Larena\Storage\Admin\Http\Controllers\StorageSitePackController;
 use Larena\Storage\Admin\Http\Controllers\StorageSectionPublicationPortController;
 use Larena\Storage\Admin\Http\Controllers\StorageSitePackImportController;
 use Larena\Storage\Admin\Http\Controllers\StoragePropertyViewPortController;
+use Larena\Storage\Admin\Http\Controllers\StorageWorkbenchDataviewPortController;
+use Larena\Storage\Admin\Http\Controllers\StorageWorkbenchExportController;
 
 // Storage's own section of the admin (/admin/storage): loaded by Storage's provider only where larena/admin is installed
 // (Larena\Storage\Admin\StorageSectionBindings::adminInstalled()), under the section's flag.
@@ -74,6 +76,18 @@ if ((bool) config('larena-admin.storage_section.enabled', false)) {
             // The storage's settings as lists (owner decision 2026-10-16): its fields as records of a host port.
             Route::post('/{structure}/schema-port', [StorageSectionController::class, 'schemaPort'])->where('structure', $structure)->name('schema-port');
         });
+    // The records list's data view port (simai.dataview-port), the same owner port as the workbench stand's. Outside the
+    // group, under the section's middleware alone: it answers JSON, not a Framework form.
+    Route::post(trim((string) config('larena-admin.storage_section.uri', 'admin/storage'), '/').'/port',
+        StorageWorkbenchDataviewPortController::class)
+        ->middleware((array) config('larena-admin.storage_section.middleware', []))
+        ->name('larena.storage-section.port');
+    // A storage's records as CSV, as the list shows them; the list's own port checks rights and scope.
+    Route::get(trim((string) config('larena-admin.storage_section.uri', 'admin/storage'), '/').'/{structure}/export.csv',
+        StorageWorkbenchExportController::class)
+        ->middleware((array) config('larena-admin.storage_section.middleware', []))
+        ->where('structure', 'workbench\.[a-z][a-z0-9_.:-]{0,109}')
+        ->name('larena.storage-section.export');
     // A record of the section in the Framework property view (simai.property-view-port 1.0.0). Outside the group:
     // a file travels as multipart beside its payload and must reach the port unchanged.
     Route::post(trim((string) config('larena-admin.storage_section.uri', 'admin/storage'), '/').'/property-port',

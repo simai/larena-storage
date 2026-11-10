@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use Larena\Storage\Admin\Http\Controllers\StorageWorkbenchController;
+use Larena\Storage\Admin\Http\Controllers\StorageWorkbenchDataviewPortController;
 
 // A stand over Storage's workbench in the admin: loaded by Storage's provider only where larena/admin is installed.
 if ((bool) config('larena-admin.storage_workbench.enabled', false)) {
@@ -14,4 +15,9 @@ if ((bool) config('larena-admin.storage_workbench.enabled', false)) {
             Route::get('/', [StorageWorkbenchController::class, 'show'])->name('index');
             Route::post('/', [StorageWorkbenchController::class, 'dispatch'])->name('dispatch');
         });
+    // The stand's records list talks to the same data view port as the Storage section's.
+    Route::post(trim((string) config('larena-admin.storage_workbench.uri', 'admin/storage-workbench'), '/').'/port',
+        StorageWorkbenchDataviewPortController::class)
+        ->middleware((array) config('larena-admin.storage_workbench.middleware', []))
+        ->name('larena.storage-workbench.port');
 }

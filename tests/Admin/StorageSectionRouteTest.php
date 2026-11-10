@@ -159,10 +159,21 @@ foreach (['ru' => ['видимые колонки', 'все поля', 'кром
         && str_contains($copy['larena_storage']['section']['jobs']['export_text_all'], $which) && str_contains($copy['larena_storage']['section']['jobs']['export_text_query'], $which), $locale);
 }
 
-// The section's write routes, each through the owner gateway or the section's own jobs: 23 here and the workbench
-// stand's one (they were the admin's until the section moved to Storage, owner decision 2026-10-29).
+// The section's write routes, each through the owner gateway or the section's own jobs: 24 here and the workbench
+// stand's two (they were the admin's until the section moved to Storage, owner decision 2026-10-29; the list's data
+// view port and the CSV export left the Root application on 2026-11-10).
 $workbenchRoutes = (string) file_get_contents(__DIR__ . '/../../routes/admin/workbench.php');
-assert(substr_count($routeSource, 'Route::post(') === 23 && substr_count($workbenchRoutes, 'Route::post(') === 1);
+assert(substr_count($routeSource, 'Route::post(') === 24 && substr_count($workbenchRoutes, 'Route::post(') === 2);
+// The records list's data view port and its CSV export: one owner port for the section and the stand, under the
+// section's (or the stand's) own middleware; the controllers take the actor from the request, never from input.
+assert(str_contains($routeSource, "StorageWorkbenchDataviewPortController::class)\n        ->middleware((array) config('larena-admin.storage_section.middleware', []))\n        ->name('larena.storage-section.port');"));
+assert(str_contains($routeSource, "StorageWorkbenchExportController::class)\n        ->middleware((array) config('larena-admin.storage_section.middleware', []))\n        ->where('structure', 'workbench\\.[a-z][a-z0-9_.:-]{0,109}')\n        ->name('larena.storage-section.export');"));
+assert(str_contains($workbenchRoutes, "StorageWorkbenchDataviewPortController::class)\n        ->middleware((array) config('larena-admin.storage_workbench.middleware', []))\n        ->name('larena.storage-workbench.port');"));
+foreach (['StorageWorkbenchDataviewPortController', 'StorageWorkbenchExportController'] as $portController) {
+    $portSource = (string) file_get_contents(__DIR__ . '/../../src/Admin/Http/Controllers/' . $portController . '.php');
+    assert(str_contains($portSource, "\$this->config->get('larena-auth.admin_entry.access_actor_attribute', 'larena_access_actor')"), $portController);
+    assert(!str_contains($portSource, "input('actor')"), $portController);
+}
 assert(str_contains($routeSource, "Route::post('/{structure}/import/apply', [StorageSectionController::class, 'importApply'])"));
 assert(str_contains($routeSource, "Route::post('/{structure}/jobs/{job}/apply', [StorageJobsController::class, 'apply'])"));
 assert(str_contains($routeSource, "Route::post('/', [StorageSectionController::class, 'dispatch'])->name('dispatch')"));

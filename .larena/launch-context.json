@@ -386,7 +386,13 @@
     "tests/Support/HierarchyFixtures.php",
     "tests/Support/MinimalCmsHierarchyFixtures.php",
     "tests/Unit/MinimalCmsDependencyContractTest.php",
-    "src/Admin/StorageRecordsCreatedReader.php"
+    "src/Admin/StorageRecordsCreatedReader.php",
+    "src/Admin/StorageWorkbenchDataviewPort.php",
+    "src/Admin/DataviewListPreferences.php",
+    "src/Admin/DataviewFilterQuery.php",
+    "src/Admin/FileKindFilter.php",
+    "src/Admin/Http/Controllers/StorageWorkbenchDataviewPortController.php",
+    "src/Admin/Http/Controllers/StorageWorkbenchExportController.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
