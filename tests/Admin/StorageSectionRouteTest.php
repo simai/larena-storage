@@ -73,7 +73,8 @@ assert(str_contains($controllerSource, '\'action\' => \'record.purge\', \'payloa
 assert(str_contains($controllerSource, '\'confirm\' => $this->copy(\'confirm_purge\')'));
 assert(str_contains($controllerSource, '\'confirm\' => $this->copy(\'confirm_archive\')'));
 $panelSource = (string) file_get_contents(__DIR__ . '/../../vendor/larena/admin/src/Runtime/AdminRecordPanelPresenter.php');
-assert(str_contains($panelSource, '\'name\' => $action[\'confirm_name\']'));
+// The confirmation is asked in the Framework question window, and the form carries it as a hidden field.
+assert(str_contains($panelSource, '[$action[\'confirm_name\'] => \'1\']') && str_contains($panelSource, '\'data-larena-confirm-submit\' => $action[\'confirm\']'));
 assert(str_contains($controllerSource, '$request->input(\'confirmed\') === \'1\''));
 assert(!str_contains($views['records'], 'method="post"'));
 // The records list reaches its port through the shared data view page structure.
@@ -90,7 +91,7 @@ assert(str_contains($controllerSource, "(\$permissions['structure.migrate'] ?? f
 assert(str_contains($controllerSource, "'data-larena-confirm-submit' => \$offer['question']") && str_contains($controllerSource, "new AdminElement('input', ['type' => 'hidden', 'name' => '_token', 'value' =>"));
 assert(str_contains($controllerSource, "StorageSectionGateway::FIELD_CHANGE_NOT_RUNNING => \$this->fieldChanges()->cancelEnded()"));
 $formState = (string) file_get_contents(__DIR__ . '/../../vendor/larena/admin/resources/js/form-state.js');
-assert(str_contains($formState, 'event.target.dataset?.larenaConfirmSubmit') && str_contains($formState, '!window.confirm(question)'));
+assert(str_contains($formState, 'form.dataset?.larenaConfirmSubmit') && str_contains($formState, 'void larenaAsk(question,'));
 
 // A large storage's list still being built (Storage's storage_view_not_ready): the records page says so in words
 // from PHP, a permanent deletion that waits for a linked storage's list says that, and a reference picker shows the

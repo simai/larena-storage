@@ -571,8 +571,8 @@ final readonly class StorageSectionController
         // The section's own address of the storage (route larena.admin.storage.structure.dispatch), as its other forms post.
         $action = $this->sectionPath().'/'.rawurlencode($structure);
         $token = $request->hasSession() ? (string) $request->session()->token() : '';
-        $form = function (string $marker, string $operation, array $controls) use ($action, $token, $selected): AdminElement {
-            return new AdminElement('form', ['method' => 'post', 'action' => $action, $marker => null], [
+        $form = function (string $marker, string $operation, array $controls, array $asked = []) use ($action, $token, $selected): AdminElement {
+            return new AdminElement('form', ['method' => 'post', 'action' => $action, $marker => null] + $asked, [
                 new AdminElement('input', ['type' => 'hidden', 'name' => '_token', 'value' => $token, 'autocomplete' => 'off']),
                 ...AdminElement::hiddenInputs(['action' => $operation, 'payload[expected_version]' => (string) ($selected['version'] ?? '')]),
                 ...array_map(static fn (string $html): AdminRenderedPart => AdminRenderedPart::control($html), $controls),
@@ -585,11 +585,13 @@ final readonly class StorageSectionController
             $controls = AdminFrameworkForm::start();
             $parts[] = $section('storage-archive-title', $this->copy('archive_storage'), [
                 new AdminElement('p', [], $this->copy('archive_storage_text')),
+                // Asked in the Framework question window when pressed (data-larena-confirm-submit), not with a checkbox.
                 $form('data-larena-storage-archive-structure', 'structure.archive', [
-                    $controls->checkbox('payload[confirmed]', $this->copy('confirm_archive'), '1', false),
+                    '<input type="hidden" name="payload[confirmed]" value="1">',
                     $controls->submit($this->copy('archive'), false),
                     $controls->names(),
-                ]),
+                ], ['data-larena-confirm-submit' => $this->copy('confirm_archive'), 'data-larena-confirm-accept' => $this->copy('archive'),
+                    'data-larena-confirm-danger' => '1']),
             ]);
         }
         // A storage bound to a publishable role can go back to being an ordinary one, and only then be removed for good.
