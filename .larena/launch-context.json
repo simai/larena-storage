@@ -392,7 +392,8 @@
     "src/Admin/DataviewFilterQuery.php",
     "src/Admin/FileKindFilter.php",
     "src/Admin/Http/Controllers/StorageWorkbenchDataviewPortController.php",
-    "src/Admin/Http/Controllers/StorageWorkbenchExportController.php"
+    "src/Admin/Http/Controllers/StorageWorkbenchExportController.php",
+    "src/Admin/StorageAdminRecords.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
