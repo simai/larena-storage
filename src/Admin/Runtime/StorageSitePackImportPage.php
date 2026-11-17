@@ -7,6 +7,8 @@ namespace Larena\Storage\Admin\Runtime;
 use Illuminate\Contracts\Translation\Translator;
 use Larena\Admin\Runtime\AdminControls;
 use Larena\Admin\Runtime\AdminElement;
+use Larena\Admin\Runtime\AdminPlannedAction;
+use Larena\Admin\Runtime\AdminRenderedPart;
 use Larena\Admin\Runtime\AdminSfElement;
 use Larena\Admin\Runtime\AdminText;
 use Larena\Admin\Runtime\AdminNode;
@@ -56,7 +58,7 @@ final readonly class StorageSitePackImportPage
                 new AdminElement('li', [], $this->copy('rule_drafts')),
                 new AdminElement('li', [], $this->copy('rule_history')),
             ]),
-            new AdminElement('form', ['method' => 'post', 'enctype' => 'multipart/form-data', 'action' => $action, 'data-larena-sitepack-import-form' => null], [
+            new AdminElement('form', ['method' => 'post', 'enctype' => 'multipart/form-data', 'action' => $action, 'data-larena-sitepack-import-form' => null, 'data-larena-action-form' => null], [
                 self::token($token),
                 new AdminElement('label', ['class' => 'larena-storage-import__file'], [
                     new AdminElement('span', [], $this->copy('choose')),
@@ -118,13 +120,11 @@ final readonly class StorageSitePackImportPage
             array_push($parts, new AdminElement('p', [], $this->copy('planning_text')),
                 $this->progress($run),
                 ...$this->actions([self::form($path.'/cancel', $token, $this->copy('cancel'), 'danger', [], $this->copy('cancel_plan_question'))]));
-            $parts[] = $this->refresh($path);
         } elseif (($run['active'] ?? false) === true) {
             array_push($parts, new AdminElement('p', [], $this->copy('applying_text')),
                 new AdminElement('p', ['data-larena-job-phase' => null], $this->text('phase_now', ['phase' => $this->phase(self::string($run['phase'] ?? null))])),
                 $this->progress($run),
                 ...$this->actions([self::form($path.'/cancel', $token, $this->copy('cancel'), 'danger', [], $this->copy('cancel_question'))]));
-            $parts[] = $this->refresh($path);
         } elseif ($state === 'ready' && is_array($run['plan'] ?? null)) {
             $parts[] = $this->plan($run, $run['plan'], $context);
         } elseif ($state === 'ready') {
@@ -153,6 +153,12 @@ final readonly class StorageSitePackImportPage
             if ($structure !== '') {
                 $parts[] = new AdminElement('p', [], [new AdminElement('a', ['href' => $context['storage_path'].'/'.rawurlencode($structure), 'data-larena-sitepack-import-open' => null],
                     $this->text('open', ['storage' => $context['structures'][$structure] ?? $structure]))]);
+            }
+            // The end said once in the corner («Действие с планом», PX-6), with the new storage as the next step.
+            if ($ref !== '' && class_exists(AdminPlannedAction::class)) {
+                $parts[] = AdminRenderedPart::control(AdminPlannedAction::outcome($ref, true, $this->copy('state.done'),
+                    $structure !== '' ? $context['storage_path'].'/'.rawurlencode($structure) : '',
+                    $structure !== '' ? $this->text('open', ['storage' => $context['structures'][$structure] ?? $structure]) : '')->toHtml());
             }
         }
 
@@ -331,21 +337,29 @@ final readonly class StorageSitePackImportPage
             ]);
         }
         $form[] = AdminControls::submitNode($this->copy('replan'), 'secondary');
-        $parts[] = new AdminElement('form', ['method' => 'post', 'action' => $path.'/plan', 'data-larena-sitepack-import-options' => null], $form);
+        $parts[] = new AdminElement('form', ['method' => 'post', 'action' => $path.'/plan', 'data-larena-sitepack-import-options' => null, 'data-larena-action-form' => null], $form);
 
-        // «Загрузить» applies exactly the plan above, by its digest.
+        // «Загрузить» applies exactly the plan above, by its digest, as the one question of the admin's «Действие с планом»
+        // (larena/admin AdminPlannedAction, PX-12): the plan in short, a known error turns the acceptance off and says what
+        // to do; the run follows in place.
         $digest = self::string($run['plan_digest'] ?? null);
-        $apply = [self::token($token), self::hidden('digest', $digest)];
-        if ($errors === [] && ($run['can_apply'] ?? false) === true && $digest !== '') {
-            $apply[] = new AdminElement('p', [], $this->text('apply_text', ['label' => $label, 'id' => $targetId, 'records' => self::number(self::at($records, 'total'))]));
-            $apply[] = AdminControls::submitNode($this->copy('apply'), 'primary');
-        } else {
-            $apply[] = new AdminElement('p', [], $this->copy('apply_blocked'));
-            $apply[] = new AdminElement('div', ['class' => 'larena-form-submit'], [new AdminSfElement('sf-button', [
-                'text' => $this->copy('apply'), 'scheme' => 'primary', 'appearance' => 'default', 'native-type' => 'submit', 'disabled' => true,
-            ])]);
-        }
-        $parts[] = new AdminElement('form', ['method' => 'post', 'action' => $path.'/apply', 'data-larena-sitepack-import-apply' => null], $apply);
+        $ready = $errors === [] && ($run['can_apply'] ?? false) === true && $digest !== '';
+        $parts[] = (new AdminPlannedAction(
+            question: $this->text('apply_question', ['label' => $label]),
+            runUrl: $path.'/apply',
+            token: $token,
+            runFields: ['digest' => $digest],
+            acceptText: $this->copy('apply'),
+            facts: [
+                [$this->copy('target'), $targetId === '' ? $this->copy('target_none') : $label.' ('.$targetId.')'],
+                [$this->copy('records'), self::number(self::at($records, 'total'))],
+                [$this->copy('files'), self::number(self::at($files, 'total'))],
+            ],
+            warnings: $ready ? [] : [['text' => $this->copy('apply_blocked'), 'blocking' => true]],
+            key: 'storage-sitepack-apply',
+            more: $ready ? [new AdminElement('p', ['class' => 'm-y-1', 'data-larena-sitepack-import-apply' => null],
+                $this->text('apply_text', ['label' => $label, 'id' => $targetId, 'records' => self::number(self::at($records, 'total'))]))] : [],
+        ))->node();
         // Nothing is written before «Загрузить»: cancelling here only drops the archive and its plan.
         array_push($parts, ...$this->actions([self::form($path.'/cancel', $token, $this->copy('cancel'), 'danger', [], $this->copy('cancel_plan_question'))]));
 
@@ -443,11 +457,6 @@ final readonly class StorageSitePackImportPage
         return $created > 0 ? [new AdminElement('p', ['data-larena-sitepack-import-kept' => null], $this->text('files_kept', ['count' => self::number($created)]))] : [];
     }
 
-    private function refresh(string $path): AdminElement
-    {
-        return new AdminElement('p', [], [new AdminElement('a', ['href' => $path, 'data-larena-sitepack-import-refresh' => null], $this->copy('refresh'))]);
-    }
-
     /** @param list<AdminNode> $forms @return list<AdminNode> */
     private function actions(array $forms): array
     {
@@ -511,7 +520,7 @@ final readonly class StorageSitePackImportPage
             $hidden[] = self::hidden($name, $value);
         }
 
-        return new AdminElement('form', ['method' => 'post', 'action' => $action, 'class' => 'larena-storage-jobs__action']
+        return new AdminElement('form', ['method' => 'post', 'action' => $action, 'class' => 'larena-storage-jobs__action', 'data-larena-action-form' => null]
             + ($question === '' ? [] : ['data-larena-confirm-submit' => $question]), [
             self::token($token),
             ...$hidden,

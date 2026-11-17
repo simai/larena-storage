@@ -91,7 +91,7 @@ assert(str_contains($controllerSource, "(\$permissions['structure.migrate'] ?? f
 assert(str_contains($controllerSource, "'data-larena-confirm-submit' => \$offer['question']") && str_contains($controllerSource, "new AdminElement('input', ['type' => 'hidden', 'name' => '_token', 'value' =>"));
 assert(str_contains($controllerSource, "StorageSectionGateway::FIELD_CHANGE_NOT_RUNNING => \$this->fieldChanges()->cancelEnded()"));
 $formState = (string) file_get_contents(__DIR__ . '/../../vendor/larena/admin/resources/js/form-state.js');
-assert(str_contains($formState, 'form.dataset?.larenaConfirmSubmit') && str_contains($formState, 'void larenaAsk(question,'));
+assert(str_contains($formState, 'form.dataset?.larenaConfirmSubmit') && str_contains($formState, 'larenaAsk(question, asking)'));
 
 // A large storage's list still being built (Storage's storage_view_not_ready): the records page says so in words
 // from PHP, a permanent deletion that waits for a linked storage's list says that, and a reference picker shows the

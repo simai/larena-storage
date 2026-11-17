@@ -664,12 +664,12 @@ foreach ([
     'Все записи придут черновиками (в архиве опубликовано: 7, запланировано: 1)', 'Упоминаний 4, из них нет на этом сайте: 1',
     'name="target_label"', 'name="target_structure_id"', 'Как черновики (рекомендуется)', 'Сохранить публикацию',
     'name="reference_from_0" value="workbench.cities"', 'name="reference_from_1" value="workbench.tags"', 'Хранилище с тем же ID', 'Города (workbench.cities)',
-    'Проверить снова', 'Исправьте ошибки и проверьте архив снова.', 'native-type="submit" disabled',
+    'Проверить снова', 'Исправьте ошибки и проверьте архив снова.', 'data-larena-action-warning="blocking"',
 ] as $needle) {
     import_assert(str_contains($html, htmlspecialchars($needle, ENT_QUOTES)) || str_contains($html, $needle), 'The plan shows: '.$needle);
 }
 import_assert(!str_contains($html, 'Старое (workbench.old)'), 'An archived storage is not offered for references.');
-import_assert(!preg_match('/<form method="post" action="[^"]+\/apply"[^>]*>(?:(?!<\/form>).)*sf-button[^>]*native-type="submit"(?! disabled)/s', $html),
+import_assert(preg_match('/<sf-confirm\b[^>]*\bdisabled\b/', $html) === 1,
     '«Загрузить» cannot be pressed while the plan has errors.');
 import_assert(substr_count($html, 'method="post"') === substr_count($html, 'name="_token"'), 'Every action is a CSRF form.');
 $controller->apply($request($admin, '/admin/storage/sitepack/import/'.$runRef.'/apply', 'POST', ['digest' => (string) $storage->runs[$runRef]->planDigest]), $runRef);
@@ -738,7 +738,7 @@ import_assert($flash()['status'] === 'Загрузка началась.' && $st
 $running = str_replace("\u{00A0}", ' ', $drawRun(['ref' => $runRef, 'state' => 'running', 'phase' => 'records', 'active' => true, 'done' => 5, 'total' => 12],
     ['run_path' => '/r', 'storage_path' => '/s', 'token' => 't', 'can_publish' => true, 'structures' => []]));
 import_assert(str_contains($running, '5 из 12 записей') && str_contains($running, 'Сейчас: записи') && str_contains($running, 'action="/r/cancel"')
-    && str_contains($running, 'Обновить') && !str_contains($running, '/r/apply'), 'During the import: «n из N записей» and «Отменить».');
+    && !str_contains($running, 'data-larena-sitepack-import-refresh') && !str_contains($running, '/r/apply'), 'During the import: «n из N записей» and «Отменить».');
 $planning = $drawRun(['ref' => $runRef, 'state' => 'queued', 'phase' => 'plan', 'active' => true, 'planning' => true, 'done' => 0, 'total' => 0],
     ['run_path' => '/r', 'storage_path' => '/s', 'token' => 't', 'can_publish' => true, 'structures' => []]);
 import_assert(str_contains($planning, 'Архив проверяется') && str_contains($planning, 'Ждёт запуска') && str_contains($planning, 'action="/r/cancel"'), 'While the plan is made: its progress and «Отменить».');

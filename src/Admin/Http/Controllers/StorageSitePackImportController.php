@@ -58,8 +58,8 @@ final readonly class StorageSitePackImportController
     {
         [$imports, $actor] = $this->guard($request);
         $page = $this->page();
-        $html = $this->draw($this->notice($request), $page->upload($this->importPath(), $this->token($request), $this->maxBytes()),
-            $page->runs($imports->runs($actor) ?? [], $this->importPath()));
+        $html = $this->inPlace($this->draw($this->notice($request), $page->upload($this->importPath(), $this->token($request), $this->maxBytes()),
+            $page->runs($imports->runs($actor) ?? [], $this->importPath())));
 
         return $this->views->make('larena-storage::admin.sitepack-import', [
             'title' => $this->copy('title'), 'description' => $this->copy('description'), 'html' => $html, 'back' => $this->sectionPath(),
@@ -110,14 +110,14 @@ final readonly class StorageSitePackImportController
             }
         }
         // The run's part reads itself again while its archive is checked or the import runs (StorageLiveRegions).
-        $html = $this->draw($this->notice($request), new AdminLiveRegionPart(StorageLiveRegions::SITEPACK_IMPORT, StorageLiveRegions::sitePackImportActive($found),
+        $html = $this->inPlace($this->draw($this->notice($request), new AdminLiveRegionPart(StorageLiveRegions::SITEPACK_IMPORT, StorageLiveRegions::sitePackImportActive($found),
             $this->runPath($run), $this->page()->stateText($found), [$this->page()->run($found, [
                 'run_path' => $this->runPath($run),
                 'storage_path' => $this->sectionPath(),
                 'token' => $this->token($request),
                 'can_publish' => ($permissions['publication.publish'] ?? false) === true,
                 'structures' => $structures,
-            ])]));
+            ])])));
 
         return $this->views->make('larena-storage::admin.sitepack-import', [
             'title' => $this->copy('run_title'), 'description' => $this->copy('description'), 'html' => $html, 'back' => $this->importPath(),
@@ -329,6 +329,21 @@ final readonly class StorageSitePackImportController
     private function draw(?AdminNode ...$parts): HtmlString
     {
         return (new AdminElementDocumentRenderer())->tree(...array_values(array_filter($parts, static fn (?AdminNode $part): bool => $part !== null)));
+    }
+
+    /**
+     * The page's part as the admin's «Действие с планом» (larena/admin AdminPlannedAction, PX-12): the upload, the plan,
+     * «Загрузить» and the progress follow each other in place (X-Larena-Fragment: action), without the page loading anew;
+     * the run's own address shows the same part whole.
+     */
+    private function inPlace(HtmlString $html): HtmlString
+    {
+        if (!class_exists(\Larena\Admin\Runtime\AdminPlannedAction::class)) {
+            return $html;
+        }
+
+        return new HtmlString('<div data-larena-action-host>'.\Larena\Admin\Runtime\AdminPlannedAction::open('storage-sitepack')->toHtml()
+            .$html->toHtml().\Larena\Admin\Runtime\AdminPlannedAction::close()->toHtml().'</div>');
     }
 
     private function page(): StorageSitePackImportPage
