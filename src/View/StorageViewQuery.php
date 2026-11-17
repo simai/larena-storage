@@ -84,6 +84,21 @@ final class StorageViewQuery
         return $this->total;
     }
 
+    /**
+     * The same list narrowed by one more condition (a board's lane): same sort and search, a fresh page memo.
+     *
+     * @param Closure(Builder): void $condition
+     */
+    public function narrowed(Closure $condition): self
+    {
+        $where = $this->where;
+
+        return new self($this->connection, $this->table, static function (Builder $query) use ($where, $condition): void {
+            $where($query);
+            $condition($query);
+        }, $this->sort, $this->search, $this->searchIndexed, $this->unindexedSort);
+    }
+
     /** The rows the list matches without its search, unordered. */
     public function unsearched(): Builder
     {

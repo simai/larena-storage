@@ -10,7 +10,12 @@ use Larena\Admin\Runtime\PropertyViewPort;
 use Larena\Admin\Record\AdminRecordLayoutStore;
 use Larena\Property\Contracts\PropertyReferenceLabelResolver;
 use Larena\Property\Runtime\PropertyDisplayProjector;
+use Larena\Admin\Contracts\AdminIdentityLabelResolver;
+use Larena\Property\Contracts\PropertyField;
 use Larena\Storage\Contracts\StorageWorkbench;
+use Larena\Storage\Contracts\StorageWorkbenchRecordCard;
+use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
+use Larena\Storage\Exceptions\StorageRejected;
 use Throwable;
 
 /**
@@ -20,6 +25,12 @@ use Throwable;
  * An encrypted field («Шифровать») is sealed: the panel learns only whether it holds a value, and an editor replaces
  * it by typing a new one. Its envelope stays here: a save that leaves the field untouched writes it back, and
  * Storage keeps the value unchanged. «Показать» reads the plaintext through its own route (StorageFieldRevealController).
+ *
+ * The record card (C305) reads two more intents here. `record.history {record_id, collection, cursor, kinds}` answers
+ * the record's changes newest first, a page at a time: each version against the one before it, by field, with the
+ * field's label as that schema version named it; an encrypted field, or one the person does not read, says only
+ * that it changed. `record.neighbours {record_id, collection, query}` answers the records before and after this one
+ * in the list the card was opened from, by that list's own query. A short field is saved alone with group.save.
  */
 final class StoragePropertyViewPort extends PropertyViewPort
 {
@@ -32,8 +43,325 @@ final class StoragePropertyViewPort extends PropertyViewPort
         ?RecordFilterOptionsGateway $options = null,
         private ?StoragePropertyViewFileStore $fileStore = null,
         private ?StorageSectionPublicationActions $publication = null,
+        private ?AdminIdentityLabelResolver $names = null,
     ) {
         parent::__construct($layouts, $projector, $labels, $options);
+    }
+
+    /** The kinds of change the history names, and the operations of Storage's versions each one covers. */
+    public const HISTORY_KINDS = [
+        'create' => ['create'],
+        'update' => ['update', 'revert', 'schema_migration'],
+        'delete' => ['delete', 'archive'],
+        'restore' => ['restore'],
+        // Publication is kept by the publication lifecycle, not in the record's versions.
+        'publish' => [],
+    ];
+
+    /** The versions one history page reads unless the card asks for fewer. */
+    private const HISTORY_PAGE = 20;
+
+    /** @param array<string,mixed> $payload @return array<string,mixed> */
+    public function raise(string $actor, string $scope, string $intent, array $payload): array
+    {
+        return match ($intent) {
+            'record.history' => $this->history($actor, $scope, $payload),
+            'record.neighbours' => $this->neighbours($actor, $scope, $payload),
+            default => parent::raise($actor, $scope, $intent, $payload),
+        };
+    }
+
+    /**
+     * record.history: one page of the record's changes, newest first. The cursor is a revision: the next page is the
+     * versions below it. Each event is one version {id, time, actor, kind, changes, revision}; changes are its fields
+     * against the version before it {field, label, before, after}, or {field, label, sealed: true} for a value the
+     * person may not see (encrypted, or a field the record's read does not give them).
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function history(string $actor, string $scope, array $payload): array
+    {
+        if (!$this->storage instanceof StorageWorkbenchRecordCard) {
+            return ['answer' => 'unavailable', 'reason' => 'history_unavailable'];
+        }
+        $cursor = $payload['cursor'] ?? null;
+        $cursor = is_string($cursor) && preg_match('/\A[1-9][0-9]{0,17}\z/', $cursor) === 1 ? (int) $cursor : $cursor;
+        $kinds = $payload['kinds'] ?? [];
+        $limit = $payload['limit'] ?? self::HISTORY_PAGE;
+        if (($cursor !== null && (!is_int($cursor) || $cursor < 1)) || !is_array($kinds) || !array_is_list($kinds)
+            || array_diff($kinds, array_keys(self::HISTORY_KINDS)) !== [] || !is_int($limit) || $limit < 1 || $limit > StorageWorkbenchRecordCard::MAX_PAGE) {
+            return ['answer' => 'refused', 'reason' => 'history_invalid'];
+        }
+        $collection = $payload['collection'] ?? null;
+        $recordId = $payload['record_id'] ?? null;
+        if (!is_string($collection) || preg_match($this->collectionPattern(), $collection) !== 1
+            || !is_string($recordId) || preg_match($this->recordPattern(), $recordId) !== 1) {
+            return ['answer' => 'refused', 'reason' => 'record_invalid'];
+        }
+        $read = $this->readObject($actor, $scope, $collection, $recordId);
+        if (isset($read['answer'])) {
+            return $read;
+        }
+        $operations = [];
+        foreach ($kinds as $kind) {
+            $operations = [...$operations, ...self::HISTORY_KINDS[$kind]];
+        }
+        if ($kinds !== [] && $operations === []) {
+            return ['answer' => 'applied', 'events' => [], 'has_more' => false, 'cursor' => null];
+        }
+        try {
+            $page = $this->storage->recordChanges($scope, $collection, $recordId, $actor, $cursor, $operations, $limit);
+            $current = $this->storage->readStructure($scope, $collection, $actor)->fields;
+        } catch (StorageRejected $exception) {
+            return ['answer' => 'refused', 'reason' => str_contains($exception->reasonCode, 'scope') || str_contains($exception->reasonCode, 'denied')
+                ? 'access_denied' : $exception->reasonCode];
+        } catch (Throwable) {
+            return ['answer' => 'unavailable', 'reason' => 'history_unavailable'];
+        }
+        // What the person reads of the record now: a value of any other field is not shown in its history either.
+        $readable = [];
+        foreach (is_array($read[0]['fields'] ?? null) ? $read[0]['fields'] : [] as $field) {
+            if (is_array($field) && is_string($field['key'] ?? null) && !$this->sealedField($field)) {
+                $readable[$field['key']] = true;
+            }
+        }
+        $sealedNow = [];
+        foreach ($current as $field) {
+            if (is_string($field['key'] ?? null) && $this->sealedField($field)) {
+                $sealedNow[$field['key']] = true;
+            }
+        }
+        $events = [];
+        foreach ($page['versions'] as $version) {
+            $fields = $page['fields'][$version['schema_version']] ?? [];
+            $events[] = [
+                'id' => $recordId.':'.$version['revision'],
+                'revision' => $version['revision'],
+                'time' => self::isoTime($version['created_at']),
+                'actor' => $this->actorName($version['actor']),
+                'kind' => self::kindOf($version['operation']),
+                'changes' => $this->changes($fields, $version['previous'], $version['values'], $readable, $sealedNow),
+            ];
+        }
+        $last = $events === [] ? null : $events[count($events) - 1]['revision'];
+
+        return ['answer' => 'applied', 'events' => $events, 'has_more' => $page['more'],
+            'cursor' => $page['more'] && $last !== null ? (string) $last : null];
+    }
+
+    /**
+     * The fields one version changed against the one before it, in the order its schema version lists them.
+     *
+     * @param list<array<string,mixed>> $fields the fields of the version's schema version
+     * @param array<string,mixed>|null $before @param array<string,mixed> $after
+     * @param array<string,true> $readable @param array<string,true> $sealedNow
+     * @return list<array<string,mixed>>
+     */
+    private function changes(array $fields, ?array $before, array $after, array $readable, array $sealedNow): array
+    {
+        $before ??= [];
+        $described = [];
+        foreach ($fields as $field) {
+            if (is_string($field['key'] ?? null)) {
+                $described[$field['key']] = $field;
+            }
+        }
+        $keys = array_keys($described);
+        foreach ([...array_keys($before), ...array_keys($after)] as $key) {
+            if (!in_array((string) $key, $keys, true)) {
+                $keys[] = (string) $key;
+            }
+        }
+        $changes = [];
+        foreach ($keys as $key) {
+            $old = self::filled($before[$key] ?? null);
+            $new = self::filled($after[$key] ?? null);
+            $field = $described[$key] ?? ['key' => $key];
+            $sealed = isset($sealedNow[$key]) || $this->sealedField($field) || !isset($readable[$key])
+                || StorageEncryptedFields::isSealed($old) || StorageEncryptedFields::isSealed($new);
+            if ($sealed ? StorageEncryptedFields::same($old, $new) : self::canonical($old) === self::canonical($new)) {
+                continue;
+            }
+            $label = $this->fieldLabel($field);
+            $changes[] = $sealed ? ['field' => $key, 'label' => $label, 'sealed' => true]
+                : ['field' => $key, 'label' => $label, 'before' => $old, 'after' => $new];
+        }
+
+        return $changes;
+    }
+
+    /**
+     * record.neighbours: the records before and after this one in the list the card was opened from, read with that
+     * list's query {filters, search, sort, include_archived} (the data view's shape, sort entries {key, direction}
+     * or view-config's {field, dir}). The list's order, never the ids'.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function neighbours(string $actor, string $scope, array $payload): array
+    {
+        if (!$this->storage instanceof StorageWorkbenchRecordCard) {
+            return ['answer' => 'unavailable', 'reason' => 'neighbours_unavailable'];
+        }
+        $collection = $payload['collection'] ?? null;
+        $recordId = $payload['record_id'] ?? null;
+        $asked = $payload['query'] ?? [];
+        if (!is_string($collection) || preg_match($this->collectionPattern(), $collection) !== 1
+            || !is_string($recordId) || preg_match($this->recordPattern(), $recordId) !== 1) {
+            return ['answer' => 'refused', 'reason' => 'record_invalid'];
+        }
+        if (!is_array($asked) || ($asked !== [] && array_is_list($asked))) {
+            return ['answer' => 'refused', 'reason' => 'query_invalid'];
+        }
+        $search = $asked['search'] ?? '';
+        $sort = $asked['sort'] ?? [];
+        $chosen = $asked['filters'] ?? ($asked['filter'] ?? []);
+        $archived = $asked['include_archived'] ?? false;
+        if (!is_string($search) || mb_strlen($search) > 100 || !is_bool($archived) || !is_array($sort) || !array_is_list($sort) || count($sort) > 3
+            || !is_array($chosen) || ($chosen !== [] && array_is_list($chosen)) || count($chosen) > 20) {
+            return ['answer' => 'refused', 'reason' => 'query_invalid'];
+        }
+        try {
+            $structure = $this->storage->readStructure($scope, $collection, $actor);
+        } catch (Throwable) {
+            return ['answer' => 'refused', 'reason' => 'access_denied'];
+        }
+        // As the list reads it: hidden fields filter and sort nothing; a filter that does not fit is dropped.
+        $known = [];
+        foreach ($structure->fields as $field) {
+            if (is_string($field['key'] ?? null) && ($field['hidden'] ?? false) !== true) {
+                $known[$field['key']] = true;
+            }
+        }
+        $filters = DataviewFilterQuery::fromDataview($chosen, array_keys($known))['filters'];
+        $preferences = self::listPreferences();
+        if ($preferences !== null) {
+            $kept = [];
+            foreach ($filters as $key => $filter) {
+                try {
+                    $kept += $preferences->queryFilters($structure, [$key => $filter]);
+                } catch (\InvalidArgumentException) {
+                }
+            }
+            $filters = $kept;
+        }
+        $order = [];
+        foreach ($sort as $entry) {
+            $key = is_array($entry) ? ($entry['key'] ?? ($entry['field'] ?? null)) : null;
+            $direction = is_array($entry) ? ($entry['direction'] ?? ($entry['dir'] ?? null)) : null;
+            if (!is_string($key) || !in_array($direction, ['asc', 'desc'], true) || (!isset($known[$key]) && !StorageListOrder::isSystem($key))) {
+                return ['answer' => 'refused', 'reason' => 'sort_invalid'];
+            }
+            $order[] = ['field' => $key, 'direction' => $direction];
+        }
+        $search = trim($search);
+        try {
+            $found = $this->storage->recordNeighbours(new StorageWorkbenchRecordQuery($scope, $collection, $filters,
+                $search === '' ? null : $search, $order === [] ? StorageListOrder::NEWEST_FIRST : $order, includeArchived: $archived), $recordId, $actor);
+        } catch (StorageRejected $exception) {
+            return ['answer' => $exception->reasonCode === \Larena\Storage\Runtime\DatabaseStorageWorkbench::VIEW_NOT_READY ? 'unavailable' : 'refused',
+                'reason' => str_contains($exception->reasonCode, 'scope') ? 'access_denied' : $exception->reasonCode];
+        } catch (Throwable) {
+            return ['answer' => 'unavailable', 'reason' => 'neighbours_unavailable'];
+        }
+
+        return ['answer' => 'applied', 'listed' => $found['listed'],
+            'previous' => $found['previous'] === null ? null : ['record_id' => $found['previous']],
+            'next' => $found['next'] === null ? null : ['record_id' => $found['next']]];
+    }
+
+    /** The list's filter rules (relative dates, operators by type) when the application has them. */
+    private static function listPreferences(): ?DataviewListPreferences
+    {
+        $container = \Illuminate\Container\Container::getInstance();
+        try {
+            return $container->bound(DataviewListPreferences::class) ? $container->make(DataviewListPreferences::class) : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /** The person who wrote a version, by name; null when no name is known (a reference is never shown). */
+    private function actorName(string $actor): ?string
+    {
+        if ($actor === '') {
+            return null;
+        }
+        if ($this->names === null) {
+            $container = \Illuminate\Container\Container::getInstance();
+            try {
+                $this->names = $container->bound(AdminIdentityLabelResolver::class) ? $container->make(AdminIdentityLabelResolver::class) : null;
+            } catch (Throwable) {
+                $this->names = null;
+            }
+        }
+        try {
+            $name = $this->names?->resolve($actor);
+        } catch (Throwable) {
+            $name = null;
+        }
+
+        return is_string($name) && $name !== '' && $name !== $actor ? $name : null;
+    }
+
+    /** @param array<string,mixed> $field */
+    private function fieldLabel(array $field): string
+    {
+        $key = (string) ($field['key'] ?? '');
+        $label = is_string($field['label'] ?? null) && $field['label'] !== '' ? $field['label'] : $key;
+        if (preg_match(PropertyField::LABEL_KEY_PATTERN, $label) === 1) {
+            $container = \Illuminate\Container\Container::getInstance();
+            $text = $container->bound('translator') ? $container->make('translator')->get($label) : null;
+
+            return is_string($text) && $text !== $label ? $text : $key;
+        }
+
+        return $label;
+    }
+
+    private static function kindOf(string $operation): string
+    {
+        foreach (self::HISTORY_KINDS as $kind => $operations) {
+            if (in_array($operation, $operations, true)) {
+                return $kind;
+            }
+        }
+
+        return 'update';
+    }
+
+    /** Storage's UTC time as ISO 8601 with its offset. */
+    private static function isoTime(string $time): string
+    {
+        try {
+            return (new \DateTimeImmutable($time, new \DateTimeZone('UTC')))->format(DATE_ATOM);
+        } catch (Throwable) {
+            return $time;
+        }
+    }
+
+    /** An empty value (none, '' or []) reads as none. */
+    private static function filled(mixed $value): mixed
+    {
+        return $value === '' || $value === [] ? null : $value;
+    }
+
+    /** A value compared by content: object keys in order, lists as they are. */
+    private static function canonical(mixed $value): string
+    {
+        $sort = static function (mixed $value) use (&$sort): mixed {
+            if (!is_array($value)) {
+                return $value;
+            }
+            if (!array_is_list($value)) {
+                ksort($value);
+            }
+
+            return array_map($sort, $value);
+        };
+
+        return json_encode($sort($value), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION) ?: '';
     }
 
     protected function collectionPattern(): string

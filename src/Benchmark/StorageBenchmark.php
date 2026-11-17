@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Schema;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
+use Larena\Storage\Contracts\StorageWorkbenchBoardQuery;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
@@ -140,7 +141,7 @@ final class StorageBenchmark
      * @param Closure(string): void|null $progress
      * @return array<string, mixed>
      */
-    public function run(array $sizes, int $repeat, bool $keep = false, ?Closure $progress = null, bool $siteOnly = false): array
+    public function run(array $sizes, int $repeat, bool $keep = false, ?Closure $progress = null, bool $siteOnly = false, bool $boardOnly = false): array
     {
         $progress ??= static function (string $line): void {
         };
@@ -149,7 +150,7 @@ final class StorageBenchmark
             $progress(sprintf('Seeding %d records...', $size));
             $runs[] = $siteOnly
                 ? ['records' => $size, 'site' => $this->runSite($this->runId . '_' . $size, $size, $repeat, $keep, $progress)]
-                : $this->runSize($size, $repeat, $keep, $progress);
+                : $this->runSize($size, $repeat, $keep, $progress, $boardOnly);
         }
 
         return [
@@ -168,7 +169,7 @@ final class StorageBenchmark
      * @param Closure(string): void $progress
      * @return array<string, mixed>
      */
-    private function runSize(int $size, int $repeat, bool $keep, Closure $progress): array
+    private function runSize(int $size, int $repeat, bool $keep, Closure $progress, bool $boardOnly = false): array
     {
         $suffix = $this->runId . '_' . $size;
         $sections = $this->workbench->createStructure($this->scopeRef, [
@@ -196,8 +197,11 @@ final class StorageBenchmark
             (new StorageViewRebuilder($builder))->rebuild($structure->schema->schemaId, StorageViewRebuilder::DEFAULT_CHUNK, true);
             $buildMs = (hrtime(true) - $buildStarted) / 1e6;
             $this->views->registry()->forget($structure->schema->schemaId);
+        }
+        if ($this->views->enabled() && !$boardOnly) {
             // The field options are switched on the way an owner does it on a filled storage:
             // a structure change (no record rewritten) and the backfill of the витрина, timed.
+            $builder = new StorageViewSync($this->connection, new StorageViewRegistry($this->connection, 0.0), $this->views->ddl());
             $optionsStarted = hrtime(true);
             $structure = $this->workbench->updateStructure($this->scopeRef, $structure->structureId, $structure->version, self::descriptor(
                 $structure->structureId,
@@ -259,6 +263,27 @@ final class StorageBenchmark
                 ->createRecord($this->scopeRef, $structure->structureId, $this->values($size + $iteration, $sectionIds), self::ACTOR)->revision,
         ];
 
+        // The board by status (5 lanes of a fifth each): one call for every lane's first 20 and the totals of all
+        // lanes, by the list's sort or none, cut by a filter with lane sums, and «Показать ещё» of one lane.
+        $boardRead = fn (array $filters = [], array $sort = [], array $sums = [], ?string $lane = null, ?string $continuation = null): int => $this->workbench->listBoard(
+            new StorageWorkbenchBoardQuery(new StorageWorkbenchRecordQuery($this->scopeRef, $structure->structureId, $filters, null, $sort,
+                StorageWorkbenchBoardQuery::PER_LANE, $continuation), 'status', $sums, $lane),
+            self::ACTOR,
+        )->total;
+        $boardOperations = [
+            'board_lanes' => static fn (): Closure => static fn (): int => $boardRead(),
+            'board_lanes_sorted' => static fn (): Closure => static fn (): int => $boardRead([], [['field' => 'price', 'direction' => 'desc']]),
+            'board_lanes_filtered_sum' => static fn (): Closure => static fn (): int => $boardRead(['active' => ['operator' => 'eq', 'value' => true]], [], ['price', 'qty']),
+            'board_lane_more' => function () use ($structure, $boardRead): Closure {
+                $first = $this->workbench->listBoard(new StorageWorkbenchBoardQuery(new StorageWorkbenchRecordQuery(
+                    $this->scopeRef, $structure->structureId, [], null, [], StorageWorkbenchBoardQuery::PER_LANE), 'status'), self::ACTOR);
+                $continuation = $first->lane('review')?->continuation;
+
+                return static fn (): int => $boardRead([], [], [], 'review', $continuation);
+            },
+        ];
+        $operations = $boardOnly ? $boardOperations : $operations + $boardOperations;
+
         $results = [];
         foreach ($operations as $name => $operation) {
             $results[$name] = $this->sample($name, $operation, $repeat);
@@ -266,6 +291,11 @@ final class StorageBenchmark
         }
 
         $fieldCount = count($structure->fields);
+        if ($boardOnly) {
+            return ['records' => $size, 'structure_id' => $structure->structureId, 'field_count' => $fieldCount, 'seed_ms' => round($seedMs, 1),
+                'view_build_ms' => $buildMs === null ? null : round($buildMs, 1), 'operations' => $results,
+                'cleanup' => $keep ? ['kept' => true] : $this->cleanup($structure, $sections)];
+        }
         // Field changes on the filled storage, timed once each: an optional field added (no
         // record version written) and a field retyped (every record checked, the витрина's new
         // column filled, then the switch; no record version written either).
@@ -545,7 +575,7 @@ final class StorageBenchmark
             'max_ms' => round($timings[$count - 1], 2),
             'queries' => max($queries),
             'peak_memory_bytes' => max($memory),
-            'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_') || str_starts_with($name, 'site_list_')
+            'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_') || str_starts_with($name, 'site_list_') || str_starts_with($name, 'board_')
                 || str_starts_with($name, 'sort_') || str_starts_with($name, 'search_')
                 || in_array($name, ['matched_count', 'matched_count_exact'], true) ? $value : null,
         ];

@@ -393,7 +393,19 @@
     "src/Admin/FileKindFilter.php",
     "src/Admin/Http/Controllers/StorageWorkbenchDataviewPortController.php",
     "src/Admin/Http/Controllers/StorageWorkbenchExportController.php",
-    "src/Admin/StorageAdminRecords.php"
+    "src/Admin/StorageAdminRecords.php",
+    "src/Contracts/StorageWorkbenchRecordCard.php",
+    "src/View/StorageViewNeighbours.php",
+    "tests/Admin/StorageRecordCardTest.php",
+    "src/Contracts/StorageWorkbenchBoard.php",
+    "src/Contracts/StorageWorkbenchBoardQuery.php",
+    "src/Contracts/StorageWorkbenchBoardLane.php",
+    "src/Contracts/StorageWorkbenchBoardPage.php",
+    "src/View/StorageViewBoard.php",
+    "src/View/StorageViewQuery.php",
+    "src/Board/StorageBoardDescription.php",
+    "src/Board/StorageBoardMove.php",
+    "tests/Integration/StorageBoardTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

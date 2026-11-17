@@ -25,12 +25,17 @@ use Larena\Storage\Contracts\StorageSecurityEvent;
 use Larena\Storage\Contracts\StorageSecurityEventSink;
 use Larena\Storage\Contracts\LocaleFallbackChain;
 use Larena\Storage\Contracts\StorageWorkbench as StorageWorkbenchContract;
+use Larena\Storage\Contracts\StorageWorkbenchBoard;
+use Larena\Storage\Contracts\StorageWorkbenchBoardLane;
+use Larena\Storage\Contracts\StorageWorkbenchBoardPage;
+use Larena\Storage\Contracts\StorageWorkbenchBoardQuery;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChange;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
 use Larena\Storage\Contracts\StorageWorkbenchLanguages;
 use Larena\Storage\Contracts\StorageWorkbenchPurgeReceipt;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
 use Larena\Storage\Contracts\StorageWorkbenchRecordActivity;
+use Larena\Storage\Contracts\StorageWorkbenchRecordCard;
 use Larena\Storage\Contracts\StorageWorkbenchRecordPage;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
@@ -59,12 +64,14 @@ use Larena\Storage\SchemaEvolution\StorageFieldChanges;
 use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 use Larena\Storage\View\StorageRecordQueryNormalizer;
+use Larena\Storage\View\StorageViewBoard;
 use Larena\Storage\View\StorageViewColumn;
 use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewCreatedPerDay;
 use Larena\Storage\View\StorageViewFieldOptions;
 use Larena\Storage\View\StorageViewKeyset;
 use Larena\Storage\View\StorageViewNaming;
+use Larena\Storage\View\StorageViewNeighbours;
 use Larena\Storage\View\StorageViewQuery;
 use Larena\Storage\View\StorageViewQueryCompiler;
 use Larena\Storage\View\StorageViewRebuilder;
@@ -73,7 +80,7 @@ use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
-final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages, StorageWorkbenchRecordActivity
+final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages, StorageWorkbenchRecordActivity, StorageWorkbenchRecordCard, StorageWorkbenchBoard
 {
     private const STRUCTURE_RESOURCE = 'storage.workbench.structure';
     private const RECORD_RESOURCE = 'storage.workbench.record';
@@ -93,6 +100,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     private const MAX_STRUCTURE_PURGE = 5000;
     // Lists read from the витрина keep page numbers while the offset stays at or under this.
     private const MAX_OFFSET = 10000;
+    /** The lanes a whole board reads records for; a lane past them shows its total, its records come with «Показать ещё». */
+    private const BOARD_MAX_LANES = 50;
     // One bulk archive runs in a single transaction; 1000 records keeps "archive all matching" bounded.
     private const MAX_BULK = 1000;
     private const LOCK_UPDATE = 'update';
@@ -3165,6 +3174,218 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     }
 
     /**
+     * A board of the list (StorageWorkbenchBoard, C304 BV-3): the list's query compiled onto the витрина as listRecords
+     * does it, then the totals of every lane in one grouped query and each lane's first page by keyset; the records
+     * of all lanes are read from their current versions in one query. A lane's continuation is bound to the list's
+     * query, the lane field and the lane, so it only asks that lane further.
+     */
+    public function listBoard(StorageWorkbenchBoardQuery $query, string $actor): StorageWorkbenchBoardPage
+    {
+        $records = $query->records;
+        $this->assertStructureId($records->structureId);
+        $decision = $this->assertScope($actor, 'storage.workbench.record.list', $records->scopeRef, self::RECORD_RESOURCE);
+        $structure = $this->readStructureInternal($records->scopeRef, $records->structureId);
+        if ($records->page !== null) {
+            throw new StorageRejected('storage_workbench_record_page_invalid');
+        }
+        $normalizedQuery = $this->normalizeRecordQuery($records, $structure);
+        $fields = [];
+        foreach ($this->listFields($structure) as $field) {
+            $fields[(string) $field['key']] = $field;
+        }
+        $laneField = $fields[$query->laneField] ?? null;
+        if ($laneField === null || !in_array($laneField['type'] ?? null, StorageWorkbenchBoard::LANE_TYPES, true)) {
+            throw new StorageRejected('storage_workbench_board_lane_field_invalid');
+        }
+        foreach ($query->sums as $sum) {
+            if (!in_array($fields[$sum]['type'] ?? null, StorageWorkbenchBoard::SUM_TYPES, true)) {
+                throw new StorageRejected('storage_workbench_board_sum_field_invalid');
+            }
+        }
+        $view = $this->listView($structure);
+        $compiled = $view === null ? null : $this->compileList($view, $fields, $normalizedQuery);
+        if ($compiled === null) {
+            if (!$this->answerable($structure, $fields, $normalizedQuery)) {
+                throw new StorageRejected(self::QUERY_UNSUPPORTED);
+            }
+            $this->prepareView($structure);
+            $view = $this->listView($structure, true);
+            $compiled = $view === null ? null : $this->compileList($view, $fields, $normalizedQuery);
+            if ($view === null || $compiled === null) {
+                $this->queueViewBuild($structure->schema->schemaId);
+                throw new StorageRejected(self::VIEW_NOT_READY);
+            }
+        }
+        $columns = [];
+        foreach ($view->layout->columns as $column) {
+            if ($column->state === StorageViewColumn::STATE_READY && !$column->multiValued()) {
+                $columns[$column->fieldKey] = $column;
+            }
+        }
+        $sums = [];
+        foreach ($query->sums as $sum) {
+            $sums[$sum] = $columns[$sum] ?? throw new StorageRejected(self::VIEW_NOT_READY);
+        }
+        $board = new StorageViewBoard($compiled, $columns[$query->laneField] ?? throw new StorageRejected(self::VIEW_NOT_READY), $sums);
+        $queryHash = hash('sha256', $this->canonicalJson($normalizedQuery + ['board_lane_field' => $query->laneField]));
+        $scopeHash = hash('sha256', $this->canonicalJson([
+            'actor' => $decision->actor,
+            'operation' => $decision->operation,
+            'scope_ref' => $records->scopeRef,
+            'target' => $decision->target,
+            'reason_code' => $decision->reasonCode,
+        ]));
+        $keyset = new StorageViewKeyset($this->cursorKey, $this->canonicalJson(...));
+
+        try {
+            if ($query->lane !== null) {
+                // «Показать ещё»: one lane, from its continuation.
+                $value = $this->boardLaneValue($laneField, $query->lane);
+                $laneQuery = $board->lane($value);
+                $laneHash = hash('sha256', $queryHash . "\0" . $query->lane);
+                $offset = 0;
+                $after = null;
+                if ($records->continuation !== null) {
+                    if (StorageViewKeyset::version($records->continuation) === StorageViewKeyset::VERSION) {
+                        $after = $keyset->decode($records->continuation, $laneHash, $scopeHash, count($laneQuery->sort));
+                        $offset = $after['offset'];
+                    } else {
+                        $offset = $this->decodeContinuation($records->continuation, $laneHash, $scopeHash, StorageViewKeyset::MAX_OFFSET);
+                    }
+                }
+                $page = $this->boardLanePage($laneQuery, $records->limit, $offset, $after, $keyset, $laneHash, $scopeHash);
+                $total = $laneQuery->filtered()->count();
+                $items = $this->boardRecords($structure, $records, $page['ids'], [], $query->lane);
+
+                return new StorageWorkbenchBoardPage($query->laneField, [new StorageWorkbenchBoardLane(
+                    $query->lane, $value, $total, [], $items[$query->lane] ?? [], $page['continuation'],
+                )], $total);
+            }
+
+            $totals = $this->boardLaneOrder($laneField, $board->totals());
+            $pages = [];
+            $ids = [];
+            foreach ($totals as $position => $lane) {
+                if ($position >= self::BOARD_MAX_LANES) {
+                    // A lane past the read lanes shows its total; its records come with «Показать ещё».
+                    break;
+                }
+                $key = StorageWorkbenchBoardLane::key($lane['value']);
+                $pages[$key] = $this->boardLanePage($board->lane($lane['value']), $records->limit, 0, null, $keyset,
+                    hash('sha256', $queryHash . "\0" . $key), $scopeHash);
+                foreach ($pages[$key]['ids'] as $id) {
+                    $ids[$id] = $key;
+                }
+            }
+            $items = $this->boardRecords($structure, $records, array_keys($ids), $ids);
+            $lanes = [];
+            $total = 0;
+            foreach ($totals as $lane) {
+                $key = StorageWorkbenchBoardLane::key($lane['value']);
+                $lanes[] = new StorageWorkbenchBoardLane($key, $lane['value'], $lane['count'], $lane['sums'], $items[$key] ?? [],
+                    $pages[$key]['continuation'] ?? null);
+                $total += $lane['count'];
+            }
+
+            return new StorageWorkbenchBoardPage($query->laneField, $lanes, $total);
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /**
+     * A lane's page of ids and the continuation to its next page.
+     *
+     * @param array{values: list<int|string|null>, record_id: string, offset: int}|null $after
+     * @return array{ids: list<string>, continuation: ?string}
+     */
+    private function boardLanePage(StorageViewQuery $lane, int $limit, int $offset, ?array $after, StorageViewKeyset $keyset, string $laneHash, string $scopeHash): array
+    {
+        $rows = $lane->page($limit, $after === null ? $offset : 0, $after);
+        $more = count($rows) > $limit;
+        $rows = array_slice($rows, 0, $limit);
+        $continuation = null;
+        if ($more && $rows !== []) {
+            $last = $rows[count($rows) - 1];
+            $passed = $offset + count($rows);
+            $continuation = $keyset->encode($laneHash, $scopeHash, $last['keys'], $last['record_id'], $passed)
+                ?? $this->encodeContinuation($passed, $laneHash, $scopeHash);
+        }
+
+        return ['ids' => array_column($rows, 'record_id'), 'continuation' => $continuation];
+    }
+
+    /**
+     * The records of the read lanes by lane key, each lane in list order.
+     *
+     * @param list<string> $recordIds
+     * @param array<string, string> $laneOf record id => lane key; the lane $single when empty
+     * @return array<string, list<StorageWorkbenchRecord>>
+     */
+    private function boardRecords(StorageWorkbenchStructure $structure, StorageWorkbenchRecordQuery $query, array $recordIds, array $laneOf = [], string $single = ''): array
+    {
+        $lanes = [];
+        foreach ($this->listedRecords($structure, $query, $recordIds) as $record) {
+            $lanes[$laneOf[$record->recordId] ?? $single][] = $record;
+        }
+
+        return $lanes;
+    }
+
+    /**
+     * A lane key as the lane field's value: «true»/«false» for a yes/no field, an empty key for no value.
+     *
+     * @param array<string, mixed> $field
+     */
+    private function boardLaneValue(array $field, string $key): string|bool|null
+    {
+        if ($key === StorageWorkbenchBoardLane::EMPTY) {
+            return null;
+        }
+        if (($field['type'] ?? null) === 'boolean') {
+            return match ($key) {
+                'true' => true,
+                'false' => false,
+                default => throw new StorageRejected('storage_workbench_board_lane_invalid'),
+            };
+        }
+        if (strlen($key) > 255) {
+            throw new StorageRejected('storage_workbench_board_lane_invalid');
+        }
+
+        return $key;
+    }
+
+    /**
+     * The lanes in the lane field's order: a choice's options as declared (values no longer among them after),
+     * no before yes, users by reference; the lane without a value last.
+     *
+     * @param array<string, mixed> $field
+     * @param list<array{value: string|bool|null, count: int, sums: array<string, string|null>}> $lanes
+     * @return list<array{value: string|bool|null, count: int, sums: array<string, string|null>}>
+     */
+    private function boardLaneOrder(array $field, array $lanes): array
+    {
+        $options = [];
+        foreach (is_array($field['constraints']['options'] ?? null) ? $field['constraints']['options'] : [] as $position => $option) {
+            if (is_array($option) && is_string($option['value'] ?? null)) {
+                $options[$option['value']] = $position;
+            }
+        }
+        $rank = static fn (string|bool|null $value): array => match (true) {
+            $value === null => [3, 0, ''],
+            is_bool($value) => [0, $value ? 1 : 0, ''],
+            array_key_exists($value, $options) => [0, $options[$value], ''],
+            default => [1, 0, $value],
+        };
+        usort($lanes, static fn (array $a, array $b): int => $rank($a['value']) <=> $rank($b['value']));
+
+        return $lanes;
+    }
+
+    /**
      * The structure's витрина when it is ready and built for the structure's current schema
      * version; $fresh reads the registry row past its memo.
      */
@@ -3309,6 +3530,185 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         } catch (Throwable $exception) {
             throw StoragePersistenceFailed::from($exception);
         }
+    }
+
+    public function recordChanges(
+        string $scopeRef,
+        string $structureId,
+        string $recordId,
+        string $actor,
+        ?int $before = null,
+        array $operations = [],
+        int $limit = 20,
+    ): array {
+        $this->assertStructureId($structureId);
+        $this->assertRecordId($recordId);
+        if ($limit < 1 || $limit > StorageWorkbenchRecordCard::MAX_PAGE || ($before !== null && $before < 1)) {
+            throw new StorageRejected('storage_workbench_history_limit_invalid');
+        }
+        foreach ($operations as $operation) {
+            if (preg_match('/\A[a-z_]{1,24}\z/', $operation) !== 1) {
+                throw new StorageRejected('storage_workbench_history_operation_invalid');
+            }
+        }
+        $this->assertScope($actor, 'storage.workbench.record.history', $scopeRef, self::RECORD_RESOURCE);
+        $structure = $this->readStructureInternal($scopeRef, $structureId);
+        $this->readRecordInternal($structure, $scopeRef, $recordId, $actor);
+        $schemaId = $structure->schema->schemaId;
+        $versions = fn (): Builder => $this->database->table('larena_storage_record_versions')
+            ->where('schema_id', $schemaId)
+            ->where('record_id', $recordId);
+
+        try {
+            // A range of revisions below the cursor, by the (schema_id, record_id, revision) index; one more to know
+            // whether there is more.
+            $page = $versions();
+            if ($before !== null) {
+                $page->where('revision', '<', $before);
+            }
+            if ($operations !== []) {
+                $page->whereIn('operation', array_values(array_unique($operations)));
+            }
+            /** @var list<stdClass> $rows */
+            $rows = $page->orderByDesc('revision')->limit($limit + 1)->get()->all();
+            $more = count($rows) > $limit;
+            $rows = array_slice($rows, 0, $limit);
+            $byRevision = [];
+            foreach ($rows as $row) {
+                $byRevision[(int) $row->revision] = $row;
+            }
+            // The version before each one, unless the page holds it already: one read of those revisions.
+            $wanted = [];
+            foreach ($rows as $row) {
+                $revision = (int) $row->revision - 1;
+                if ($revision >= 1 && !isset($byRevision[$revision])) {
+                    $wanted[] = $revision;
+                }
+            }
+            if ($wanted !== []) {
+                /** @var list<stdClass> $earlier */
+                $earlier = $versions()->whereIn('revision', $wanted)->get()->all();
+                foreach ($earlier as $row) {
+                    $byRevision[(int) $row->revision] = $row;
+                }
+            }
+            $changes = [];
+            $schemaVersions = [];
+            foreach ($rows as $row) {
+                $revision = (int) $row->revision;
+                $previous = $byRevision[$revision - 1] ?? null;
+                if ($previous === null && $revision > 1) {
+                    // Older versions pruned (the storage keeps a number of them): the nearest one still kept.
+                    $previous = $versions()->where('revision', '<', $revision)->orderByDesc('revision')->first();
+                }
+                $schemaVersions[(int) $row->schema_version] = true;
+                if ($previous instanceof stdClass) {
+                    $schemaVersions[(int) $previous->schema_version] = true;
+                }
+                $changes[] = [
+                    'revision' => $revision,
+                    'schema_version' => (int) $row->schema_version,
+                    'operation' => (string) $row->operation,
+                    'actor' => (string) $row->created_by,
+                    'created_at' => (string) $row->created_at,
+                    'values' => $this->changedValues($structure, $scopeRef, $row),
+                    'previous' => $previous instanceof stdClass ? $this->changedValues($structure, $scopeRef, $previous) : null,
+                ];
+            }
+
+            return ['versions' => $changes, 'more' => $more, 'fields' => $this->schemaVersionFields($structure, array_keys($schemaVersions))];
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    public function recordNeighbours(StorageWorkbenchRecordQuery $query, string $recordId, string $actor): array
+    {
+        $this->assertStructureId($query->structureId);
+        $this->assertRecordId($recordId);
+        $this->assertScope($actor, 'storage.workbench.record.list', $query->scopeRef, self::RECORD_RESOURCE);
+        $structure = $this->readStructureInternal($query->scopeRef, $query->structureId);
+        $normalized = $this->normalizeRecordQuery($query, $structure);
+        $fields = [];
+        foreach ($this->listFields($structure) as $field) {
+            $fields[(string) $field['key']] = $field;
+        }
+        // The same витрина and compiled query the list reads, so «next» is the row the person sees next.
+        $view = $this->listView($structure);
+        $compiled = $view === null ? null : $this->compileList($view, $fields, $normalized);
+        if ($compiled === null) {
+            if (!$this->answerable($structure, $fields, $normalized)) {
+                throw new StorageRejected(self::QUERY_UNSUPPORTED);
+            }
+            $this->prepareView($structure);
+            $view = $this->listView($structure, true);
+            $compiled = $view === null ? null : $this->compileList($view, $fields, $normalized);
+            if ($compiled === null) {
+                $this->queueViewBuild($structure->schema->schemaId);
+                throw new StorageRejected(self::VIEW_NOT_READY);
+            }
+        }
+        try {
+            return StorageViewNeighbours::of($compiled, $recordId);
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /**
+     * One version's values as its changes compare them: as written under its own schema version, without the
+     * reserved scope and state keys, plaintext an encryption run has not reached yet masked.
+     *
+     * @return array<string, mixed>
+     */
+    private function changedValues(StorageWorkbenchStructure $structure, string $scopeRef, stdClass $row): array
+    {
+        $version = $this->hydrateRawRecordVersion($row, false);
+        if ($this->recordScope($structure, $version->values) !== $scopeRef) {
+            throw new StorageRejected('storage_workbench_record_scope_mismatch');
+        }
+        $values = $version->values;
+        unset($values[self::SCOPE_FIELD], $values[self::STATE_FIELD]);
+
+        return $this->maskPlaintext($structure, $version->ref->recordId, $values);
+    }
+
+    /**
+     * The fields each schema version was described with (the latest structure version of that schema version).
+     *
+     * @param list<int> $schemaVersions
+     * @return array<int, list<array<string, mixed>>>
+     */
+    private function schemaVersionFields(StorageWorkbenchStructure $structure, array $schemaVersions): array
+    {
+        if ($schemaVersions === []) {
+            return [];
+        }
+        $fields = [];
+        $rows = $this->database->table('larena_storage_workbench_structure_versions')
+            ->where('scope_ref', $structure->scopeRef)
+            ->where('structure_id', $structure->structureId)
+            ->whereIn('schema_version', $schemaVersions)
+            ->orderByDesc('version')
+            ->get(['schema_version', 'fields_json'])
+            ->all();
+        foreach ($rows as $row) {
+            $schemaVersion = (int) $row->schema_version;
+            if (isset($fields[$schemaVersion])) {
+                continue;
+            }
+            $decoded = json_decode((string) $row->fields_json, true);
+            $fields[$schemaVersion] = is_array($decoded) && array_is_list($decoded)
+                ? array_values(array_filter($decoded, 'is_array')) : [];
+        }
+        // The structure's own fields stand for a schema version it no longer describes (an adopted storage).
+        foreach ($schemaVersions as $schemaVersion) {
+            $fields[$schemaVersion] ??= $structure->fields;
+        }
+
+        return $fields;
     }
 
     private function assertScope(
