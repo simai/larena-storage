@@ -209,7 +209,7 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
      *
      * @return list<array{day: string, created: int}>|null
      */
-    public function recordsCreatedPerDay(string $actor, string $structureId, int $days = StorageWorkbenchRecordActivity::DAYS): ?array
+    public function recordsCreatedPerDay(string $actor, string $structureId, string $timeZone = 'UTC', int $days = StorageWorkbenchRecordActivity::DAYS): ?array
     {
         if (!$this->workbench instanceof StorageWorkbenchRecordActivity) {
             return null;
@@ -217,7 +217,7 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
         try {
             $this->authorizer->assertAllowed($actor, 'admin.frontend.read');
 
-            return $this->workbench->recordsCreatedPerDay($this->scope($actor, null), $structureId, $actor, $days);
+            return $this->workbench->recordsCreatedPerDay($this->scope($actor, null), $structureId, $actor, $days, null, $timeZone);
         } catch (Throwable) {
             return null;
         }

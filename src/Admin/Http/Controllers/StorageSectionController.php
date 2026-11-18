@@ -113,9 +113,12 @@ final readonly class StorageSectionController
                 // «2 поля», not a bare «2» in the phone list's supporting line.
                 'fields' => $this->translator->choice('larena-storage::admin.section.field_count_words', $count = is_array($structure['fields'] ?? null) ? count($structure['fields']) : 0, ['count' => (string) $count]),
                 'version' => 'v'.(int) ($structure['version'] ?? 0),
-                'state' => $this->copy(($structure['archived'] ?? false) === true ? 'archived' : 'active'),
+                // The state is said only when it is not the usual one (lists acceptance PX-101): an archived storage
+                // says «Архив», an active one says nothing.
+                'state' => ($structure['archived'] ?? false) === true ? $this->copy('archived') : '',
             ];
         }
+        $anyArchived = in_array($this->copy('archived'), array_column($rows, 'state'), true);
 
         $base = $this->sectionPath();
         $canCreate = (($state['permissions'] ?? [])['structure.create'] ?? false) === true;
@@ -175,7 +178,8 @@ final readonly class StorageSectionController
                     ['key' => 'structure_id', 'label' => $this->copy('structure_id'), 'visible' => false],
                     ['key' => 'fields', 'label' => $this->copy('field_count'), 'list' => 'supporting'],
                     ['key' => 'version', 'label' => $this->copy('version'), 'visible' => false],
-                    ['key' => 'state', 'label' => $this->copy('state'), 'list' => 'supporting'],
+                    // The state column is there only when a row has a state to say (PX-101).
+                    ['key' => 'state', 'label' => $this->copy('state'), 'list' => 'supporting', 'visible' => $anyArchived],
                 ],
                 total: count($rows),
                 pageId: 'page.admin.storage',
@@ -393,11 +397,15 @@ final readonly class StorageSectionController
 
         $this->breadcrumbTail($request, $selected, $structure, $recordPage && $current !== null && $selected !== null ? $this->recordTitle($current, $selected) : null);
 
-        // Under a ready list: new records per day over the last 30 days (SIMAI Chart), read from the storage's витрина.
-        $createdChart = !$archiveView && !$recordPage && is_array($dataview) && ($state['status'] ?? null) === 'ok'
-            && $this->gateway instanceof StorageRecordsCreatedReader
-            ? (new StorageCreatedChart($this->translator))->markup($this->gateway->recordsCreatedPerDay($this->actor($request), $structure))
-            : null;
+        // Under a ready list: new records per day over the last 30 days (SIMAI Chart), read from the storage's витрина,
+        // the days in the site's time zone rather than UTC (lists acceptance PX-102, dec-6ca55db36fb9).
+        $createdChart = null;
+        if (!$archiveView && !$recordPage && is_array($dataview) && ($state['status'] ?? null) === 'ok'
+            && $this->gateway instanceof StorageRecordsCreatedReader) {
+            $zone = $this->siteTimeZone();
+            $createdChart = (new StorageCreatedChart($this->translator))->markup($this->gateway->recordsCreatedPerDay($this->actor($request), $structure, $zone),
+                \Larena\Admin\Settings\AdminSiteSettings::timezonePlace($zone, (string) $this->translator->getLocale()) ?? $zone);
+        }
 
         return $this->render('larena-storage::admin.records', $state, [
             'dataview' => $dataview,
@@ -2413,5 +2421,17 @@ final readonly class StorageSectionController
         }
 
         return $actor;
+    }
+
+    /** The site's time zone (site.timezone), UTC when the admin cannot say. */
+    private function siteTimeZone(): string
+    {
+        try {
+            $zone = $this->container->make(\Larena\Admin\Settings\AdminSiteSettings::class)->timezone();
+        } catch (Throwable) {
+            return 'UTC';
+        }
+
+        return in_array($zone, \DateTimeZone::listIdentifiers(), true) ? $zone : 'UTC';
     }
 }

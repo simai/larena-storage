@@ -83,9 +83,22 @@ try {
     storageViewExpect(is_array($week) && count($week) === 7 && $week[0]['day'] === '2026-11-02' && array_sum(array_column($week, 'created')) === 1,
         'a 7-day period is wrong');
 
+    // The days of the viewer's zone (lists acceptance PX-102): Moscow is UTC+3, so a record of 23:59 UTC is the next day
+    // there, and the period ends three hours before UTC midnight.
+    $moscow = $workbench->recordsCreatedPerDay($scope, $structure->structureId, $actor, 30, '2026-11-08', 'Europe/Moscow');
+    storageViewExpect(is_array($moscow) && count($moscow) === 30 && $moscow[0]['day'] === '2026-10-10' && $moscow[29]['day'] === '2026-11-08',
+        'the Moscow period is wrong');
+    $moscowByDay = array_column($moscow, 'created', 'day');
+    storageViewExpect($moscowByDay['2026-10-10'] === 2 && $moscowByDay['2026-11-01'] === 1 && $moscowByDay['2026-11-02'] === 1
+        && $moscowByDay['2026-11-08'] === 0 && array_sum($moscowByDay) === 4, 'the Moscow days were counted wrong: ' . json_encode($moscowByDay));
+    // A zone with a half hour (UTC+5:30): 2026-11-01 23:59:59 UTC is 2026-11-02 05:29 there.
+    $kolkata = array_column($workbench->recordsCreatedPerDay($scope, $structure->structureId, $actor, 30, '2026-11-08', 'Asia/Kolkata') ?? [], 'created', 'day');
+    storageViewExpect(($kolkata['2026-11-02'] ?? null) === 1 && ($kolkata['2026-11-01'] ?? null) === 1, 'the half-hour zone was counted wrong: ' . json_encode($kolkata));
+    storageViewRejects(static fn () => $workbench->recordsCreatedPerDay($scope, $structure->structureId, $actor, 30, '2026-11-08', 'Mars/Olympus'), 'storage_workbench_activity_days_invalid');
+
     // The read is one walk of the витрина's (state, created_at) index.
-    $plan = $connection->select('explain query plan select date(created_at) as day, count(*) as created from "' . $table
-        . '" where state in (?, ?) and created_at >= ? and created_at < ? group by date(created_at)', ['active', 'archived', '2026-10-10 00:00:00', '2026-11-09 00:00:00']);
+    $plan = $connection->select('explain query plan select sum(case when created_at >= ? and created_at < ? then 1 else 0 end) as d0 from "' . $table
+        . '" where state in (?, ?) and created_at >= ? and created_at < ?', ['2026-10-10 00:00:00', '2026-10-11 00:00:00', 'active', 'archived', '2026-10-10 00:00:00', '2026-11-09 00:00:00']);
     $details = implode(' | ', array_map(static fn (object $row): string => (string) ($row->detail ?? ''), $plan));
     storageViewExpect(str_contains($details, 'USING COVERING INDEX') && !str_contains($details, 'SCAN ' . $table . ' ') && !str_ends_with($details, 'SCAN ' . $table),
         'the read does not walk the index: ' . $details);
@@ -138,11 +151,13 @@ try {
     storageViewExpect($chart->markup(array_map(static fn (array $day): array => ['day' => $day['day'], 'created' => 0], $days)) === null
         && $chart->markup(null) === null, 'an empty period drew a chart');
     // With records the pinned runtime draws sf-chart-line, or (a runtime that does not pin the Chart set) nothing.
-    $markup = $chart->markup($days);
+    $markup = $chart->markup($days, 'Москва');
     // The pinned larena/ui renders the Chart set: the chart is drawn, its data in the settings island, the note after it.
     storageViewExpect($markup !== null && str_contains($markup->toHtml(), '<sf-chart-line'), 'the chart is not sf-chart-line');
     storageViewExpect(str_contains($markup->toHtml(), 'data-sf-settings') && !str_contains($markup->toHtml(), 'slot="description"')
         && str_ends_with($markup->toHtml(), '</p>'), 'the chart data or its note is out of place');
+    storageViewExpect(str_contains($markup->toHtml(), '(Москва)') && !str_contains($markup->toHtml(), 'UTC') && !str_contains($markup->toHtml(), ':zone'),
+        'the note does not name the zone of the days');
 } finally {
     Facade::clearResolvedInstances();
     foreach ([$path, $path . '-wal', $path . '-shm', $path . '-journal'] as $file) {

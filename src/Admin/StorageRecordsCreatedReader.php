@@ -11,7 +11,8 @@ namespace Larena\Storage\Admin;
 interface StorageRecordsCreatedReader
 {
     /**
+     * @param string $timeZone the zone whose days are counted (an IANA name), UTC by default
      * @return list<array{day: string, created: int}>|null null when the days cannot be read (no right, no vitrina)
      */
-    public function recordsCreatedPerDay(string $actor, string $structureId): ?array;
+    public function recordsCreatedPerDay(string $actor, string $structureId, string $timeZone = 'UTC'): ?array;
 }

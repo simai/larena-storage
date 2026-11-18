@@ -890,11 +890,11 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
      * storage's current schema version (the list builds it; this read never does), or when the read ran past the
      * counter's budget.
      */
-    public function recordsCreatedPerDay(string $scopeRef, string $structureId, string $actor, int $days = StorageWorkbenchRecordActivity::DAYS, ?string $today = null): ?array
+    public function recordsCreatedPerDay(string $scopeRef, string $structureId, string $actor, int $days = StorageWorkbenchRecordActivity::DAYS, ?string $today = null, string $timeZone = 'UTC'): ?array
     {
         $this->assertStructureId($structureId);
         $this->assertScope($actor, 'storage.workbench.record.list', $scopeRef, self::RECORD_RESOURCE);
-        if ($days < 1 || $days > StorageViewCreatedPerDay::MAX_DAYS) {
+        if ($days < 1 || $days > StorageViewCreatedPerDay::MAX_DAYS || !in_array($timeZone, \DateTimeZone::listIdentifiers(), true)) {
             throw new StorageRejected('storage_workbench_activity_days_invalid');
         }
         $structure = $this->readStructureInternal($scopeRef, $structureId);
@@ -903,7 +903,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
             return null;
         }
         try {
-            return (new StorageViewCreatedPerDay($this->counter))->count($this->viewConnection(), $view->tableName, $today ?? gmdate('Y-m-d'), $days);
+            return (new StorageViewCreatedPerDay($this->counter))->count($this->viewConnection(), $view->tableName,
+                $today ?? (new \DateTimeImmutable('now', new \DateTimeZone($timeZone)))->format('Y-m-d'), $days, $timeZone);
         } catch (InvalidArgumentException) {
             throw new StorageRejected('storage_workbench_activity_days_invalid');
         } catch (Throwable $exception) {

@@ -53,15 +53,16 @@ final readonly class StorageCreatedChart
      * The chart's markup, or null when there is nothing to draw or the pinned runtime cannot draw it.
      *
      * @param list<array{day: string, created: int}>|null $days
+     * @param string $zone the name of the time zone the days are counted in, for the note under the chart
      */
-    public function markup(?array $days): ?HtmlString
+    public function markup(?array $days, string $zone = 'UTC'): ?HtmlString
     {
         if ($days === null || array_sum(array_column($days, 'created')) === 0 || !class_exists(Smart::class)) {
             return null;
         }
         try {
             // sf-chart-line has no description slot: the note follows the chart as its own paragraph.
-            $note = '<p data-larena-storage-created-chart="note">' . htmlspecialchars($this->copy('note'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
+            $note = '<p data-larena-storage-created-chart="note">' . htmlspecialchars(str_replace(':zone', $zone, $this->copy('note')), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
 
             return new HtmlString(Smart::render(self::TAG, $this->props($days), null, ['data-larena-storage-created-chart' => 'chart'])->html . $note);
         } catch (Throwable) {
