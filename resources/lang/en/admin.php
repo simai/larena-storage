@@ -692,6 +692,7 @@ return [
             'backfill' => 'The storage\'s list is being filled after a field change: while the marked fields are indexed, search, sorting and filters by them may not find every record.',
         ],
         'add_field' => 'Add field',
+        'record_fields_settings' => 'Record fields settings',
         'new_field_note' => 'A new field in an existing storage can only be optional.',
         'save_settings' => 'Save settings',
         'field_count' => 'Fields',

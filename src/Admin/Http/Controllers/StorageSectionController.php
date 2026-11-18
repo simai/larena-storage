@@ -262,6 +262,14 @@ final readonly class StorageSectionController
                 'attributes' => ['data-larena-toolbar-action' => 'archive', 'data-larena-toolbar-icon' => 'inventory_2']];
         $headerActions[] = ['text' => $this->copy('settings'), 'href' => $recordsPath.'/settings',
             'attributes' => ['data-larena-toolbar-action' => 'settings', 'data-larena-toolbar-icon' => 'tune']];
+        // «Настройки полей записи» (C301, C311 RC-4): no editor of its own over the list — the first record opens in the
+        // card's own arranging mode, one arrangement for the table, the board, the cards, the calendar and the record page.
+        $firstRecord = $this->firstRecordId($records);
+        if ($firstRecord !== null && !$archiveView) {
+            $headerActions[] = ['text' => $this->copy('record_fields_settings'),
+                'href' => $recordsPath.'?record_id='.rawurlencode($firstRecord).'&record_mode=view&record_arrange=1#admin-record-view',
+                'attributes' => ['data-larena-toolbar-action' => 'record-fields', 'data-larena-toolbar-icon' => 'view_quilt']];
+        }
         // The storage's own properties in the list's «⋯» with its settings and the export, not a button of the heading;
         // the way back to the storages is the path above the heading (lists study PX-60, dec-f2a4eb46b35b).
         $headerActions[] = ['text' => $this->copy('storage_properties'),
@@ -730,6 +738,12 @@ final readonly class StorageSectionController
                 // User and file fields choose from the owner-scoped option source; a relation needs
                 // its owner (Content) and stays as it is while that owner is absent.
                 ...$this->referenceSources($request, $structure, $scopeRef),
+                // C311: «Новое поле…» in the card's arranging mode is structure, not view — it opens the storage's field
+                // editor (a new field there, for a person who may change the structure; its fields otherwise).
+                'structure_href' => $recordsPath.'/settings'.(($permissions['structure.configure'] ?? false) === true && !$structureArchived
+                    ? '?record_mode=create#admin-record-editor' : ''),
+                // «Настройки полей записи» of the list opens the first record straight in the card's arranging mode.
+                ...($request->query('record_arrange') === '1' && $mode === 'view' ? ['arrange' => true] : []),
             ],
         ];
         // A save refused a moment ago comes back with what was typed in the form.
@@ -1010,6 +1024,22 @@ final readonly class StorageSectionController
         }
 
         return $targets;
+    }
+
+    /**
+     * The first record the list holds that is not archived, the one «Настройки полей записи» opens.
+     *
+     * @param array<string, mixed> $records
+     */
+    private function firstRecordId(array $records): ?string
+    {
+        foreach (is_array($records['items'] ?? null) ? $records['items'] : [] as $record) {
+            if (is_array($record) && is_string($record['record_id'] ?? null) && ($record['state'] ?? null) !== 'archived') {
+                return $record['record_id'];
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -148,6 +148,17 @@ assert(str_contains($controllerSource, "\$headerActions[] = ['text' => \$this->c
 assert(str_contains($controllerSource, "'data-larena-toolbar-action' => 'properties'"));
 assert(!str_contains($controllerSource, "\$headerActions[] = ['text' => \$this->copy('back_to_list')"));
 assert(str_contains($controllerSource, "'delete_text' => \$this->copy('archive'),"));
+// C311 (RC-4, RC-5): «Настройки полей записи» in the list's «⋯» opens the first record straight in the card's own arranging
+// mode (no editor over the list), and «Новое поле…» of that mode leads to the storage's field editor.
+assert(str_contains($controllerSource, "'text' => \$this->copy('record_fields_settings'),"));
+assert(str_contains($controllerSource, "'&record_mode=view&record_arrange=1#admin-record-view'"));
+assert(str_contains($controllerSource, "'data-larena-toolbar-action' => 'record-fields'"));
+assert(str_contains($controllerSource, "'structure_href' => \$recordsPath.'/settings'"));
+assert(str_contains($controllerSource, "\$request->query('record_arrange') === '1' && \$mode === 'view' ? ['arrange' => true] : []"));
+$firstRecord = new ReflectionMethod(\Larena\Storage\Admin\Http\Controllers\StorageSectionController::class, 'firstRecordId');
+$controllerInstance = (new ReflectionClass(\Larena\Storage\Admin\Http\Controllers\StorageSectionController::class))->newInstanceWithoutConstructor();
+assert($firstRecord->invoke($controllerInstance, ['items' => [['record_id' => 'record-a', 'state' => 'archived'], ['record_id' => 'record-b', 'state' => 'active']]]) === 'record-b');
+assert($firstRecord->invoke($controllerInstance, ['items' => []]) === null);
 $crumbs = \Larena\Admin\View\AdminShellViewComposer::withTail([['label' => 'Larena', 'href' => '/admin'], ['label' => 'Данные'], ['label' => 'Хранилища', 'current' => true]],
     ['parent_href' => '/admin/storage', 'items' => [['label' => 'Разделы', 'href' => '/admin/storage/workbench.sections'], ['label' => 'Настройки']]]);
 assert($crumbs === [['label' => 'Larena', 'href' => '/admin'], ['label' => 'Данные'], ['label' => 'Хранилища', 'href' => '/admin/storage'],
