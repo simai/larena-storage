@@ -405,7 +405,15 @@
     "src/View/StorageViewQuery.php",
     "src/Board/StorageBoardDescription.php",
     "src/Board/StorageBoardMove.php",
-    "tests/Integration/StorageBoardTest.php"
+    "tests/Integration/StorageBoardTest.php",
+    "src/Contracts/StorageWorkbenchCalendar.php",
+    "src/Contracts/StorageWorkbenchCalendarQuery.php",
+    "src/Contracts/StorageWorkbenchCalendarPage.php",
+    "src/View/StorageViewCalendar.php",
+    "src/Cards/StorageCardsDescription.php",
+    "src/Calendar/StorageCalendarDescription.php",
+    "src/Calendar/StorageCalendarMove.php",
+    "tests/Integration/StorageCardsCalendarTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

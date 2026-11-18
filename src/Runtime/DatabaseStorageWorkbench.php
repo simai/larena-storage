@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Larena\Storage\Runtime;
 
 use Closure;
+use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
@@ -29,6 +31,9 @@ use Larena\Storage\Contracts\StorageWorkbenchBoard;
 use Larena\Storage\Contracts\StorageWorkbenchBoardLane;
 use Larena\Storage\Contracts\StorageWorkbenchBoardPage;
 use Larena\Storage\Contracts\StorageWorkbenchBoardQuery;
+use Larena\Storage\Contracts\StorageWorkbenchCalendar;
+use Larena\Storage\Contracts\StorageWorkbenchCalendarPage;
+use Larena\Storage\Contracts\StorageWorkbenchCalendarQuery;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChange;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
 use Larena\Storage\Contracts\StorageWorkbenchLanguages;
@@ -65,6 +70,7 @@ use Larena\Storage\SchemaEvolution\StorageRecordConverter;
 use Larena\Storage\SchemaEvolution\StorageSchemaEvolutionOwnerPolicyRegistry;
 use Larena\Storage\View\StorageRecordQueryNormalizer;
 use Larena\Storage\View\StorageViewBoard;
+use Larena\Storage\View\StorageViewCalendar;
 use Larena\Storage\View\StorageViewColumn;
 use Larena\Storage\View\StorageViewCounter;
 use Larena\Storage\View\StorageViewCreatedPerDay;
@@ -80,7 +86,7 @@ use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
-final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages, StorageWorkbenchRecordActivity, StorageWorkbenchRecordCard, StorageWorkbenchBoard
+final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages, StorageWorkbenchRecordActivity, StorageWorkbenchRecordCard, StorageWorkbenchBoard, StorageWorkbenchCalendar
 {
     private const STRUCTURE_RESOURCE = 'storage.workbench.structure';
     private const RECORD_RESOURCE = 'storage.workbench.record';
@@ -3383,6 +3389,148 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         usort($lanes, static fn (array $a, array $b): int => $rank($a['value']) <=> $rank($b['value']));
 
         return $lanes;
+    }
+
+    /**
+     * A calendar of the list (StorageWorkbenchCalendar, C307 CL-3): the list's filters and search compiled onto the
+     * витрина sorted by the start field, then the records overlapping the range by index ranges on the start column —
+     * those starting inside it, and with an end field those that started up to spanDays before it and still run —
+     * up to `max` in start order, with the exact count of all of them; or, with `undated`, a page of the records
+     * without a start in the list's sort. The records are read from their current versions in one query.
+     */
+    public function listCalendar(StorageWorkbenchCalendarQuery $query, string $actor): StorageWorkbenchCalendarPage
+    {
+        $records = $query->records;
+        $this->assertStructureId($records->structureId);
+        $this->assertScope($actor, 'storage.workbench.record.list', $records->scopeRef, self::RECORD_RESOURCE);
+        $structure = $this->readStructureInternal($records->scopeRef, $records->structureId);
+        $fields = [];
+        foreach ($this->listFields($structure) as $field) {
+            $fields[(string) $field['key']] = $field;
+        }
+        $type = $fields[$query->dateField]['type'] ?? null;
+        if (!is_string($type) || !in_array($type, StorageWorkbenchCalendar::DATE_TYPES, true)) {
+            throw new StorageRejected('storage_workbench_calendar_date_field_invalid');
+        }
+        if ($query->endField !== null && ($query->endField === $query->dateField || ($fields[$query->endField]['type'] ?? null) !== $type)) {
+            throw new StorageRejected('storage_workbench_calendar_end_field_invalid');
+        }
+        if ($query->max < 1 || $query->max > StorageWorkbenchCalendar::MAX_EVENTS
+            || $query->spanDays < 1 || $query->spanDays > StorageWorkbenchCalendar::MAX_SPAN_DAYS) {
+            throw new StorageRejected('storage_workbench_calendar_window_invalid');
+        }
+        $from = null;
+        $to = null;
+        if ($query->undated) {
+            if ($query->from !== null || $query->to !== null || $records->continuation !== null
+                || ($records->page !== null && ($records->page < 1 || ($records->page - 1) * $records->limit > self::MAX_OFFSET))) {
+                throw new StorageRejected('storage_workbench_calendar_window_invalid');
+            }
+        } else {
+            $from = self::calendarBound($type, $query->from);
+            $to = self::calendarBound($type, $query->to);
+            if ($from === null || $to === null || strcmp($from, $to) >= 0 || $records->page !== null || $records->continuation !== null) {
+                throw new StorageRejected('storage_workbench_calendar_range_invalid');
+            }
+        }
+        // A range is read in start order; the undated records keep the list's sort.
+        $sorted = $query->undated ? $records : new StorageWorkbenchRecordQuery($records->scopeRef, $records->structureId, $records->filters,
+            $records->search, [['field' => $query->dateField, 'direction' => 'asc']], $records->limit, null, $records->includeArchived);
+        $normalizedQuery = $this->normalizeRecordQuery($sorted, $structure);
+        $view = $this->listView($structure);
+        $compiled = $view === null ? null : $this->compileList($view, $fields, $normalizedQuery);
+        if ($compiled === null) {
+            if (!$this->answerable($structure, $fields, $normalizedQuery)) {
+                throw new StorageRejected(self::QUERY_UNSUPPORTED);
+            }
+            $this->prepareView($structure);
+            $view = $this->listView($structure, true);
+            $compiled = $view === null ? null : $this->compileList($view, $fields, $normalizedQuery);
+            if ($view === null || $compiled === null) {
+                $this->queueViewBuild($structure->schema->schemaId);
+                throw new StorageRejected(self::VIEW_NOT_READY);
+            }
+        }
+        $columns = [];
+        foreach ($view->layout->columns as $column) {
+            if ($column->state === StorageViewColumn::STATE_READY && !$column->multiValued()) {
+                $columns[$column->fieldKey] = $column;
+            }
+        }
+        $calendar = new StorageViewCalendar(
+            $compiled,
+            $columns[$query->dateField] ?? throw new StorageRejected(self::VIEW_NOT_READY),
+            $query->endField === null ? null : ($columns[$query->endField] ?? throw new StorageRejected(self::VIEW_NOT_READY)),
+        );
+
+        try {
+            if ($query->undated) {
+                $limit = $records->limit;
+                $offset = (($records->page ?? 1) - 1) * $limit;
+                $part = $calendar->undated();
+                $rows = $part->page($limit, $offset);
+                $more = count($rows) > $limit;
+                $rows = array_slice($rows, 0, $limit);
+                $total = !$more && ($rows !== [] || $offset === 0) ? $offset + count($rows) : $part->filtered()->count();
+
+                return new StorageWorkbenchCalendarPage($this->listedRecords($structure, $sorted, array_column($rows, 'record_id')), $total, false, $more);
+            }
+            $ids = [];
+            $total = 0;
+            $parts = [];
+            if ($query->endField !== null) {
+                $parts[] = $calendar->running(self::calendarShift($type, $from, -$query->spanDays), $from);
+            }
+            $parts[] = $calendar->inside($from, $to);
+            foreach ($parts as $part) {
+                if ($part === null) {
+                    continue;
+                }
+                // Up to max rows of each part, in start order: the running ones started earlier, so they come first.
+                $rows = $part->page($query->max);
+                $total += count($rows) > $query->max ? $part->filtered()->count() : count($rows);
+                foreach ($rows as $row) {
+                    $ids[] = $row['record_id'];
+                }
+            }
+
+            return new StorageWorkbenchCalendarPage(
+                $this->listedRecords($structure, $sorted, array_slice($ids, 0, $query->max)),
+                $total,
+                $total > $query->max,
+            );
+        } catch (StorageRejected $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    /** A range bound in the витрина column's form, or null when it is not a date (a date field) or a date-time (a date-time field). */
+    private static function calendarBound(string $type, ?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $format = $type === 'date' ? 'Y-m-d' : 'Y-m-d\TH:i:s';
+        $parsed = DateTimeImmutable::createFromFormat('!' . $format, $value, new DateTimeZone('UTC'));
+        if ($parsed === false || $parsed->format($format) !== $value) {
+            return null;
+        }
+
+        return $type === 'date' ? $value : str_replace('T', ' ', $value);
+    }
+
+    /** A column bound moved by whole days (a date-time keeps its time of day). */
+    private static function calendarShift(string $type, string $bound, int $days): string
+    {
+        $format = $type === 'date' ? 'Y-m-d' : 'Y-m-d H:i:s';
+        $parsed = DateTimeImmutable::createFromFormat('!' . $format, $bound, new DateTimeZone('UTC'));
+        if ($parsed === false) {
+            throw new StorageRejected('storage_workbench_calendar_range_invalid');
+        }
+
+        return $parsed->modify(($days < 0 ? '-' : '+') . abs($days) . ' days')->format($format);
     }
 
     /**

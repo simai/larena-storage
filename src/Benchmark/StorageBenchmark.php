@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
 use Larena\Property\Contracts\PropertyTypeRegistry;
 use Larena\Storage\Contracts\StorageSchemaEvolutionOwnerContext;
 use Larena\Storage\Contracts\StorageWorkbenchBoardQuery;
+use Larena\Storage\Contracts\StorageWorkbenchCalendarQuery;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Enums\StorageWorkbenchCountMode;
@@ -141,7 +142,7 @@ final class StorageBenchmark
      * @param Closure(string): void|null $progress
      * @return array<string, mixed>
      */
-    public function run(array $sizes, int $repeat, bool $keep = false, ?Closure $progress = null, bool $siteOnly = false, bool $boardOnly = false): array
+    public function run(array $sizes, int $repeat, bool $keep = false, ?Closure $progress = null, bool $siteOnly = false, bool $boardOnly = false, bool $calendarOnly = false): array
     {
         $progress ??= static function (string $line): void {
         };
@@ -150,7 +151,7 @@ final class StorageBenchmark
             $progress(sprintf('Seeding %d records...', $size));
             $runs[] = $siteOnly
                 ? ['records' => $size, 'site' => $this->runSite($this->runId . '_' . $size, $size, $repeat, $keep, $progress)]
-                : $this->runSize($size, $repeat, $keep, $progress, $boardOnly);
+                : $this->runSize($size, $repeat, $keep, $progress, $boardOnly, $calendarOnly);
         }
 
         return [
@@ -169,7 +170,7 @@ final class StorageBenchmark
      * @param Closure(string): void $progress
      * @return array<string, mixed>
      */
-    private function runSize(int $size, int $repeat, bool $keep, Closure $progress, bool $boardOnly = false): array
+    private function runSize(int $size, int $repeat, bool $keep, Closure $progress, bool $boardOnly = false, bool $calendarOnly = false): array
     {
         $suffix = $this->runId . '_' . $size;
         $sections = $this->workbench->createStructure($this->scopeRef, [
@@ -198,7 +199,8 @@ final class StorageBenchmark
             $buildMs = (hrtime(true) - $buildStarted) / 1e6;
             $this->views->registry()->forget($structure->schema->schemaId);
         }
-        if ($this->views->enabled() && !$boardOnly) {
+        $viewsOnly = $boardOnly || $calendarOnly;
+        if ($this->views->enabled() && !$viewsOnly) {
             // The field options are switched on the way an owner does it on a filled storage:
             // a structure change (no record rewritten) and the backfill of the витрина, timed.
             $builder = new StorageViewSync($this->connection, new StorageViewRegistry($this->connection, 0.0), $this->views->ddl());
@@ -282,7 +284,31 @@ final class StorageBenchmark
                 return static fn (): int => $boardRead([], [], [], 'review', $continuation);
             },
         ];
-        $operations = $boardOnly ? $boardOperations : $operations + $boardOperations;
+        // The calendar by start and end (date-times, 1 in 100 records without a start; about 2 700 a day): a week and
+        // a month answer their first 1000 in start order with the exact total, a week cut by a filter, a week of a
+        // date field without an end, the undated records; and a cards window of 24 with its total.
+        $calendarRead = fn (array $filters, string $from, string $to, ?string $end = 'ends_at', string $start = 'starts_at'): int => $this->workbench->listCalendar(
+            new StorageWorkbenchCalendarQuery(new StorageWorkbenchRecordQuery($this->scopeRef, $structure->structureId, $filters, null, [], 20),
+                $start, $end, $from, $to),
+            self::ACTOR,
+        )->total;
+        $calendarOperations = [
+            'calendar_week' => static fn (): Closure => static fn (): int => $calendarRead([], '2026-06-01T00:00:00', '2026-06-08T00:00:00'),
+            'calendar_month' => static fn (): Closure => static fn (): int => $calendarRead([], '2026-05-25T00:00:00', '2026-07-06T00:00:00'),
+            'calendar_week_filtered' => static fn (): Closure => static fn (): int => $calendarRead(
+                ['status' => ['operator' => 'eq', 'value' => 'review'], 'priority' => ['operator' => 'eq', 'value' => 'high']], '2026-06-01T00:00:00', '2026-06-08T00:00:00'),
+            'calendar_week_date' => static fn (): Closure => static fn (): int => $calendarRead([], '2026-06-01', '2026-06-08', null, 'day'),
+            'calendar_undated' => fn (): Closure => fn (): int => $this->workbench->listCalendar(new StorageWorkbenchCalendarQuery(
+                new StorageWorkbenchRecordQuery($this->scopeRef, $structure->structureId, [], null, [], 20, null, false, 1), 'starts_at', 'ends_at', null, null, true),
+                self::ACTOR)->total,
+            'cards_window' => fn (): Closure => fn (): int => $this->workbench->listRecords(new StorageWorkbenchRecordQuery(
+                $this->scopeRef, $structure->structureId, [], null, [['field' => 'price', 'direction' => 'desc']], 24, null, false, 2), self::ACTOR)->matchedCount,
+        ];
+        $operations = match (true) {
+            $boardOnly => $boardOperations,
+            $calendarOnly => $calendarOperations,
+            default => $operations + $boardOperations + $calendarOperations,
+        };
 
         $results = [];
         foreach ($operations as $name => $operation) {
@@ -291,7 +317,7 @@ final class StorageBenchmark
         }
 
         $fieldCount = count($structure->fields);
-        if ($boardOnly) {
+        if ($viewsOnly) {
             return ['records' => $size, 'structure_id' => $structure->structureId, 'field_count' => $fieldCount, 'seed_ms' => round($seedMs, 1),
                 'view_build_ms' => $buildMs === null ? null : round($buildMs, 1), 'operations' => $results,
                 'cleanup' => $keep ? ['kept' => true] : $this->cleanup($structure, $sections)];
@@ -575,7 +601,7 @@ final class StorageBenchmark
             'max_ms' => round($timings[$count - 1], 2),
             'queries' => max($queries),
             'peak_memory_bytes' => max($memory),
-            'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_') || str_starts_with($name, 'site_list_') || str_starts_with($name, 'board_')
+            'matched_count' => str_starts_with($name, 'list_') || str_starts_with($name, 'filter_') || str_starts_with($name, 'site_list_') || str_starts_with($name, 'board_') || str_starts_with($name, 'calendar_') || str_starts_with($name, 'cards_')
                 || str_starts_with($name, 'sort_') || str_starts_with($name, 'search_')
                 || in_array($name, ['matched_count', 'matched_count_exact'], true) ? $value : null,
         ];
@@ -639,7 +665,8 @@ final class StorageBenchmark
         $day = gmdate('Y-m-d', 1767225600 + ($index % 365) * 86400);
         $tags = [self::TAGS[$index % 6], self::TAGS[($index * 5 + 1) % 6]];
 
-        return [
+        // A record without a start (one in a hundred) has no start key: the calendar's undated records.
+        return array_filter([
             'title' => ucfirst($word(1)) . ' ' . $word(2) . ' ' . sprintf('%07d', ($index * 7919) % 10_000_000),
             'subtitle' => ucfirst($word(3)) . ' ' . $word(4),
             'sku' => sprintf('SKU-%08d', $index),
@@ -651,7 +678,10 @@ final class StorageBenchmark
             'weight' => sprintf('%d.%03d', $index % 50, ($index * 7) % 1000),
             'day' => $day,
             'due_on' => gmdate('Y-m-d', 1767225600 + (($index * 3) % 730) * 86400),
-            'starts_at' => $day . 'T' . sprintf('%02d:%02d:00', $index % 24, ($index * 7) % 60),
+            'starts_at' => $index % 100 === 7 ? null : $day . 'T' . sprintf('%02d:%02d:00', $index % 24, ($index * 7) % 60),
+            // One to four hours later; one in fifty runs two days more.
+            'ends_at' => $index % 100 === 7 ? null : gmdate('Y-m-d\TH:i:s', strtotime($day . 'T00:00:00Z') + ($index % 24) * 3600 + (($index * 7) % 60) * 60
+                + (1 + $index % 4) * 3600 + ($index % 50 === 0 ? 2 * 86400 : 0)),
             'published_at' => gmdate('Y-m-d\TH:i:s', 1767225600 + ($index * 977) % 31_536_000),
             'active' => $index % 3 !== 0,
             'featured' => $index % 10 === 0,
@@ -660,7 +690,7 @@ final class StorageBenchmark
             'tags' => array_values(array_unique($tags)),
             'section' => $sectionIds[$index % count($sectionIds)],
             'owner' => 'user:admin:' . (1 + $index % 25),
-        ];
+        ], static fn (mixed $value): bool => $value !== null);
     }
 
     /**
@@ -794,6 +824,7 @@ final class StorageBenchmark
                 self::field('day', 100, 'date'),
                 self::field('due_on', 110, 'date'),
                 self::field('starts_at', 120, 'datetime'),
+                self::field('ends_at', 125, 'datetime'),
                 self::field('published_at', 130, 'datetime'),
                 self::field('active', 140, 'boolean'),
                 self::field('featured', 150, 'boolean'),

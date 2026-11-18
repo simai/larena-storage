@@ -64,12 +64,13 @@ try {
     $result = json_decode((string) file_get_contents($json), true, 64, JSON_THROW_ON_ERROR);
     benchExpect($result['schema'] === 'larena.storage.benchmark' && $result['environment']['driver'] === 'sqlite', 'result header mismatch');
     $run200 = $result['runs'][0];
-    benchExpect($run200['records'] === 200 && $run200['field_count'] === 20, 'the structure is not the realistic 20-field one');
+    benchExpect($run200['records'] === 200 && $run200['field_count'] === 21, 'the structure is not the realistic 21-field one');
     foreach ([
         'list_page_1', 'list_deep_page', 'filter_choice', 'filter_number_range', 'filter_date_range',
         'sort_number', 'sort_title', 'sort_title_desc_deep', 'sort_subtitle_unindexed', 'filter_title_prefix', 'filter_sku_eq',
         'search_text', 'search_prefix', 'search_two_words', 'search_common_word', 'search_short_term',
         'matched_count', 'matched_count_exact', 'read_record', 'update_record', 'create_record',
+        'calendar_week', 'calendar_month', 'calendar_week_filtered', 'calendar_week_date', 'calendar_undated', 'cards_window',
     ] as $operation) {
         $measured = $run200['operations'][$operation] ?? null;
         benchExpect(is_array($measured) && $measured['status'] === 'ok', $operation . ' was not measured');
@@ -77,6 +78,9 @@ try {
         benchExpect($measured['queries'] > 0 && $measured['peak_memory_bytes'] >= 0, $operation . ' has no query count');
     }
     benchExpect($run200['operations']['matched_count']['matched_count'] === 200, 'matched count mismatch');
+    // Two records of 200 have no start (one in a hundred); the cards window counts the whole list (with the created ones).
+    benchExpect($run200['operations']['calendar_undated']['matched_count'] >= 2 && $run200['operations']['cards_window']['matched_count'] >= 200,
+        'the calendar or cards reads mismatch: ' . json_encode([$run200['operations']['calendar_undated'], $run200['operations']['cards_window']]));
     // Field changes write no record version: an added field, and a retype checked record by record.
     benchExpect(($run200['field_add']['version_rows_written'] ?? null) === 0 && ($run200['field_add']['state'] ?? null) === 'switched', 'adding a field wrote versions: ' . json_encode($run200['field_add'] ?? null));
     benchExpect(($run200['field_retype']['version_rows_written'] ?? null) === 0 && ($run200['field_retype']['state'] ?? null) === 'switched'

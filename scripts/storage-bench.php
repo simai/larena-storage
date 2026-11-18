@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   php scripts/storage-bench.php --driver=mysql --records=10000,100000 --repeat=5 --json=results.json
  *   php scripts/storage-bench.php --driver=mysql --records=100000 --repeat=20 --site-only   (the public reads and lists only)
  *   php scripts/storage-bench.php --driver=mysql --records=1000000 --repeat=7 --board-only  (the board reads only)
+ *   php scripts/storage-bench.php --driver=mysql --records=1000000 --repeat=7 --calendar-only  (the calendar and cards reads only)
  */
 
 use Illuminate\Container\Container;
@@ -28,7 +29,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 // A list call decodes up to 5000 records in PHP; give the measurement room.
 ini_set('memory_limit', '1G');
 
-$options = getopt('', ['driver:', 'records:', 'repeat:', 'json:', 'keep', 'site-only', 'board-only']);
+$options = getopt('', ['driver:', 'records:', 'repeat:', 'json:', 'keep', 'site-only', 'board-only', 'calendar-only']);
 $driver = is_string($options['driver'] ?? null) ? $options['driver'] : 'sqlite';
 $records = is_string($options['records'] ?? null) ? $options['records'] : '1000';
 $repeat = is_string($options['repeat'] ?? null) ? $options['repeat'] : '5';
@@ -83,6 +84,9 @@ if (array_key_exists('site-only', $options)) {
 }
 if (array_key_exists('board-only', $options)) {
     $input['--board-only'] = true;
+}
+if (array_key_exists('calendar-only', $options)) {
+    $input['--calendar-only'] = true;
 }
 $command = new StorageBenchCommand();
 $command->setLaravel($container);
