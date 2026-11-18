@@ -141,10 +141,12 @@ assert(\Larena\Admin\Settings\AdminSiteSettings::shown('2026-10-22 01:44:00') ==
 assert(\Larena\Admin\Settings\AdminSiteSettings::shown('') === '');
 $siteContainer->forgetInstance(\Larena\Admin\Settings\AdminSiteSettings::class);
 
-// The records page (QA 2026-10-22): «Свойства хранилища» and «Ко всем хранилищам» beside the list as on the settings
-// page; the breadcrumbs name the storage after «Хранилища», which links back; the panel's delete says «В архив».
+// The records page (QA 2026-10-22, lists study PX-60): «Свойства хранилища» is in the list's «⋯», not a button of the
+// heading, and «Ко всем хранилищам» is gone -- the breadcrumbs name the storage after «Хранилища», which links back; the
+// panel's delete says «В архив».
 assert(str_contains($controllerSource, "\$headerActions[] = ['text' => \$this->copy('storage_properties'),"));
-assert(str_contains($controllerSource, "\$headerActions[] = ['text' => \$this->copy('back_to_list'), 'href' => \$this->sectionPath()];"));
+assert(str_contains($controllerSource, "'data-larena-toolbar-action' => 'properties'"));
+assert(!str_contains($controllerSource, "\$headerActions[] = ['text' => \$this->copy('back_to_list')"));
 assert(str_contains($controllerSource, "'delete_text' => \$this->copy('archive'),"));
 $crumbs = \Larena\Admin\View\AdminShellViewComposer::withTail([['label' => 'Larena', 'href' => '/admin'], ['label' => 'Данные'], ['label' => 'Хранилища', 'current' => true]],
     ['parent_href' => '/admin/storage', 'items' => [['label' => 'Разделы', 'href' => '/admin/storage/workbench.sections'], ['label' => 'Настройки']]]);

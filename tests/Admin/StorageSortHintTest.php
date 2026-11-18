@@ -96,13 +96,11 @@ assert($hints->hint($slow('missing'), $selected, true, $settings) === null);
 // Several slow keys: the first one is named.
 assert($hints->hint(['sort_unindexed' => ['body', 'title'], 'large' => true], $selected, true, $settings)['field'] === 'body');
 
-// A list nobody sorted is newest first (the gateway's sort_default): the same place says so, without a link, in ru
-// and en; a sort the person chose, or a large list's slow sort, says what it says instead.
+// A list nobody sorted is newest first (the gateway's sort_default), but no line says so any more (lists study PX-59:
+// a sort shows as the arrow in its column header); a large list's slow sort still says what it says.
 $own = ['sort_unindexed' => [], 'large' => true, 'sort_default' => true];
-assert($hints->hint($own, $selected, true, $settings) === ['field' => '_created_at',
-    'text' => 'Сортировка: дата создания, сначала новые.', 'link' => null]);
-assert($hints->hint(['sort_default' => true], null, false, $settings)['text'] === 'Сортировка: дата создания, сначала новые.');
-assert((new StorageSortHint(new SortHintTranslator('en')))->hint($own, $selected, true, $settings)['text'] === 'Sorted by date created, newest first.');
+assert($hints->hint($own, $selected, true, $settings) === null);
+assert($hints->hint(['sort_default' => true], null, false, $settings) === null);
 assert($hints->hint(['sort_unindexed' => [], 'large' => true, 'sort_default' => false], $selected, true, $settings) === null);
 assert($hints->hint(['sort_unindexed' => ['qty'], 'large' => true, 'sort_default' => false], $selected, true, $settings)['field'] === 'qty');
 

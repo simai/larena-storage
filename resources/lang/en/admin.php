@@ -695,6 +695,7 @@ return [
         'new_field_note' => 'A new field in an existing storage can only be optional.',
         'save_settings' => 'Save settings',
         'field_count' => 'Fields',
+        'field_count_words' => ':count field|:count fields',
         'version' => 'Version',
         'state' => 'State',
         'updated' => 'Updated',

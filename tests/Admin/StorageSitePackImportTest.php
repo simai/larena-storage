@@ -788,7 +788,8 @@ $section = new StorageSectionController($config, new SitePackImportViews(), $red
 $action = new ReflectionMethod(StorageSectionController::class, 'sitePackImportAction');
 $state = $gateway->snapshot($admin, null);
 import_assert($action->invoke($section, $state) === [['text' => 'Загрузить хранилище', 'href' => '/admin/storage/sitepack/import',
-    'attributes' => ['data-larena-storage-sitepack-import' => '']]], 'With the rights the list offers «Загрузить хранилище».');
+    'attributes' => ['data-larena-storage-sitepack-import' => '', 'data-larena-toolbar-action' => 'sitepack-import', 'data-larena-toolbar-icon' => 'upload']]],
+    'With the rights the list offers «Загрузить хранилище», in its «⋯» (lists study PX-60).');
 foreach (['sitepack.import', 'structure.create', 'record.create'] as $right) {
     import_assert($action->invoke($section, ['status' => 'ok', 'permissions' => [$right => false] + $state['permissions']]) === [], 'Without '.$right.' there is no action.');
 }

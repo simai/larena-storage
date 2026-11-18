@@ -695,6 +695,7 @@ return [
         'new_field_note' => 'Новое поле в существующем хранилище может быть только необязательным.',
         'save_settings' => 'Сохранить настройки',
         'field_count' => 'Полей',
+        'field_count_words' => ':count поле|:count поля|:count полей',
         'version' => 'Версия',
         'state' => 'Состояние',
         'updated' => 'Изменено',

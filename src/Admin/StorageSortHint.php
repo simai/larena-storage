@@ -20,9 +20,9 @@ use Illuminate\Contracts\Translation\Translator;
  * it in its answer (`data.sort_hint`) for a sort changed in place.
  *
  * A list nobody sorted is in its own order, newest first (StorageListOrder; the gateway's
- * `sort_default`): the same place then says so, «Сортировка: дата создания, сначала новые», since the
- * table marks a sort only on a column and the creation time is not one. A sort the person picks
- * replaces the line.
+ * `sort_default`), and says nothing of it: a line of text above the table was the sort said in the
+ * wrong place (lists study PX-59, dec-f2a4eb46b35b); a sort the person picks is the arrow in its
+ * column's heading.
  */
 final readonly class StorageSortHint
 {
@@ -46,7 +46,7 @@ final readonly class StorageSortHint
         $unindexed = is_array($records['sort_unindexed'] ?? null) ? $records['sort_unindexed'] : [];
         $key = $unindexed[0] ?? null;
         if (($records['large'] ?? false) !== true || !is_string($key) || $selected === null) {
-            return $this->ownOrder($records);
+            return null;
         }
         $field = null;
         foreach (is_array($selected['fields'] ?? null) ? $selected['fields'] : [] as $candidate) {
@@ -56,7 +56,7 @@ final readonly class StorageSortHint
             }
         }
         if ($field === null) {
-            return $this->ownOrder($records);
+            return null;
         }
         $label = is_string($field['label'] ?? null) && trim($field['label']) !== '' ? trim($field['label']) : $key;
         $text = $this->text('slow', [':field' => $label]);
@@ -70,19 +70,6 @@ final readonly class StorageSortHint
             : null;
 
         return ['field' => $key, 'text' => $text, 'link' => $link];
-    }
-
-    /**
-     * The list in its own order (no sort asked for): newest first, said without a link.
-     *
-     * @param array<string, mixed> $records
-     * @return array{field:string,text:string,link:null}|null
-     */
-    private function ownOrder(array $records): ?array
-    {
-        return ($records['sort_default'] ?? false) === true
-            ? ['field' => StorageListOrder::CREATED_AT, 'text' => $this->text('newest_first'), 'link' => null]
-            : null;
     }
 
     /**

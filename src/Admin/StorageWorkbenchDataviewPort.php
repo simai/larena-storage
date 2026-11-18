@@ -351,11 +351,17 @@ final readonly class StorageWorkbenchDataviewPort
         $titleKey = (new DataviewRoleBinder)->bind(DataviewViewType::Table,
             array_map('strval', array_column(array_filter($fields, static fn (array $field): bool => ($field['encrypted'] ?? false) !== true), 'type', 'key')), ['title' => 'title'])['bindings']['title'] ?? null;
         $columns = [];
+        // On a phone the list is a list of rows (C31, lists study PX-64): the title over a line of the next two fields.
+        $supporting = 0;
         foreach ($fields as $field) {
             if (is_string($field['key'] ?? null)) {
                 $option = is_array($layout[$field['key']] ?? null) ? $layout[$field['key']] : [];
+                $place = $field['key'] === $titleKey ? 'title'
+                    : (($option['visible'] ?? true) !== false && ($field['encrypted'] ?? false) !== true && $supporting < 2 ? 'supporting' : null);
+                $supporting += $place === 'supporting' ? 1 : 0;
                 $columns[] = ['key' => $field['key'], 'label' => $field['label'] ?? $field['key']]
                     + ($field['key'] === $titleKey ? ['role' => 'title'] : [])
+                    + ($place !== null ? ['list' => $place] : [])
                     + ['sortable' => RecordFilterFields::sortable($field),
                         'visible' => $option['visible'] ?? true]
                     + array_intersect_key($option, array_flip(['order', 'width', 'min_width', 'priority', 'sticky', 'pinned']))

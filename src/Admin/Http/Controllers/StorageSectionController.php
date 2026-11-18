@@ -110,7 +110,8 @@ final readonly class StorageSectionController
                 'id' => $structure['structure_id'],
                 'label' => is_string($structure['label'] ?? null) ? $structure['label'] : $structure['structure_id'],
                 'structure_id' => $structure['structure_id'],
-                'fields' => is_array($structure['fields'] ?? null) ? count($structure['fields']) : 0,
+                // «2 поля», not a bare «2» in the phone list's supporting line.
+                'fields' => $this->translator->choice('larena-storage::admin.section.field_count_words', $count = is_array($structure['fields'] ?? null) ? count($structure['fields']) : 0, ['count' => (string) $count]),
                 'version' => 'v'.(int) ($structure['version'] ?? 0),
                 'state' => $this->copy(($structure['archived'] ?? false) === true ? 'archived' : 'active'),
             ];
@@ -168,12 +169,13 @@ final readonly class StorageSectionController
                 instanceId: 'storage-list-data-view',
                 title: $this->copy('storages'),
                 columns: [
-                    // The storage's name opens the storage.
-                    ['key' => 'label', 'label' => $this->copy('label'), 'role' => 'title'],
-                    ['key' => 'structure_id', 'label' => $this->copy('structure_id')],
-                    ['key' => 'fields', 'label' => $this->copy('field_count')],
-                    ['key' => 'version', 'label' => $this->copy('version')],
-                    ['key' => 'state', 'label' => $this->copy('state')],
+                    // The storage's name opens the storage. Its id and schema version are a developer's: off by default,
+                    // offered in the column settings (lists study PX-61). On a phone: the name over its fields and state.
+                    ['key' => 'label', 'label' => $this->copy('label'), 'role' => 'title', 'list' => 'title'],
+                    ['key' => 'structure_id', 'label' => $this->copy('structure_id'), 'visible' => false],
+                    ['key' => 'fields', 'label' => $this->copy('field_count'), 'list' => 'supporting'],
+                    ['key' => 'version', 'label' => $this->copy('version'), 'visible' => false],
+                    ['key' => 'state', 'label' => $this->copy('state'), 'list' => 'supporting'],
                 ],
                 total: count($rows),
                 pageId: 'page.admin.storage',
@@ -185,10 +187,12 @@ final readonly class StorageSectionController
                 actions: $canCreate,
                 countLabel: $this->translated('record_list.record_count'),
                 tableViewLabel: $this->translated('record_list.table_view'),
+                // The archive and loading a storage are in the list's «⋯»; «Создать» is the one way to make a storage here
+                // (lists study PX-60).
                 headerActions: [[
                     'text' => $this->copy($showArchived ? 'hide_archive' : 'show_archive'),
                     'href' => $base.($showArchived ? '' : '?archived=1'),
-                    'attributes' => ['data-larena-storage-archive-toggle' => ''],
+                    'attributes' => ['data-larena-storage-archive-toggle' => '', 'data-larena-toolbar-action' => 'archive', 'data-larena-toolbar-icon' => 'inventory_2'],
                 ], ...$this->sitePackImportAction($state)],
             )),
         ]);
@@ -258,10 +262,11 @@ final readonly class StorageSectionController
                 'attributes' => ['data-larena-toolbar-action' => 'archive', 'data-larena-toolbar-icon' => 'inventory_2']];
         $headerActions[] = ['text' => $this->copy('settings'), 'href' => $recordsPath.'/settings',
             'attributes' => ['data-larena-toolbar-action' => 'settings', 'data-larena-toolbar-icon' => 'tune']];
-        // Beside the list, as on the settings page: the storage's own properties and the way back to the storages.
+        // The storage's own properties in the list's «⋯» with its settings and the export, not a button of the heading;
+        // the way back to the storages is the path above the heading (lists study PX-60, dec-f2a4eb46b35b).
         $headerActions[] = ['text' => $this->copy('storage_properties'),
-            'href' => $recordsPath.'/settings?record_id='.rawurlencode($structure).'&record_mode=view'];
-        $headerActions[] = ['text' => $this->copy('back_to_list'), 'href' => $this->sectionPath()];
+            'href' => $recordsPath.'/settings?record_id='.rawurlencode($structure).'&record_mode=view',
+            'attributes' => ['data-larena-toolbar-action' => 'properties', 'data-larena-toolbar-icon' => 'info']];
         // The records as CSV, as the list shows them: the page adds the list's query to the address.
         if (!$archiveView) {
             $headerActions[] = ['text' => $this->copy('export_csv'), 'href' => $recordsPath.'/export.csv',
@@ -2150,7 +2155,7 @@ final readonly class StorageSectionController
         return [[
             'text' => $this->copy('sitepack_import.action'),
             'href' => $this->sectionPath().'/sitepack/import',
-            'attributes' => ['data-larena-storage-sitepack-import' => ''],
+            'attributes' => ['data-larena-storage-sitepack-import' => '', 'data-larena-toolbar-action' => 'sitepack-import', 'data-larena-toolbar-icon' => 'upload'],
         ]];
     }
 
