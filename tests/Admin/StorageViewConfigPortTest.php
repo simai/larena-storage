@@ -1,0 +1,265 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Translation\Translator;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Events\Dispatcher;
+use Illuminate\Http\Request;
+use Illuminate\Routing\RouteCollection;
+use Illuminate\Routing\Router;
+use Illuminate\Routing\UrlGenerator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
+use Larena\Setting\Persistence\DatabaseSettingValueRepository;
+use Larena\Setting\Persistence\DatabaseViewSettingsStore;
+use Larena\Setting\Runtime\PersistentSettingRuntime;
+use Larena\Setting\ViewConfig\ViewConfigDocument;
+use Larena\Setting\ViewConfig\ViewConfigLevel;
+use Larena\Setting\ViewConfig\ViewConfigStore;
+use Larena\Storage\Admin\Contracts\StorageWorkbenchGateway;
+use Larena\Storage\Admin\DataviewListPreferences;
+use Larena\Storage\Admin\StorageReferenceLabelResolver;
+use Larena\Storage\Admin\StorageViewConfigCodec;
+use Larena\Storage\Admin\StorageWorkbenchDataviewPort;
+use Larena\Storage\View\SqliteStorageViewDdl;
+
+require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/../Support/storage-view-fixture.php';
+
+// The Storage list's data view port on the views store (simai.view-config/1, port 1.16.0), on SQLite:
+// - saved views are view-config documents in larena_view_settings, named by their level;
+// - a system view (shipped with a package) is never written through the port: saving or deleting it is refused;
+// - limits: the 21st view of a level is refused with reason `limit` and the limit's name, in the pack's words;
+// - the person's view state comes with the first answer (data.preferences) and round trips through preferences.save,
+//   with a conflict on a stale revision; describe()'s limits come with every answer;
+// - a query with a window answers a board: every lane's first records and totals, then one lane from its cursor.
+$path = tempnam(sys_get_temp_dir(), 'larena-storage-view-config-port-');
+if (!is_string($path)) {
+    throw new RuntimeException('storage_view_config_port_tempfile_failed');
+}
+$container = new Container();
+Container::setInstance($container);
+$capsule = new Capsule($container);
+$capsule->addConnection(['driver' => 'sqlite', 'database' => $path, 'prefix' => '', 'foreign_key_constraints' => true]);
+$capsule->setAsGlobal();
+$connection = $capsule->getConnection();
+$container->instance('db', $capsule->getDatabaseManager());
+$container->instance('db.schema', $connection->getSchemaBuilder());
+$container->instance('router', new Router(new Dispatcher($container), $container));
+Facade::clearResolvedInstances();
+Schema::swap($connection->getSchemaBuilder());
+DB::swap($capsule->getDatabaseManager());
+Route::swap($container->make('router'));
+
+try {
+    $actor = 'actor:admin:alpha';
+    $scope = 'scope:tenant-alpha';
+    storageViewInstall($connection);
+    $connection->getSchemaBuilder()->create('larena_setting_values', static function (Blueprint $table): void {
+        $table->id();
+        $table->string('setting_namespace', 120);
+        $table->string('setting_key', 160);
+        $table->string('scope', 32);
+        $table->string('scope_id', 120);
+        $table->json('value');
+        $table->unsignedBigInteger('revision')->default(1);
+        $table->timestamps();
+        $table->unique(['setting_namespace', 'setting_key', 'scope', 'scope_id']);
+    });
+    DatabaseViewSettingsStore::createSchema($connection->getSchemaBuilder());
+    $runtime = storageViewRuntime($connection, new SqliteStorageViewDdl($connection), $actor, $scope);
+    $workbench = $runtime['workbench'];
+    $access = new StorageViewFixtureAccess($actor, $scope);
+    $options = array_map(static fn (string $value): array => ['value' => $value, 'label' => ucfirst($value)], ['new', 'paid']);
+    $id = $workbench->createStructure($scope, ['structure_id' => 'workbench.orders', 'label' => 'Orders', 'fields' => [
+        storageViewField('title', 10, 'string', [], true),
+        storageViewField('status', 20, 'choice', ['options' => $options]),
+        storageViewField('amount', 30, 'number'),
+    ]], $actor)->structureId;
+    for ($n = 1; $n <= 3; $n++) {
+        $workbench->createRecord($scope, $id, ['title' => 'New ' . $n, 'status' => 'new', 'amount' => (string) $n], $actor);
+    }
+    $workbench->createRecord($scope, $id, ['title' => 'Paid', 'status' => 'paid', 'amount' => '10'], $actor);
+
+    $values = new DatabaseSettingValueRepository($connection);
+    $store = ViewConfigStore::on($connection);
+    $lists = new DataviewListPreferences($access, $workbench, new PersistentSettingRuntime($values, $connection), $values, $store);
+    $gateway = new class($scope, $id) implements StorageWorkbenchGateway {
+        public function __construct(private string $scope, private string $structure)
+        {
+        }
+
+        public function snapshot(string $actor, ?string $requestedScope, array $query = []): array
+        {
+            return ['status' => 'ok', 'scope_ref' => $this->scope, 'selected_structure' => ['structure_id' => $this->structure, 'fields' => []],
+                'permissions' => ['record.create' => true], 'records' => ['items' => [], 'matched_count' => 0, 'matched_count_exact' => true]];
+        }
+
+        public function dispatch(string $actor, ?string $requestedScope, string $action, array $payload): array
+        {
+            return ['status' => 'rejected'];
+        }
+    };
+    $translator = new class implements Translator {
+        /** @var array<string, string> */
+        public array $words = [];
+
+        public function get($key, array $replace = [], $locale = null)
+        {
+            $words = $this->words[$key] ?? $key;
+            foreach ($replace as $name => $value) {
+                $words = str_replace(':' . $name, (string) $value, $words);
+            }
+
+            return $words;
+        }
+
+        public function choice($key, $number, array $replace = [], $locale = null)
+        {
+            return $this->get($key, $replace, $locale);
+        }
+
+        public function getLocale()
+        {
+            return 'ru';
+        }
+
+        public function setLocale($locale)
+        {
+        }
+    };
+    $pack = require dirname(__DIR__, 2) . '/vendor/larena/setting/resources/lang/ru/view-config.php';
+    foreach ($pack['refused'] as $key => $words) {
+        $translator->words['larena-setting::view-config.refused.' . $key] = $words;
+    }
+    $exceptions = new class implements ExceptionHandler {
+        /** @var list<Throwable> */
+        public array $reported = [];
+
+        public function report(Throwable $e)
+        {
+            $this->reported[] = $e;
+        }
+
+        public function shouldReport(Throwable $e)
+        {
+            return true;
+        }
+
+        public function render($request, Throwable $e)
+        {
+            throw $e;
+        }
+
+        public function renderForConsole($output, Throwable $e)
+        {
+        }
+    };
+    $labels = (new ReflectionClass(StorageReferenceLabelResolver::class))->newInstanceWithoutConstructor();
+    $port = new StorageWorkbenchDataviewPort($gateway, $workbench, $labels, $lists, $translator,
+        new UrlGenerator(new RouteCollection(), Request::create('http://localhost/')), $exceptions);
+    $raise = static fn (string $intent, array $payload): array => $port->raise($actor, $scope, $id, $intent, $payload);
+    $query = static fn (array $asked = []): array => $raise('query.change', ['sequence' => 1, 'query' => ['page' => 1, 'per_page' => 20] + $asked]);
+
+    // The first answer carries the person's view state and the limits; nothing is set yet.
+    $first = $query();
+    storageViewExpect($first['answer'] === 'applied' && $first['data']['preferences'] === ['revision' => 0], 'preferences in the first answer: '
+        . json_encode($first['data']['preferences'] ?? null) . json_encode($exceptions->reported ? $exceptions->reported[0]->getMessage() : null));
+    storageViewExpect($first['data']['limits']['views_per_level'] === 20 && $first['data']['limits']['view_bytes'] === 8192
+        && $first['data']['limits']['views_per_list'] === 20 && $first['data']['limits']['settings_bytes'] === 8192, 'the limits');
+    storageViewExpect($first['data']['capabilities']['personal-preferences'] === false, 'not announced without a pinned port 1.16.0');
+    storageViewExpect($first['data']['saved_views'] === [], 'no saved views yet');
+
+    // preferences.save: only the changed fields, against the revision; a stale one is a conflict; null removes a field.
+    $saved = $raise('preferences.save', ['preferences' => ['page_size' => 50, 'view_zone' => 'open'], 'base_revision' => 0]);
+    storageViewExpect($saved === ['answer' => 'applied', 'data' => ['preferences' => ['revision' => 1, 'page_size' => 50, 'view_zone' => 'open']]],
+        'preferences.save: ' . json_encode($saved));
+    storageViewExpect($raise('preferences.save', ['preferences' => ['page_size' => 100], 'base_revision' => 0])
+        === ['answer' => 'conflict', 'current_revision' => 1], 'a stale save of the view state');
+    $raise('preferences.save', ['preferences' => ['view_zone' => null, 'view' => 'unpaid'], 'base_revision' => '1']);
+    storageViewExpect($query()['data']['preferences'] === ['revision' => 2, 'page_size' => 50, 'view' => 'unpaid'], 'the view state reads back');
+    $bad = $raise('preferences.save', ['preferences' => ['page_size' => 25], 'base_revision' => 2]);
+    storageViewExpect($bad['answer'] === 'refused' && $bad['reason'] === 'preferences_invalid' && $bad['code'] === 'view_config_preferences_invalid'
+        && str_contains($bad['message'], 'Настройки списка не сохранены'), 'a page size off the menu: ' . json_encode($bad, JSON_UNESCAPED_UNICODE));
+    storageViewExpect($raise('preferences.save', ['preferences' => ['page_size' => 20], 'base_revision' => 2, 'person' => 'actor:admin:beta'])['answer'] === 'refused',
+        'the person is never named in the payload');
+
+    // A saved view is a view-config document of the person's level.
+    $mine = $raise('view.save', ['key' => 'filter_template_1', 'label' => 'Мои новые', 'query' => ['filters' => ['status' => ['operator' => 'eq', 'value' => 'new']],
+        'search' => 'не сохраняется', 'sort' => [['key' => 'title', 'direction' => 'desc']], 'per_page' => 50],
+        'layout' => ['columns' => [['key' => 'title', 'visible' => true, 'width' => '200px']]], 'settings' => ['filter_fields' => ['status']]]);
+    storageViewExpect($mine['answer'] === 'applied' && preg_match(DataviewListPreferences::NEW_SAVED_VIEW_ID, $mine['key']) === 1, 'view.save: ' . json_encode($mine));
+    $list = DataviewListPreferences::listOf($scope, $id);
+    $stored = $store->view($list, ViewConfigLevel::Personal, $mine['key'], $actor);
+    storageViewExpect($stored !== null && ViewConfigDocument::problems($stored['document']) === [] && $stored['document']['source'] === $id
+        && $stored['document']['query'] === ['filter' => ['status' => ['operator' => 'eq', 'value' => 'new']], 'sort' => [['field' => 'title', 'dir' => 'desc']],
+            'per_page' => 50] && $stored['document']['head'] === ['filter_fields' => ['status']], 'the stored document: ' . json_encode($stored, JSON_UNESCAPED_UNICODE));
+    $views = $query()['data']['saved_views'];
+    storageViewExpect(count($views) === 1 && $views[0]['level'] === 'personal' && $views[0]['revision'] === 1 && $views[0]['query']['search'] === ''
+        && $views[0]['settings'] === ['filter_fields' => ['status']], 'the saved view as the list reads it: ' . json_encode($views, JSON_UNESCAPED_UNICODE));
+    $renamed = $raise('view.save', ['key' => $mine['key'], 'label' => 'Новые', 'revision' => 1, 'query' => []]);
+    storageViewExpect($renamed === ['answer' => 'applied', 'key' => $mine['key']], 'a rename keeps the key');
+    storageViewExpect($raise('view.save', ['key' => $mine['key'], 'label' => 'Новые', 'revision' => 1, 'query' => []])
+        === ['answer' => 'conflict', 'current_revision' => 2], 'a stale view save');
+
+    // A system view ships with its package: listed first with its level, never written or removed through the port.
+    $system = StorageViewConfigCodec::document(['saved_view_id' => 'all', 'structure_id' => $id, 'name' => 'Все заказы', 'revision' => 1, 'roles' => [],
+        'layout' => ['columns' => []], 'settings' => [], 'query' => ['per_page' => 20]]);
+    storageViewExpect($store->ship($list, $system + ['required' => true], 'larena/storage'), 'the package ships its view');
+    $views = $query()['data']['saved_views'];
+    storageViewExpect(array_column($views, 'level') === ['system', 'personal'] && $views[0]['key'] === 'all', 'levels: ' . json_encode(array_column($views, 'level')));
+    $opened = $raise('view.open', ['key' => 'all']);
+    storageViewExpect($opened['answer'] === 'applied' && $opened['data']['column_settings']['target']['key'] === 'all', 'a system view opens');
+    foreach (['view.save' => ['key' => 'all', 'label' => 'Все заказы', 'revision' => 1, 'query' => ['filters' => ['status' => ['operator' => 'eq', 'value' => 'new']]]],
+        'view.delete' => ['key' => 'all']] as $intent => $payload) {
+        $answer = $raise($intent, $payload);
+        storageViewExpect($answer['answer'] === 'refused' && $answer['reason'] === 'forbidden', $intent . ' of a system view: ' . json_encode($answer));
+    }
+    $layout = $raise('settings.save_personal', ['columnSettings' => ['title' => ['width' => '300px']], 'base_revision' => 1, 'saved_view_id' => 'all']);
+    storageViewExpect($layout['answer'] === 'refused' && $layout['reason'] === 'system_readonly' && str_contains($layout['message'], 'Системное представление'),
+        'a column change of a system view: ' . json_encode($layout, JSON_UNESCAPED_UNICODE));
+    storageViewExpect($store->view($list, ViewConfigLevel::System, 'all')['revision'] === 1, 'the system view keeps its revision');
+    // «Сохранить как моё»: the change is a new view of the person's.
+    $own = $raise('view.save', ['key' => 'filter_template_2', 'label' => 'Все мои', 'query' => ['filters' => ['status' => ['operator' => 'eq', 'value' => 'new']]]]);
+    storageViewExpect($own['answer'] === 'applied' && $own['key'] !== 'all', 'saved as a new view');
+
+    // Limits: 20 views of a level; the 21st is refused with reason limit and the limit's name, in the pack's words.
+    for ($n = 3; $n <= 20; $n++) {
+        storageViewExpect($raise('view.save', ['key' => 'filter_template_' . $n, 'label' => 'Вид ' . $n, 'query' => []])['answer'] === 'applied', 'view ' . $n);
+    }
+    $over = $raise('view.save', ['key' => 'filter_template_21', 'label' => 'Лишний', 'query' => []]);
+    storageViewExpect($over['answer'] === 'refused' && $over['reason'] === 'limit' && $over['limit'] === 'views_per_level' && $over['code'] === 'view_config_limit'
+        && str_contains($over['message'], '20 представлений'), 'the 21st view: ' . json_encode($over, JSON_UNESCAPED_UNICODE));
+    $big = $raise('view.save', ['key' => $mine['key'], 'label' => 'Новые', 'revision' => 2, 'query' => [], 'settings' => ['notes' => str_repeat('x', 8100)],
+        'layout' => ['columns' => [['key' => 'title', 'width' => '200px']]]]);
+    storageViewExpect($big['answer'] === 'refused' && $big['reason'] === 'limit' && $big['limit'] === 'view_bytes', 'a view over 8 KB: ' . json_encode($big));
+    // The person's view state is no view: it does not count toward the limit.
+    storageViewExpect($query()['data']['preferences']['revision'] === 2, 'the view state is kept');
+
+    // A board: every lane's first records and totals in one answer; one lane further from its cursor.
+    $board = $query(['sort' => [['key' => 'title', 'direction' => 'desc']], 'window' => ['lanes' => 'status', 'per_lane' => 2, 'totals' => ['count', 'amount']]]);
+    $lanes = $board['data']['lanes'] ?? [];
+    storageViewExpect($board['answer'] === 'applied' && array_column($lanes, 'value') === ['new', 'paid'] && array_column($lanes, 'total') === [3, 1]
+        && $board['data']['total'] === 4 && $lanes[0]['sums'] === ['amount' => 6] && count($lanes[0]['records']) === 2 && isset($lanes[0]['cursor']),
+        'the board: ' . json_encode($board));
+    storageViewExpect($lanes[0]['records'][0]['display_values']['title'] === 'New 3' && $board['data']['records'] === [], 'the board follows the list\'s sort');
+    $lane = $query(['sort' => [['key' => 'title', 'direction' => 'desc']], 'window' => ['lanes' => 'status', 'per_lane' => 2, 'lane' => 'new', 'cursor' => $lanes[0]['cursor']]]);
+    storageViewExpect(count($lane['data']['lanes']) === 1 && count($lane['data']['lanes'][0]['records']) === 1 && !isset($lane['data']['lanes'][0]['cursor']),
+        'one lane further: ' . json_encode($lane));
+    $paged = $query(['window' => ['cursor' => null, 'limit' => 50]]);
+    storageViewExpect($paged['answer'] === 'applied' && !isset($paged['data']['lanes']), 'a page window is no board: ' . json_encode($paged['reason'] ?? null));
+    $tooWide = $query(['window' => ['lanes' => 'status', 'per_lane' => 101]]);
+    storageViewExpect($tooWide['answer'] === 'refused' && $tooWide['reason'] === 'limit' && $tooWide['limit'] === 'per_lane_max', 'per_lane over 100');
+
+    echo "StorageViewConfigPortTest passed.\n";
+} finally {
+    Facade::clearResolvedInstances();
+    Container::setInstance(null);
+    @unlink($path);
+}

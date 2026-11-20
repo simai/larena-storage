@@ -413,7 +413,14 @@
     "src/Cards/StorageCardsDescription.php",
     "src/Calendar/StorageCalendarDescription.php",
     "src/Calendar/StorageCalendarMove.php",
-    "tests/Integration/StorageCardsCalendarTest.php"
+    "tests/Integration/StorageCardsCalendarTest.php",
+    "database/migrations/2026_11_20_000001_move_larena_storage_saved_views_to_view_settings.php",
+    "src/Admin/StorageSavedViewsMove.php",
+    "src/Admin/StorageViewConfigCodec.php",
+    "src/Board/StorageBoardWindow.php",
+    "tests/Admin/StorageSavedViewsMoveTest.php",
+    "tests/Admin/StorageViewConfigPortTest.php",
+    "tests/Integration/StorageBoardWindowTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

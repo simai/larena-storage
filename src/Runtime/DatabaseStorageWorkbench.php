@@ -107,7 +107,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     // Lists read from the витрина keep page numbers while the offset stays at or under this.
     private const MAX_OFFSET = 10000;
     /** The lanes a whole board reads records for; a lane past them shows its total, its records come with «Показать ещё». */
-    private const BOARD_MAX_LANES = 50;
+    private const BOARD_MAX_LANES = 200;
     // One bulk archive runs in a single transaction; 1000 records keeps "archive all matching" bounded.
     private const MAX_BULK = 1000;
     private const LOCK_UPDATE = 'update';

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Admin\Http\Controllers;
 
+use Larena\Storage\Admin\StorageWorkbenchDataviewPort;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -57,6 +58,7 @@ final readonly class StorageSectionPublicationPortController
             ($permissions['dataview.saved_view.save_shared'] ?? false) === true ? 'shared-saved-views' : null,
             ($permissions['dataview.preferences.save_shared'] ?? false) === true ? 'shared-column-settings' : null,
             'bulk-under-filter',
+            StorageWorkbenchDataviewPort::preferencesOffered() ? 'personal-preferences' : null,
         ]));
     }
 
@@ -87,7 +89,8 @@ final readonly class StorageSectionPublicationPortController
             return self::answer(match ($intent) {
                 'query.change', 'view.open' => $this->query($request, $actor, $scope, $structure, $binding, $intent, $payload,
                     is_array($base['permissions'] ?? null) ? $base['permissions'] : []),
-                'record.open', 'view.save', 'view.save_shared', 'view.delete', 'settings.save_personal', 'settings.save_shared' => $this->listPort($request, $scope, $structure, $intent, $payload),
+                'record.open', 'view.save', 'view.save_shared', 'view.delete', 'settings.save_personal', 'settings.save_shared',
+                'preferences.save' => $this->listPort($request, $scope, $structure, $intent, $payload),
                 'record.mutate' => $this->mutate($request, $actor, $scope, $structure, $binding, $payload),
                 'bulk.apply_selected' => $this->bulk($request, $actor, $scope, $structure, $binding, $payload),
                 'bulk.apply_under_filter' => $this->underFilter($request, $actor, $scope, $structure, $binding, $payload),

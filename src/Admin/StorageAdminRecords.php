@@ -174,7 +174,7 @@ final readonly class StorageAdminRecords
     /** @return array{array<string, mixed>, string|null} */
     public function applySavedView(array $query, array $savedViews): array
     {
-        $savedViewId = self::nullableId($query['saved_view_id'] ?? null, '/^saved-view-[a-f0-9]{24}$/');
+        $savedViewId = self::nullableId($query['saved_view_id'] ?? null, DataviewListPreferences::SAVED_VIEW_ID);
         if ($savedViewId === null) {
             return [$query, null];
         }

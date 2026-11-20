@@ -21,6 +21,12 @@ use Larena\Property\Contracts\PropertyRenderContext;
 use Larena\Property\Runtime\PropertyDisplayProjector;
 use Larena\Property\Runtime\PropertyTypeRegistry;
 use Larena\Setting\Exceptions\SettingRevisionConflict;
+use Larena\Setting\ViewConfig\ViewConfigRefused;
+use Larena\Storage\Board\StorageBoardWindow;
+use Larena\Storage\Contracts\StorageWorkbenchBoard;
+use Larena\Storage\Contracts\StorageWorkbenchRecord;
+use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
+use Larena\Ui\Frontend\FrameworkPortEdition;
 use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Larena\Storage\Exceptions\StorageRejected;
@@ -31,7 +37,10 @@ use Throwable;
  *
  * Column settings (personal and for everyone) and saved views live in
  * {@see DataviewListPreferences}, per scope and structure: the same layers and views the
- * Larena CMS list of that structure reads.
+ * Larena CMS list of that structure reads. Saved views are simai.view-config/1 documents of the levels
+ * system (shipped with a package, written by nobody here), shared and personal (port 1.16.0); the person's own
+ * view state of the list (rows per page, the view zone, the view opened last) comes with every answer as
+ * `data.preferences` and is written by `preferences.save`. A query whose `window` names `lanes` asks a board (contract §3).
  */
 final readonly class StorageWorkbenchDataviewPort
 {
@@ -60,7 +69,23 @@ final readonly class StorageWorkbenchDataviewPort
         $shared = $this->lists->maySaveShared($actor);
 
         return ['saved-views' => true, 'shared-saved-views' => $shared, 'shared-column-settings' => $shared,
-            'bulk-under-filter' => true, 'row-actions' => true];
+            'bulk-under-filter' => true, 'row-actions' => true, 'personal-preferences' => self::preferencesOffered()];
+    }
+
+    /**
+     * Whether the page announces `personal-preferences`: the capability is the port's from 1.16.0, so it is announced
+     * once the Framework the site pins carries that edition; until then the view keeps the state in the browser. The
+     * port answers `preferences.save` and sends `data.preferences` either way.
+     */
+    public static function preferencesOffered(): bool
+    {
+        try {
+            return class_exists(FrameworkPortEdition::class)
+                && version_compare(FrameworkPortEdition::current('simai.dataview-port'), '1.16.0', '>=');
+        } catch (Throwable) {
+            // No pinned Framework to read (a package's own tests): the page keeps the state in the browser.
+            return false;
+        }
     }
 
     /** @param array<string,mixed> $payload @return array<string,mixed> */
@@ -84,6 +109,8 @@ final readonly class StorageWorkbenchDataviewPort
             'record.open', 'record.mutate' => $this->record($actor, $scope, $structureId, $intent, $payload, $base),
             'settings.save_personal', 'settings.save_shared' => $this->settings($actor, (string) $base['scope_ref'], $structureId, $intent, $payload),
             'view.open', 'view.save', 'view.delete' => $this->view($actor, (string) $base['scope_ref'], $structureId, $intent, $payload),
+            // The person's own view state of the list (port 1.16.0): only the fields that changed, against its revision.
+            'preferences.save' => $this->preferences($actor, (string) $base['scope_ref'], $structureId, $payload),
             // The composite's own call for a view for everyone; the page sends the same as view.save with target "shared".
             'view.save_shared' => $this->view($actor, (string) $base['scope_ref'], $structureId, 'view.save', ['target' => 'shared'] + $payload),
             // «Create» in the toolbar: the page opens the create form when the person may create records here.
@@ -191,6 +218,12 @@ final readonly class StorageWorkbenchDataviewPort
             }
             $normalizedSort[] = ['field' => $entry['key'], 'direction' => $entry['direction']];
         }
+        // A board's window names its lane field; the page window of a list ({cursor, limit}) is not a board.
+        $window = $asked['window'] ?? null;
+        if (is_array($window) && array_key_exists('lanes', $window)) {
+            return $this->board($actor, $scope, $structureId, $structure, $fields, $window, $filters, $rejected, $search, $normalizedSort, $archived,
+                $chosen, $sort, $echoSequence);
+        }
         $read = fn (array $filters): array => $this->gateway->snapshot($actor, $scope, [
             'structure_id' => $structureId, 'filters' => $filters, 'search' => $search === '' ? null : $search,
             'sort' => $normalizedSort, 'page' => $page, 'per_page' => $perPage,
@@ -288,8 +321,136 @@ final readonly class StorageWorkbenchDataviewPort
                 'search' => $search, 'sort' => $sort, 'page' => $page, 'per_page' => $perPage,
                 'include_archived' => $archived],
             ...array_diff_key($settings, ['columns' => true]),
+            ...$this->viewState($actor, $state['scope_ref'], $structureId),
             'capabilities' => $this->capabilities($actor),
         ]];
+    }
+
+    /**
+     * The person's own view state and the limits of saved views: with every answer, so the first one carries them
+     * (port 1.16.0 `preferences`; simai.view-config/1 §5 `limits`). A store that cannot be read leaves them out.
+     *
+     * @return array<string, mixed>
+     */
+    private function viewState(string $actor, string $scopeRef, string $structureId): array
+    {
+        try {
+            return ['preferences' => $this->lists->preferences($actor, $scopeRef, $structureId), 'limits' => $this->lists->limits()];
+        } catch (Throwable $exception) {
+            $this->exceptions->report($exception);
+
+            return ['limits' => $this->lists->limits()];
+        }
+    }
+
+    /**
+     * A board's window (simai.view-config/1 §3): every lane's first records and totals in one answer, or one lane
+     * further from its cursor. The list's filters, search, sort and archived records cut every lane.
+     *
+     * @param list<array<string,mixed>> $fields @param array<string,mixed> $filters @param list<string> $rejected
+     * @param list<array{field:string,direction:string}> $normalizedSort @param array<string,mixed> $chosen
+     * @param array<mixed> $sort @param array<string,int> $echoSequence @param array<array-key,mixed> $window
+     * @return array<string,mixed>
+     */
+    private function board(string $actor, string $scope, string $structureId, StorageWorkbenchStructure $structure, array $fields, array $window,
+        array $filters, array $rejected, string $search, array $normalizedSort, bool $archived, array $chosen, array $sort, array $echoSequence): array
+    {
+        if (!$this->storage instanceof StorageWorkbenchBoard) {
+            return ['answer' => 'unavailable', 'reason' => 'board_unavailable'] + $echoSequence;
+        }
+        $locale = $this->translator->getLocale();
+        $context = PropertyRenderContext::admin($locale !== '' ? $locale : 'en', false, $actor, $scope);
+        $list = new StorageWorkbenchRecordQuery($scope, $structureId, $filters, $search === '' ? null : $search,
+            $normalizedSort === [] ? StorageListOrder::NEWEST_FIRST : $normalizedSort, StorageBoardWindow::PER_LANE_DEFAULT, null, $archived);
+        try {
+            $board = (new StorageBoardWindow($this->storage))->answer($window, $list, $actor,
+                fn (StorageWorkbenchRecord $record): array => ['display_values' => $this->display($fields, $record->values, $context)]);
+        } catch (StorageRejected $rejectedBoard) {
+            $code = $rejectedBoard->reasonCode;
+
+            return (str_starts_with($code, 'storage_board_window_limit:')
+                ? ['answer' => 'refused', 'reason' => 'limit', 'limit' => substr($code, strlen('storage_board_window_limit:'))]
+                : ['answer' => 'refused', 'reason' => $code]) + $echoSequence;
+        }
+
+        return ['answer' => 'applied', ...$echoSequence, 'data' => [
+            'records' => [],
+            'lanes' => $board['lanes'],
+            'total' => array_sum(array_column($board['lanes'], 'total')),
+            'columns' => $this->columns($fields, []),
+            'echo' => ['filters_chosen' => $chosen, 'filters' => DataviewFilterQuery::echo($chosen, $filters), 'filters_rejected' => $rejected,
+                'search' => $search, 'sort' => $sort, 'include_archived' => $archived, 'window' => $window],
+            ...$this->viewState($actor, $scope, $structure->structureId),
+            'capabilities' => $this->capabilities($actor),
+        ]];
+    }
+
+    /**
+     * A record's values as the list shows them; an encrypted field shows nothing (its value is sealed).
+     *
+     * @param list<array<string,mixed>> $fields @param array<string,mixed> $values
+     * @return array<string,mixed>
+     */
+    private function display(array $fields, array $values, PropertyRenderContext $context): array
+    {
+        $display = [];
+        foreach ($fields as $field) {
+            $key = (string) $field['key'];
+            if (($field['encrypted'] ?? false) === true) {
+                $display[$key] = null;
+                continue;
+            }
+            $projection = $this->projector->project(
+                PropertyFieldDefinition::make($key, (string) ($field['type'] ?? ''), 'lang:'.$key,
+                    is_array($field['constraints'] ?? null) ? $field['constraints'] : [], ($field['required'] ?? false) === true),
+                is_int($field['type_version'] ?? null) ? $field['type_version'] : 1,
+                $values[$key] ?? null, $context, $this->labels,
+            );
+            $display[$key] = AdminDataviewCells::value($field, $values[$key] ?? null, $projection->status === 'present' ? $projection->text : null, null);
+        }
+
+        return $display;
+    }
+
+    /**
+     * preferences.save: the fields of the person's view state that changed (page_size of the menu 10/20/50/100,
+     * view_zone open or closed, the view opened last; null removes one), against the revision of their layer.
+     *
+     * @param array<string,mixed> $payload @return array<string,mixed>
+     */
+    private function preferences(string $actor, string $scopeRef, string $structureId, array $payload): array
+    {
+        $changes = $payload['preferences'] ?? null;
+        $revision = $payload['base_revision'] ?? null;
+        if (is_string($revision) && preg_match('/\A(0|[1-9][0-9]{0,9})\z/', $revision) === 1) {
+            $revision = (int) $revision;
+        }
+        if (!is_array($changes) || !is_int($revision) || $revision < 0
+            || array_diff(array_keys($payload), ['preferences', 'base_revision', 'reason']) !== []) {
+            return ['answer' => 'refused', 'reason' => 'preferences_invalid'];
+        }
+        try {
+            return ['answer' => 'applied', 'data' => ['preferences' => $this->lists->savePreferences($actor, $scopeRef, $structureId, $changes, $revision)]];
+        } catch (SettingRevisionConflict $conflict) {
+            return ['answer' => 'conflict', 'current_revision' => $conflict->actualRevision];
+        } catch (ViewConfigRefused $refused) {
+            return $this->refusal($refused);
+        } catch (Throwable) {
+            return ['answer' => 'refused', 'reason' => 'access_denied'];
+        }
+    }
+
+    /**
+     * A refusal of the views store with its stable code and the pack's words (contract §5: a save over a limit is
+     * refused with reason `limit` and the limit's name).
+     *
+     * @return array<string,mixed>
+     */
+    private function refusal(ViewConfigRefused $refused): array
+    {
+        $words = $this->translator->get($refused->wordsKey(), ['limit' => (string) ($refused->limitValue() ?? '')]);
+
+        return $refused->answer() + (is_string($words) && $words !== $refused->wordsKey() ? ['message' => $words] : []);
     }
 
     /**
@@ -464,6 +625,11 @@ final readonly class StorageWorkbenchDataviewPort
             return $answer['answer'] === 'applied' ? $answer
                 : ['answer' => 'unavailable', 'reason' => $answer['reason'] ?? 'view_unavailable'];
         }
+        // A system view ships with its package and is never written through the port (port 1.16.0): the person saves
+        // a change to it as a new view of their own («Сохранить как моё»), or for everyone.
+        if ($existing !== null && $existing['level'] === 'system' && ($intent === 'view.delete' || $intent === 'view.save')) {
+            return ['answer' => 'refused', 'reason' => 'forbidden', 'code' => 'view_config_system_readonly'];
+        }
         if ($intent === 'view.delete') {
             if ($existing === null) {
                 return ['answer' => 'refused', 'reason' => 'view_unknown'];
@@ -628,6 +794,8 @@ final readonly class StorageWorkbenchDataviewPort
             return null;
         } catch (SettingRevisionConflict $conflict) {
             return ['answer' => 'conflict', 'current_revision' => $conflict->actualRevision];
+        } catch (ViewConfigRefused $refused) {
+            return $this->refusal($refused);
         } catch (AccessMutationRejected) {
             return ['answer' => 'refused', 'reason' => 'access_denied'];
         } catch (StorageRejected $rejected) {

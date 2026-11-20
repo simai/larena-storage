@@ -9,8 +9,6 @@ use InvalidArgumentException;
 use Larena\Access\Contracts\ActorOperationAuthorizer;
 use Larena\Dataview\Enums\DataviewViewType;
 use Larena\Dataview\Runtime\DataviewRoleBinder;
-use Larena\Setting\Contracts\RevisionedSettingValue;
-use Larena\Setting\Contracts\SettingContext;
 use Larena\Setting\Contracts\SettingKey;
 use Larena\Setting\Contracts\SettingRuntime;
 use Larena\Setting\Contracts\SettingSchemaField;
@@ -20,6 +18,10 @@ use Larena\Setting\Enums\SettingScopeType;
 use Larena\Setting\Enums\SettingValueKind;
 use Larena\Setting\Exceptions\SettingRevisionConflict;
 use Larena\Setting\Persistence\DatabaseSettingValueRepository;
+use Larena\Setting\ViewConfig\ViewConfigDocument;
+use Larena\Setting\ViewConfig\ViewConfigLevel;
+use Larena\Setting\ViewConfig\ViewConfigRefused;
+use Larena\Setting\ViewConfig\ViewConfigStore;
 use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Throwable;
@@ -45,7 +47,11 @@ final readonly class DataviewListPreferences
      */
     public const SHARED_RIGHT = 'storage.workbench.structure.update';
 
-    public const SAVED_VIEW_ID = '/^saved-view-[a-f0-9]{24}$/';
+    /** A view a person or an administrator saved (`saved-view-` and 24 hex), or a package's system view. */
+    public const SAVED_VIEW_ID = '/^(?:saved-view-[a-f0-9]{24}|[a-z][a-z0-9_-]{0,63})$/';
+
+    /** The id this list gives a view it saves. */
+    public const NEW_SAVED_VIEW_ID = '/^saved-view-[a-f0-9]{24}$/';
 
     public const SAVED_VIEW_LIMIT = 20;
 
@@ -56,17 +62,12 @@ final readonly class DataviewListPreferences
 
     private const LEGACY_SAVED_VIEWS_KEY = 'saved_views';
 
-    /** The saved views of lists. Keys carry no version: until 2026-10-19 this list was kept under `saved_views.v2`. */
-    private const SAVED_VIEWS_KEY = 'list_views';
-
-    /** Where the list was kept before; a migration moves it, and a list not yet moved is still read from here. */
-    private const PREVIOUS_SAVED_VIEWS_KEY = 'saved_views.v2';
-
     public function __construct(
         private ActorOperationAuthorizer $authorizer,
         private StorageWorkbench $storage,
         private SettingRuntime $settings,
         private DatabaseSettingValueRepository $values,
+        private ViewConfigStore $views,
     ) {
         $this->settings->registerSchemaPack(new SettingSchemaPack(self::NAMESPACE, 'larena/storage', [
             new SettingSchemaField(
@@ -233,43 +234,98 @@ final readonly class DataviewListPreferences
     }
 
     /**
-     * The person's saved views of every structure in the scope, with the revision of the list. The
-     * list is written with compare-and-set, so two tabs cannot silently overwrite each other.
+     * The address of a Storage list in the view settings store: its views and each person's view state of it.
+     */
+    public static function listOf(string $scope, string $structureId): string
+    {
+        return self::scopePrefix($scope).$structureId;
+    }
+
+    /**
+     * The person's saved views of every structure in the scope. Each view has its own revision (the list's
+     * `revision` stays 0: views are written one by one against their own).
      *
      * @return array{revision:int, views:list<array<string, mixed>>}
      */
     public function savedViews(string $actor, string $scope): array
     {
-        $stored = $this->values->revisionedValue(self::NAMESPACE, self::SAVED_VIEWS_KEY, 'user', $actor);
-
-        return $stored->revision > 0 ? $this->storedViews($stored) : ($this->previousViews('user', $actor) ?? $this->legacyViews($actor, $scope));
+        return ['revision' => 0, 'views' => $this->levelViews(ViewConfigLevel::Personal, $scope, $actor)];
     }
 
     /**
-     * The saved views an administrator kept for everyone in the scope, with the revision of that list.
+     * The saved views an administrator kept for everyone in the scope.
      *
      * @return array{revision:int, views:list<array<string, mixed>>}
      */
     public function sharedViews(string $scope): array
     {
-        $stored = $this->values->revisionedValue(self::NAMESPACE, self::SAVED_VIEWS_KEY, 'system', $scope);
-
-        return $stored->revision > 0 ? $this->storedViews($stored) : ($this->previousViews('system', $scope) ?? ['revision' => 0, 'views' => []]);
+        return ['revision' => 0, 'views' => $this->levelViews(ViewConfigLevel::Shared, $scope, null)];
     }
 
     /**
-     * Every saved view of one structure the person may open: the shared ones first, then their own,
-     * each with its level ("shared" or "personal").
+     * Every saved view of one structure the person may open: the system ones (shipped with a package, written by
+     * nobody here), the shared ones, then their own, each with its level ("system", "shared" or "personal").
      *
      * @return list<array<string, mixed>>
      */
     public function structureViews(string $actor, string $scope, string $structureId): array
     {
         $views = [];
-        foreach (['shared' => $this->sharedViews($scope)['views'], 'personal' => $this->savedViews($actor, $scope)['views']] as $level => $list) {
-            foreach ($list as $view) {
-                if ($view['structure_id'] === $structureId) {
-                    $views[] = $view + ['level' => $level];
+        foreach ($this->views->views(self::listOf($scope, $structureId), $actor) as $entry) {
+            $views[] = StorageViewConfigCodec::view($entry['document'], $structureId) + ['level' => $entry['level']->value];
+        }
+
+        return $views;
+    }
+
+    /**
+     * The person's own view state of the structure's list (simai.dataview-port 1.16.0 `preferences`): its revision,
+     * and the rows per page, whether the view zone is open and the view opened last, when they were ever set.
+     *
+     * @return array{revision: int, page_size?: int, view?: string, view_zone?: string}
+     */
+    public function preferences(string $actor, string $scope, string $structureId): array
+    {
+        return $this->views->preferences(self::listOf($scope, $structureId), $actor);
+    }
+
+    /**
+     * Saves the fields of the person's view state that changed, against its revision; null removes a field.
+     *
+     * @param  array<array-key, mixed>  $changes
+     * @return array{revision: int, page_size?: int, view?: string, view_zone?: string}
+     */
+    public function savePreferences(string $actor, string $scope, string $structureId, array $changes, int $baseRevision): array
+    {
+        // Reading the real structure enforces its access boundary.
+        $this->storage->readStructure($scope, $this->structureId($structureId), $actor);
+
+        return $this->views->savePreferences(self::listOf($scope, $structureId), $actor, $changes, $baseRevision);
+    }
+
+    /**
+     * What describe() reports so the list can tell the person before a save fails (simai.view-config/1 §5).
+     *
+     * @return array<string, mixed>
+     */
+    public function limits(): array
+    {
+        return ViewConfigDocument::limits();
+    }
+
+    /**
+     * The views of one level in every list of the scope.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function levelViews(ViewConfigLevel $level, string $scope, ?string $person): array
+    {
+        $prefix = self::scopePrefix($scope);
+        $views = [];
+        foreach ($this->views->lists($prefix, $level, $person) as $list) {
+            foreach ($this->views->views($list, $level === ViewConfigLevel::Personal ? $person : null) as $entry) {
+                if ($entry['level'] === $level) {
+                    $views[] = StorageViewConfigCodec::view($entry['document'], substr($list, strlen($prefix)));
                 }
             }
         }
@@ -277,57 +333,9 @@ final readonly class DataviewListPreferences
         return $views;
     }
 
-    /**
-     * A list still kept under its previous key: read as it is, written under the new key on the next change
-     * (revision 0, so that first write creates it there).
-     *
-     * @return array{revision:int, views:list<array<string, mixed>>}|null
-     */
-    private function previousViews(string $scope, string $scopeId): ?array
+    private static function scopePrefix(string $scope): string
     {
-        $previous = $this->values->revisionedValue(self::NAMESPACE, self::PREVIOUS_SAVED_VIEWS_KEY, $scope, $scopeId);
-
-        return $previous->revision > 0 ? ['revision' => 0, 'views' => $this->storedViews($previous)['views']] : null;
-    }
-
-    /** @return array{revision:int, views:list<array<string, mixed>>} */
-    private function storedViews(RevisionedSettingValue $stored): array
-    {
-        $views = $stored->value;
-        if (! is_array($views) || ! array_is_list($views) || count($views) > self::SAVED_VIEW_LIMIT) {
-            throw new InvalidArgumentException('dataview_list_saved_views_invalid');
-        }
-        foreach ($views as $view) {
-            if (! $this->validSavedViewObject($view)) {
-                throw new InvalidArgumentException('dataview_list_saved_view_invalid');
-            }
-        }
-
-        return ['revision' => $stored->revision, 'views' => $views];
-    }
-
-    /**
-     * Views saved before they carried a layout are read as objects here and written in the new form
-     * on the next change. Their layout starts from the columns the person had arranged.
-     *
-     * @return array{revision:int, views:list<array<string, mixed>>}
-     */
-    private function legacyViews(string $actor, string $scope): array
-    {
-        $views = [];
-        foreach ($this->legacySavedViews($actor) as $legacy) {
-            $columns = $this->values->revisionedValue(
-                self::NAMESPACE, $this->columnsKey($scope, (string) $legacy['structure_id']), 'user', $actor,
-            )->value;
-            $views[] = $legacy + [
-                'revision' => 1,
-                'roles' => [],
-                'layout' => ['columns' => is_array($columns) && ! array_is_list($columns) ? $columns : []],
-                'settings' => [],
-            ];
-        }
-
-        return ['revision' => 0, 'views' => $views];
+        return 'storage/'.$scope.'/';
     }
 
     /**
@@ -375,8 +383,8 @@ final readonly class DataviewListPreferences
         }
         $name = trim($name);
         $query = $this->savedViewQuery($structure, is_array($payload['query'] ?? null) ? $payload['query'] : []);
-        ['revision' => $listRevision, 'views' => $views] = $level === 'shared'
-            ? $this->sharedViews($scope) : $this->savedViews($actor, $scope);
+        $views = array_values(array_filter($this->structureViews($actor, $scope, $structureId),
+            static fn (array $view): bool => $view['level'] === $level));
         $named = null;
         foreach ($views as $view) {
             if ($view['structure_id'] === $structureId && mb_strtolower($view['name']) === mb_strtolower($name)) {
@@ -434,7 +442,7 @@ final readonly class DataviewListPreferences
             || strlen(json_encode($settings, JSON_THROW_ON_ERROR)) > 8192) {
             throw new InvalidArgumentException('dataview_list_saved_view_settings_invalid');
         }
-        $written = [
+        $this->writeView($level, $actor, $scope, [
             'saved_view_id' => $savedViewId,
             'structure_id' => $structureId,
             'name' => $name,
@@ -443,19 +451,7 @@ final readonly class DataviewListPreferences
             'roles' => $roles,
             'layout' => $layout,
             'settings' => $settings,
-        ];
-        // A view keeps its place in the list when it is written again.
-        $replaced = false;
-        foreach ($views as $index => $view) {
-            if ($view['saved_view_id'] === $savedViewId) {
-                $views[$index] = $written;
-                $replaced = true;
-            }
-        }
-        if (! $replaced) {
-            $views[] = $written;
-        }
-        $this->writeSavedViews($level, $actor, $scope, $listRevision, $views);
+        ], $existing['revision'] ?? 0);
 
         return $savedViewId;
     }
@@ -473,28 +469,21 @@ final readonly class DataviewListPreferences
         if ($savedViewId === null || ! is_int($baseRevision) || $baseRevision < 1) {
             throw new InvalidArgumentException('dataview_list_saved_view_layout_invalid');
         }
-        [$level, $listRevision, $views] = $this->listHolding($actor, $scope, $savedViewId);
-        $view = $this->savedView($views, $savedViewId);
+        [$level, $view] = $this->viewHolding($actor, $scope, $savedViewId);
         if ($view['revision'] !== $baseRevision) {
             throw new SettingRevisionConflict($baseRevision, $view['revision']);
         }
         $structure = $this->storage->readStructure($scope, (string) $view['structure_id'], $actor);
         $columns = self::withoutResetWidths($columns);
         $this->assertColumns($structure, $columns);
-        foreach ($views as $index => $candidate) {
-            if ($candidate['saved_view_id'] === $savedViewId) {
-                $views[$index]['layout'] = ['columns' => $columns];
-                $views[$index]['revision'] = $baseRevision + 1;
-            }
-        }
-        $this->writeSavedViews($level, $actor, $scope, $listRevision, $views);
+        $this->writeView($level, $actor, $scope, ['layout' => ['columns' => $columns], 'revision' => $baseRevision + 1] + $view, $baseRevision);
 
         return ['structure_id' => (string) $view['structure_id'], 'saved_view_id' => $savedViewId];
     }
 
     /**
-     * Dropping a saved view is a write like any other: it names the view it removes, refuses an
-     * unknown one instead of silently doing nothing, and leaves the remaining views untouched.
+     * Dropping a saved view names the view it removes and refuses an unknown one instead of silently doing
+     * nothing; the other views are untouched. A system view or a required one stays.
      */
     public function deleteView(string $actor, string $scope, mixed $savedViewId): void
     {
@@ -502,35 +491,35 @@ final readonly class DataviewListPreferences
         if ($savedViewId === null) {
             throw new InvalidArgumentException('dataview_list_saved_view_unknown');
         }
-        [$level, $listRevision, $views] = $this->listHolding($actor, $scope, $savedViewId);
-        $view = $this->savedView($views, $savedViewId);
+        [$level, $view] = $this->viewHolding($actor, $scope, $savedViewId);
         // Reading the structure keeps a person who lost access to it from changing its views.
         $this->storage->readStructure($scope, (string) $view['structure_id'], $actor);
-        $this->writeSavedViews($level, $actor, $scope, $listRevision, array_values(array_filter(
-            $views,
-            static fn (array $candidate): bool => ! hash_equals((string) $candidate['saved_view_id'], $savedViewId),
-        )));
+        $this->views->remove(self::listOf($scope, (string) $view['structure_id']), ViewConfigLevel::named($level), $savedViewId,
+            $level === 'personal' ? $actor : null);
     }
 
     /**
-     * Which list holds a saved view: the person's own, or the one for everyone, which only an
-     * administrator changes.
+     * Which level holds a saved view: the person's own, or the one for everyone, which only an administrator
+     * changes. A system view is changed by nobody here.
      *
-     * @return array{0:string, 1:int, 2:list<array<string, mixed>>}
+     * @return array{0:string, 1:array<string, mixed>}
      */
-    private function listHolding(string $actor, string $scope, string $savedViewId): array
+    private function viewHolding(string $actor, string $scope, string $savedViewId): array
     {
-        $personal = $this->savedViews($actor, $scope);
-        if ($this->savedView($personal['views'], $savedViewId) !== null) {
-            return ['personal', $personal['revision'], $personal['views']];
+        $personal = $this->savedView($this->savedViews($actor, $scope)['views'], $savedViewId);
+        if ($personal !== null) {
+            return ['personal', $personal];
         }
-        $shared = $this->sharedViews($scope);
-        if ($this->savedView($shared['views'], $savedViewId) === null) {
+        $shared = $this->savedView($this->sharedViews($scope)['views'], $savedViewId);
+        if ($shared === null) {
+            if ($this->savedView($this->levelViews(ViewConfigLevel::System, $scope, null), $savedViewId) !== null) {
+                throw new ViewConfigRefused('system_readonly');
+            }
             throw new InvalidArgumentException('dataview_list_saved_view_unknown');
         }
         $this->authorizer->assertAllowed($actor, self::SHARED_RIGHT);
 
-        return ['shared', $shared['revision'], $shared['views']];
+        return ['shared', $shared];
     }
 
     /**
@@ -614,45 +603,21 @@ final readonly class DataviewListPreferences
         return array_filter($stored, static fn (mixed $key): bool => in_array($key, $known, true), ARRAY_FILTER_USE_KEY);
     }
 
-    /** @param list<array<string, mixed>> $views */
-    private function writeSavedViews(string $level, string $actor, string $scope, int $expectedRevision, array $views): void
+    /**
+     * Writes one saved view as a simai.view-config/1 document against its revision (0: a new one). The store
+     * refuses a view over the limits (20 per list per level, 8 KB) with the limit's name.
+     *
+     * @param  array<string, mixed>  $view
+     */
+    private function writeView(string $level, string $actor, string $scope, array $view, int $baseRevision): void
     {
-        if (count($views) > self::SAVED_VIEW_LIMIT) {
-            throw new InvalidArgumentException('dataview_list_saved_view_limit');
+        unset($view['level']);
+        // A view the list could not read back would make the list unreadable.
+        if (! $this->validSavedViewObject($view)) {
+            throw new InvalidArgumentException('dataview_list_saved_view_invalid');
         }
-        // A view the list could not read back would make every list of the person unreadable.
-        foreach ($views as $view) {
-            if (! $this->validSavedViewObject($view)) {
-                throw new InvalidArgumentException('dataview_list_saved_view_invalid');
-            }
-        }
-        $this->values->compareAndSet(
-            self::NAMESPACE, self::SAVED_VIEWS_KEY,
-            $level === 'shared' ? 'system' : 'user', $level === 'shared' ? $scope : $actor,
-            $views, $expectedRevision,
-        );
-    }
-
-    /** @return list<array<string, mixed>> */
-    private function legacySavedViews(string $actor): array
-    {
-        $resolved = $this->settings->resolve(
-            SettingKey::make(self::NAMESPACE, self::LEGACY_SAVED_VIEWS_KEY),
-            new SettingContext(SettingScopeType::User, $actor),
-        );
-        $value = $resolved->effectiveValue?->value;
-        if (! is_array($value) || ! array_is_list($value) || count($value) > self::SAVED_VIEW_LIMIT) {
-            throw new InvalidArgumentException('dataview_list_saved_views_invalid');
-        }
-        $views = [];
-        foreach ($value as $view) {
-            if (! $this->validSavedView($view)) {
-                throw new InvalidArgumentException('dataview_list_saved_view_invalid');
-            }
-            $views[] = $view;
-        }
-
-        return $views;
+        $this->views->save(self::listOf($scope, (string) $view['structure_id']), ViewConfigLevel::named($level),
+            StorageViewConfigCodec::document($view), $baseRevision, $level === 'personal' ? $actor : null, $actor);
     }
 
     private function validSavedViewObject(mixed $view): bool

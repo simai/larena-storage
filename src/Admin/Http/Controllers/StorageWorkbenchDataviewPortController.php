@@ -17,6 +17,7 @@ final readonly class StorageWorkbenchDataviewPortController
     private const INTENTS = [
         'query.change', 'bulk.apply_selected', 'bulk.apply_under_filter', 'record.open', 'record.mutate', 'view.create_record',
         'settings.save_personal', 'settings.save_shared', 'view.open', 'view.save', 'view.delete', 'view.save_shared',
+        'preferences.save',
     ];
 
     public function __construct(private StorageWorkbenchDataviewPort $port, private Config $config) {}

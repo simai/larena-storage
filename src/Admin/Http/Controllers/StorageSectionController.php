@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Admin\Http\Controllers;
 
+use Larena\Storage\Admin\StorageWorkbenchDataviewPort;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Translation\Translator;
@@ -315,6 +316,8 @@ final readonly class StorageSectionController
             ($permissions['dataview.saved_view.save_shared'] ?? false) === true ? 'shared-saved-views' : null,
             ($permissions['dataview.preferences.save_shared'] ?? false) === true ? 'shared-column-settings' : null,
             ($permissions['record.bulk_archive'] ?? false) === true && ($selected['archived'] ?? false) !== true && !$archiveView ? 'bulk-under-filter' : null,
+            // The person's own view state on the server (port 1.16.0), once the pinned Framework carries that edition.
+            StorageWorkbenchDataviewPort::preferencesOffered() ? 'personal-preferences' : null,
         ]));
         // A storage bound to a publishable role: its list gets the badges and «Опубликовать» from its own host port.
         $publishable = $selected !== null && !$archiveView && !$structureArchived && !$listNotReady && is_string($state['scope_ref'] ?? null)

@@ -156,6 +156,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageCreatedPerDayTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageBoardTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageCardsCalendarTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageBoardWindowTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublishedReadBatchingTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublishedSiteViewMaintenanceTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationPendingRevisionTest.php",
@@ -247,7 +248,9 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackExportTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackImportTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSectionPublicationTest.php",
-            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageRecordCardTest.php"
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageRecordCardTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSavedViewsMoveTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageViewConfigPortTest.php"
         ],
         "test:content-compatibility": "@php -d zend.assertions=1 -d assert.exception=1 tests/Integration/StorageContentVisibilityCompatibilityTest.php",
         "test:mysql-publication": "LARENA_STORAGE_PUBLICATION_MYSQL_TEST=1 php -d zend.assertions=1 -d assert.exception=1 tests/Integration/PublicationMySqlRestartTest.php",
