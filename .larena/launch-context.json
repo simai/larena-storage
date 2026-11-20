@@ -422,7 +422,18 @@
     "tests/Admin/StorageViewConfigPortTest.php",
     "tests/Integration/StorageBoardWindowTest.php",
     "src/Contracts/StorageWorkbenchHistoryKeepPlan.php",
-    "tests/Integration/StorageHistoryKeepPlanTest.php"
+    "tests/Integration/StorageHistoryKeepPlanTest.php",
+    "src/DocumentPort/DocumentPort.php",
+    "src/DocumentPort/DocumentPortBinding.php",
+    "src/DocumentPort/DocumentPortElement.php",
+    "src/DocumentPort/DocumentPortJson.php",
+    "src/DocumentPort/DocumentPortRights.php",
+    "src/DocumentPort/DocumentPortStore.php",
+    "src/DocumentPort/AccessDocumentPortRights.php",
+    "src/DocumentPort/DatabaseDocumentPorts.php",
+    "src/DocumentPort/DatabaseDocumentPortStore.php",
+    "database/migrations/platform/2026_11_20_000002_create_larena_storage_document_port_receipts_table.php",
+    "tests/Integration/DocumentPortKitTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

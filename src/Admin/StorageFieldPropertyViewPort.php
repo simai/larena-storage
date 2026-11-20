@@ -439,8 +439,9 @@ final class StorageFieldPropertyViewPort extends PropertyViewPort
     {
         $types = [];
         foreach (PropertyTypeSettingsCatalog::builtIns()->typeKeys() as $type) {
-            // A block assembly is edited by the page that owns it (the site pages' content), not as a storage field.
-            if ($type === 'content') {
+            // A block assembly is edited by the page that owns it (the site pages' content), and a page document of the
+            // editor (composition@1) by the editor through the document port: neither is offered as a storage field.
+            if ($type === 'content' || $type === 'composition') {
                 continue;
             }
             $types[] = ['value' => $type, 'label' => $this->text('larena-storage::admin.section.types.'.$type, $type)];
