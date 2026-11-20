@@ -28,6 +28,13 @@ use Throwable;
  * - a write with a `client_key` is remembered: the same key with the same input answers what it answered, the same key
  *   with other input is a conflict `idempotency-conflict`.
  *
+ * - limits: a language value's (`max_nodes`, `max_bytes`) and, when the host has one, all languages together
+ *   (`max_total_bytes`, draft 3: a Larena record holds 1 MB of values); a save over the total is refused `too-large` for the
+ *   whole element with the diagnostic `max-total-bytes` naming the total;
+ * - published: the live publication; one made outside the port (the admin's publication page, a schedule) is the object
+ *   with `id` null (and `at` when known); null only when nothing is live;
+ * - history drafts: the revisions where the document changed; an edit of the record's other fields makes none.
+ *
  * Reasons are the port's hyphenated codes; the store's own refusals are translated here (reason()). A store that
  * cannot be reached is answered `unavailable storage-unavailable`, never thrown. The answer is a PHP array; written as
  * JSON with DocumentPortJson so that an empty object stays `{}`.
@@ -122,6 +129,11 @@ final class DocumentPort
         } catch (StoragePersistenceFailed) {
             return self::unavailable();
         } catch (StorageRejected $rejected) {
+            if ($rejected->reasonCode === 'storage_workbench_record_values_too_large') {
+                // The record's own cap: the element is too large as a whole, whatever each language weighs.
+                return self::refused('too-large', ['diagnostics' => [$this->totalDiagnostic(null)]], $rejected->reasonCode);
+            }
+
             return self::reason($rejected->reasonCode) === 'storage-unavailable'
                 ? self::unavailable()
                 : self::refused(self::reason($rejected->reasonCode), null, $rejected->reasonCode);
@@ -228,6 +240,10 @@ final class DocumentPort
                 return self::refused('would-lose', ['diagnostics' => $level['diagnostics']]);
             }
             $next[(string) $language] = $level['value'];
+        }
+        $total = strlen((string) CompositionDocument::json($next));
+        if (isset($element->limits['max_total_bytes']) && $total > $element->limits['max_total_bytes']) {
+            return self::refused('too-large', ['diagnostics' => [$this->totalDiagnostic($total)]]);
         }
         if ($element->has('levels') || $element->parents !== []) {
             $shapes = [];
@@ -641,7 +657,9 @@ final class DocumentPort
         return null;
     }
 
-    /** @return array{id: string, revision: string, state: string, at: string, languages: list<string>}|null */
+    /**
+     * @return array{id: string, revision: string, state: string, at: string, languages: list<string>}|array{id: null, revision?: string, state: string, at?: string, languages: list<string>}|null
+     */
     private function published(): ?array
     {
         $live = $this->store()->live();
@@ -651,7 +669,20 @@ final class DocumentPort
             }
         }
 
-        return null;
+        // Live, but not by a publication of this port (draft 3 answer 4): the object with id null.
+        return $this->store()->outside();
+    }
+
+    /**
+     * The diagnostic of an element too large as a whole: it names the total, the limit and, when known, the bytes.
+     *
+     * @return array<string, mixed>
+     */
+    private function totalDiagnostic(?int $bytes): array
+    {
+        return ['code' => 'max-total-bytes', 'severity' => 'error', 'path' => '/values', 'limit' => 'max_total_bytes']
+            + (isset($this->element()->limits['max_total_bytes']) ? ['max_total_bytes' => $this->element()->limits['max_total_bytes']] : [])
+            + ($bytes !== null ? ['bytes' => $bytes] : []);
     }
 
     /**

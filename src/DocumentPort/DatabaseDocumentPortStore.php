@@ -22,6 +22,9 @@ use Larena\Storage\Exceptions\StorageRejected;
  * - A publication is the record's revision published through the publication lifecycle in each of its languages
  *   (and taken down in the element's other languages), under the site scope of the binding; the head of each
  *   language is what the site reads.
+ * - The drafts the history lists are the versions where the document changed: an edit of the record's other fields
+ *   (title, slug) keeps the document as it was and makes no draft; it moves the revision of the draft it follows.
+ * - Live without a publication of the port (the admin's publication page, a schedule): outside() names it, id null.
  * - The port's own facts that neither a record version nor the publication log can hold go into
  *   larena_storage_document_port_receipts: a write's client_key with the fingerprint of its input (version
  *   correlation ids are stored hashed, so a key could not be read back), the revision a restore came from, and a
@@ -56,14 +59,24 @@ final class DatabaseDocumentPortStore implements DocumentPortStore
         $restored = $this->database->table(self::RECEIPTS_TABLE)
             ->where('schema_id', $this->schemaId())->where('record_id', $this->binding->recordId)->where('field_key', $this->binding->fieldKey)
             ->whereNotNull('restored_from')->pluck('restored_from', 'revision')->all();
-        $drafts = [];
-        foreach ($this->versions()->orderByDesc('id')->get(['id', 'created_at', 'values_json']) as $row) {
-            $id = (string) $row->id;
-            $drafts[] = ['revision' => $id, 'at' => self::at((string) $row->created_at), 'languages' => array_map('strval', array_keys($this->decode($row->values_json)))]
-                + (isset($restored[$id]) ? ['restored_from' => (string) $restored[$id]] : []);
+        // Oldest first: a version whose document is the one before it continues that draft. The draft answers with its
+        // newest version (the revision a write is compared with), the time and the restore of the version that made it.
+        $groups = [];
+        $previous = null;
+        foreach ($this->versions()->orderBy('id')->get(['id', 'created_at', 'values_json']) as $row) {
+            $document = $this->decode($row->values_json);
+            $same = $previous !== null && $document == $previous;
+            $previous = $document;
+            if ($same) {
+                $groups[count($groups) - 1]['revision'] = (string) $row->id;
+                continue;
+            }
+            $first = (string) $row->id;
+            $groups[] = ['revision' => $first, 'at' => self::at((string) $row->created_at), 'languages' => array_map('strval', array_keys($document))]
+                + (isset($restored[$first]) ? ['restored_from' => (string) $restored[$first]] : []);
         }
 
-        return $drafts;
+        return array_reverse($groups);
     }
 
     public function valuesAt(string $revision): ?array
@@ -129,6 +142,37 @@ final class DatabaseDocumentPortStore implements DocumentPortStore
         }
 
         return (string) $newest->publication_id;
+    }
+
+    public function outside(): ?array
+    {
+        $site = $this->binding->siteScopeRef;
+        if ($site === null) {
+            return null;
+        }
+        $languages = [];
+        $revisions = [];
+        $times = [];
+        foreach ($this->binding->languages as $language) {
+            $head = $this->publications->head($this->schemaId(), $this->binding->recordId, $site, $language);
+            if ($head === null || !$head->isPublished()) {
+                continue;
+            }
+            $languages[] = $language;
+            $revisions[] = (int) $head->publishedRevision;
+            if ($head->publishedAt !== null && $head->publishedAt !== '') {
+                $times[] = self::at($head->publishedAt);
+            }
+        }
+        if ($languages === []) {
+            return null;
+        }
+        $revisions = array_values(array_unique($revisions));
+        $row = count($revisions) === 1 ? $this->versions()->where('revision', $revisions[0])->value('id') : null;
+        rsort($times);
+
+        return ['id' => null] + ($row !== null ? ['revision' => (string) $row] : []) + ['state' => 'published']
+            + ($times !== [] ? ['at' => $times[0]] : []) + ['languages' => $languages];
     }
 
     /**

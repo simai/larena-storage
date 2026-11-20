@@ -103,6 +103,8 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
     public const ALREADY_ADOPTED = 'already_adopted';
     private const MAX_STRUCTURES = 100;
     private const MAX_FIELDS = 100;
+    /** A record's values together, as canonical JSON: 1 MB (the document port announces it as `max_total_bytes`). */
+    public const MAX_VALUES_BYTES = 1048576;
     // A structure purge removes its records in one transaction, at most this many (VersionedStorage's purge limit).
     private const MAX_STRUCTURE_PURGE = 5000;
     // Lists read from the витрина keep page numbers while the offset stays at or under this.
@@ -4706,7 +4708,7 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 throw new StorageRejected('storage_workbench_record_reserved_field');
             }
         }
-        if (strlen($this->canonicalJson($values)) > 1048576) {
+        if (strlen($this->canonicalJson($values)) > self::MAX_VALUES_BYTES) {
             throw new StorageRejected('storage_workbench_record_values_too_large');
         }
     }

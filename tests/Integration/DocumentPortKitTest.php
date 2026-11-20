@@ -78,7 +78,7 @@ const KIT_SITE = 'site:main';
  * A case's host: a fresh database, the record written revision by revision under the case's row ids.
  *
  * @param array<string, mixed> $given
- * @return array{port: DocumentPort, connection: Connection, binding: DocumentPortBinding, ports: DatabaseDocumentPorts}
+ * @return array{port: DocumentPort, connection: Connection, binding: DocumentPortBinding, ports: DatabaseDocumentPorts, workbench: mixed, publication: mixed, record: mixed, store?: DatabaseDocumentPortStore}
  */
 function kitHost(array $given): array
 {
@@ -124,7 +124,7 @@ function kitHost(array $given): array
         array_key_exists('rights', $given) && $given['rights'] !== null ? new KitRights($given['rights']) : new AccessDocumentPortRights(new StorageViewFixtureAccess(KIT_ACTOR, KIT_SCOPE), new StorageViewFixtureAccess(KIT_ACTOR, KIT_SCOPE)));
     $opened = $ports->open($binding, ($given['fault'] ?? null) === 'session-expired' ? null : KIT_ACTOR);
     if (($given['fault'] ?? null) === 'session-expired') {
-        return ['port' => $opened, 'connection' => $connection, 'binding' => $binding, 'ports' => $ports];
+        return ['port' => $opened, 'connection' => $connection, 'binding' => $binding, 'ports' => $ports, 'workbench' => $workbench, 'publication' => $publication, 'record' => $record];
     }
     storageViewExpect($opened->capabilities() === $binding->capabilities(), 'the database element announces history and publish');
     // The element as the case announces it, with the reader's rights the host gave and the parent levels.
@@ -134,7 +134,8 @@ function kitHost(array $given): array
         $connection->getSchemaBuilder()->drop('larena_storage_record_versions');
     }
 
-    return ['port' => DocumentPort::bound($element, $store), 'connection' => $connection, 'binding' => $binding, 'ports' => $ports];
+    return ['port' => DocumentPort::bound($element, $store), 'connection' => $connection, 'binding' => $binding, 'ports' => $ports,
+        'workbench' => $workbench, 'publication' => $publication, 'record' => $record, 'store' => $store];
 }
 
 /** A value at a dot path; numeric segments index lists. The sentinel stands for undefined. */
@@ -347,5 +348,43 @@ $expect(($lost['answer']['reason'] ?? null) === 'would-lose' && ($lost['answer']
 $expect(DocumentPortJson::payload('[1]')['answer']['reason'] === 'invalid' && DocumentPortJson::payload('{')['answer']['reason'] === 'invalid', 'a payload that is not an object');
 $written = DocumentPortJson::answer(['answer' => 'applied', 'data' => ['revision' => '8', 'values' => ['ru' => ['id' => 'page', 'root' => ['id' => 'r', 'type' => 'layout.page', 'props' => []]]]]]);
 $expect(str_contains($written, '"props":{}'), 'an answer writes the declared empty object as {}');
+
+// --- Framework answers to block 1 (draft 3). ---
+// 2. The host announces its total: a Larena record holds 1 MB of values. Over it the whole element is too-large,
+//    with a diagnostic naming the total, though each language fits max_bytes.
+$expect((new DocumentPortBinding(KIT_SCOPE, 'workbench.pages', 'r', 'document', null, $kase['given']['target'], ['ru']))->limits
+    === ['max_nodes' => 200, 'max_bytes' => 262144, 'max_total_bytes' => 1048576], 'the binding announces the record cap as max_total_bytes');
+$total = kitHost($kase['given'] + ['capabilities' => []]);
+$values = $kase['given']['values'];
+$bytes = strlen((string) \Larena\Property\Runtime\CompositionDocument::json($values));
+$small = DocumentPort::bound(new DocumentPortElement($kase['given']['target'], $kase['given']['languages'], [],
+    ['max_nodes' => 200, 'max_bytes' => 262144, 'max_total_bytes' => $bytes - 1]), $total['store']);
+$expect($small->send('document.load')['data']['limits']['max_total_bytes'] === $bytes - 1, 'load answers max_total_bytes');
+$over = $small->send('document.save', ['values' => $values, 'expected_revision' => $kase['given']['revision']]);
+$expect($over['answer'] === 'refused' && $over['reason'] === 'too-large' && $over['data']['diagnostics'][0]['code'] === 'max-total-bytes'
+    && $over['data']['diagnostics'][0]['limit'] === 'max_total_bytes' && $over['data']['diagnostics'][0]['bytes'] === $bytes, 'the whole element is too-large: ' . json_encode($over));
+// 1. The diagnostic of an empty object PHP cannot give back is exactly empty-object-not-kept.
+$expect(($lost['answer']['data']['diagnostics'][0]['code'] ?? null) === 'empty-object-not-kept', 'the diagnostic is empty-object-not-kept');
+// 5. An edit of the record's other fields makes no document draft: the draft it follows moves to the new revision.
+$drafts = $total['store']->drafts();
+$record = $total['record'];
+$edited = $total['workbench']->updateRecord(KIT_SCOPE, 'workbench.pages', $record->recordId, $record->revision,
+    ['title' => 'Команда, новое имя'] + $record->values, KIT_ACTOR);
+$after = $total['store']->drafts();
+$expect(count($after) === count($drafts) && $after[0]['revision'] === $total['store']->current()['revision'] && $after[0]['revision'] !== $drafts[0]['revision']
+    && $after[0]['at'] === $drafts[0]['at'] && array_slice($after, 1) === array_slice($drafts, 1), 'a title edit is no draft: ' . json_encode([$drafts, $after]));
+$saved = DocumentPort::bound(new DocumentPortElement($kase['given']['target'], $kase['given']['languages'], ['history']), $total['store'])
+    ->send('document.save', ['values' => ['en' => null], 'expected_revision' => $after[0]['revision']]);
+$expect($saved['answer'] === 'applied' && count($total['store']->drafts()) === count($after) + 1, 'a document change is a draft: ' . json_encode($saved['reason'] ?? null));
+// 4. Published outside the port (the admin's publication page): an object with id null, not null; null only when nothing is live.
+$site = kitHost(array_merge($kase['given'], ['capabilities' => ['history', 'publish']]));
+$expect(!array_key_exists('published', $site['port']->send('document.load')['data']) || $site['port']->send('document.load')['data']['published'] === null,
+    'never published is null');
+$schemaId = $site['workbench']->readStructure(KIT_SCOPE, 'workbench.pages', KIT_ACTOR)->schema->schemaId;
+$site['publication']->publish($schemaId, $site['record']->recordId, KIT_SITE, 'ru', $site['record']->revision, KIT_ACTOR, 'admin:publication-page');
+$outside = $site['port']->send('document.load')['data']['published'];
+$expect(is_array($outside) && array_key_exists('id', $outside) && $outside['id'] === null && $outside['state'] === 'published'
+    && $outside['languages'] === ['ru'] && $outside['revision'] === $kase['given']['revision'] && isset($outside['at']),
+    'published outside the port: ' . json_encode($outside));
 
 echo 'DocumentPortKitTest passed: ' . $passed . ' of ' . count($manifest['cases']) . ' kit cases, ' . $GLOBALS['kitChecks'] . " checks\n";

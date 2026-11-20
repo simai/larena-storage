@@ -47,6 +47,14 @@ interface DocumentPortStore
     public function live(): ?string;
 
     /**
+     * What is live when no publication of the port is (published outside it: the admin's publication page, a
+     * schedule): `{id: null, revision?, state: published, at?, languages}`, or null when nothing is live.
+     *
+     * @return array{id: null, revision?: string, state: string, at?: string, languages: list<string>}|null
+     */
+    public function outside(): ?array;
+
+    /**
      * Publishes a draft revision in these languages as a new publication (the others are taken down); $from names
      * the publication a rollback repeats.
      *
