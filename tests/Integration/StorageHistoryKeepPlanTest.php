@@ -76,8 +76,7 @@ storageViewExpect($workbench->setHistoryKeep($scope, 'workbench.notes', 10, $act
 storageViewExpect($workbench->setHistoryKeep($scope, 'workbench.notes', null, $actor)->historyKeep === null, 'keeping all needed a plan');
 storageViewExpect($versions($a) === [2, 5, 6, 7], 'a raise removed versions');
 
-// A lowering that removes nothing still goes through its plan, and applies on it.
-storageViewRejects(static fn () => $workbench->setHistoryKeep($scope, 'workbench.notes', 4, $actor), StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED);
+// A lowering that removes nothing is planned with zero versions; its plan still applies.
 $empty = $workbench->planHistoryKeep($scope, 'workbench.notes', 4, $actor);
 storageViewExpect($empty['lowers'] === true && $empty['versions'] === 0, 'a lowering with nothing to remove is planned wrong: ' . json_encode($empty));
 $workbench->applyHistoryKeep($scope, 'workbench.notes', 4, $empty['digest'], $actor);
@@ -87,5 +86,12 @@ $write($b, 3);
 storageViewExpect($versions($b) === [3, 4, 5, 6], 'a later write did not trim to the number: ' . json_encode($versions($b)));
 $write($a, 1);
 storageViewExpect($versions($a) === [2, 5, 6, 7, 8], 'a later write removed the published revision or too much: ' . json_encode($versions($a)));
+
+// A lowering that removes nothing (a new or imported storage) applies at once: nothing can be lost.
+$workbench->createStructure($scope, ['structure_id' => 'workbench.fresh', 'label' => 'Fresh',
+    'fields' => [publishedSiteViewField('title', 10, 'string', 'public', ['max_length' => 200])]], $actor);
+$workbench->createRecord($scope, 'workbench.fresh', ['title' => 'Only'], $actor);
+storageViewExpect($workbench->planHistoryKeep($scope, 'workbench.fresh', 3, $actor)['versions'] === 0, 'a fresh storage planned versions to go');
+storageViewExpect($workbench->setHistoryKeep($scope, 'workbench.fresh', 3, $actor)->historyKeep === 3, 'a lowering that removes nothing needed a plan');
 
 echo "StorageHistoryKeepPlanTest passed.\n";

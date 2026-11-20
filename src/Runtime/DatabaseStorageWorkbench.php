@@ -2433,12 +2433,13 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                 if ((isset($head->history_keep) ? (int) $head->history_keep : null) === $keep) {
                     return $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
                 }
-                // Lowering removes old versions for good: only on the plan the person confirmed, made again here.
+                // Lowering removes old versions for good: only on the plan the person confirmed, made again here. A
+                // lowering that removes nothing (a new or imported storage) needs no plan: nothing can be lost.
                 $plan = $this->historyKeepPlan($scopeRef, $head, $keep);
-                if ($plan['lowers'] && $planDigest === null) {
+                if ($plan['lowers'] && $plan['versions'] > 0 && $planDigest === null) {
                     throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED);
                 }
-                if ($plan['lowers'] && !hash_equals($plan['digest'], (string) $planDigest)) {
+                if ($plan['lowers'] && $planDigest !== null && !hash_equals($plan['digest'], (string) $planDigest)) {
                     throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_STALE);
                 }
                 $this->database->table('larena_storage_workbench_structures')
