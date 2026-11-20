@@ -278,7 +278,7 @@ function sitePackScenario(Connection $connection, StorageViewDdl $ddl, string $l
             storageViewField('qty', 70, 'integer'),
         ];
         $items = $workbench->createStructure($scope, ['structure_id' => 'workbench.items', 'label' => 'Items', 'fields' => $itemFields], $actor);
-        $items = $workbench->setHistoryKeep($scope, 'workbench.items', 10, $actor);
+        $items = $workbench->applyHistoryKeep($scope, 'workbench.items', 10, $workbench->planHistoryKeep($scope, 'workbench.items', 10, $actor)['digest'], $actor);
         $schemaId = $items->schema->schemaId;
         $fileOne = '11111111-1111-4111-8111-111111111111';
         $fileTwo = '22222222-2222-4222-8222-222222222222';

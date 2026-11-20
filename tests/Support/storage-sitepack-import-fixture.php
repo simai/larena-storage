@@ -444,7 +444,7 @@ function sitePackImportScenario(Connection $connection, StorageViewDdl $ddl, str
             storageViewField('reviewer', 80, 'user', [], true),
             storageViewField('qty', 90, 'integer'),
         ]], $admin);
-        $items = $workbench->setHistoryKeep($alpha, 'workbench.items', 10, $admin);
+        $items = $workbench->applyHistoryKeep($alpha, 'workbench.items', 10, $workbench->planHistoryKeep($alpha, 'workbench.items', 10, $admin)['digest'], $admin);
         $schemaId = $items->schema->schemaId;
         $fileOne = '11111111-1111-4111-8111-111111111111';
         $fileTwo = '22222222-2222-4222-8222-222222222222';

@@ -36,6 +36,7 @@ use Larena\Storage\Contracts\StorageWorkbenchCalendarPage;
 use Larena\Storage\Contracts\StorageWorkbenchCalendarQuery;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChange;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
+use Larena\Storage\Contracts\StorageWorkbenchHistoryKeepPlan;
 use Larena\Storage\Contracts\StorageWorkbenchLanguages;
 use Larena\Storage\Contracts\StorageWorkbenchPurgeReceipt;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
@@ -86,7 +87,7 @@ use Larena\Storage\View\StorageViewSync;
 use stdClass;
 use Throwable;
 
-final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchLanguages, StorageWorkbenchRecordActivity, StorageWorkbenchRecordCard, StorageWorkbenchBoard, StorageWorkbenchCalendar
+final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContract, StorageWorkbenchEncryption, StorageWorkbenchFieldChangeCheck, StorageWorkbenchHistoryKeepPlan, StorageWorkbenchLanguages, StorageWorkbenchRecordActivity, StorageWorkbenchRecordCard, StorageWorkbenchBoard, StorageWorkbenchCalendar
 {
     private const STRUCTURE_RESOURCE = 'storage.workbench.structure';
     private const RECORD_RESOURCE = 'storage.workbench.record';
@@ -2355,19 +2356,90 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
         string $actor,
         ?string $correlationId = null,
     ): StorageWorkbenchStructure {
+        return $this->changeHistoryKeep($scopeRef, $structureId, $keep, null, $actor, $correlationId);
+    }
+
+    public function planHistoryKeep(string $scopeRef, string $structureId, ?int $keep, string $actor): array
+    {
+        $this->assertHistoryKeep($structureId, $keep);
+        $this->assertScope($actor, 'storage.workbench.structure.update', $scopeRef, self::STRUCTURE_RESOURCE);
+        try {
+            return $this->historyKeepPlan($scopeRef, $this->structureHead($scopeRef, $structureId, null), $keep);
+        } catch (StorageRejected|StorageConflict $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+    }
+
+    public function applyHistoryKeep(
+        string $scopeRef,
+        string $structureId,
+        ?int $keep,
+        string $planDigest,
+        string $actor,
+        ?string $correlationId = null,
+    ): StorageWorkbenchStructure {
+        if (preg_match('/\A[a-f0-9]{64}\z/D', $planDigest) !== 1) {
+            throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_STALE);
+        }
+
+        return $this->changeHistoryKeep($scopeRef, $structureId, $keep, $planDigest, $actor, $correlationId);
+    }
+
+    private function assertHistoryKeep(string $structureId, ?int $keep): void
+    {
         $this->assertStructureId($structureId);
         if ($keep !== null && ($keep < 1 || $keep > VersionedStorage::HISTORY_KEEP_LIMIT)) {
             throw new InvalidArgumentException('storage_workbench_history_keep_invalid');
         }
+    }
+
+    /**
+     * The plan of setting $keep on the structure whose head this is. Lowering means removing versions by rule: a
+     * number below the current one, or any number where every version was kept.
+     *
+     * @return array{structure_id: string, label: string, from: int|null, to: int|null, lowers: bool, versions: int, records: int, digest: string}
+     */
+    private function historyKeepPlan(string $scopeRef, stdClass $head, ?int $keep): array
+    {
+        $from = isset($head->history_keep) ? (int) $head->history_keep : null;
+        $lowers = $keep !== null && ($from === null || $keep < $from);
+        $count = $lowers ? $this->storage->historyPruneCount((string) $head->storage_schema_id, $keep) : ['versions' => 0, 'records' => 0];
+        $structureId = (string) $head->structure_id;
+        $label = $this->hydrateStructureVersion($head)->label;
+
+        return ['structure_id' => $structureId, 'label' => $label, 'from' => $from, 'to' => $keep, 'lowers' => $lowers,
+            'versions' => $count['versions'], 'records' => $count['records'],
+            'digest' => hash('sha256', 'history-keep|'.json_encode([$scopeRef, $structureId, $from, $keep, $count['versions'], $count['records']], JSON_THROW_ON_ERROR))];
+    }
+
+    private function changeHistoryKeep(
+        string $scopeRef,
+        string $structureId,
+        ?int $keep,
+        ?string $planDigest,
+        string $actor,
+        ?string $correlationId,
+    ): StorageWorkbenchStructure {
+        $this->assertHistoryKeep($structureId, $keep);
         $this->assertScope($actor, 'storage.workbench.structure.update', $scopeRef, self::STRUCTURE_RESOURCE);
         $correlationId = $this->correlationId($correlationId);
 
         try {
-            return $this->database->transaction(function () use ($scopeRef, $structureId, $keep, $actor, $correlationId): StorageWorkbenchStructure {
+            return $this->database->transaction(function () use ($scopeRef, $structureId, $keep, $planDigest, $actor, $correlationId): StorageWorkbenchStructure {
                 $head = $this->structureHead($scopeRef, $structureId, self::LOCK_UPDATE);
                 // The same setting again changes nothing and says nothing.
                 if ((isset($head->history_keep) ? (int) $head->history_keep : null) === $keep) {
                     return $this->hydrateStructureVersion($head, self::LOCK_UPDATE);
+                }
+                // Lowering removes old versions for good: only on the plan the person confirmed, made again here.
+                $plan = $this->historyKeepPlan($scopeRef, $head, $keep);
+                if ($plan['lowers'] && $planDigest === null) {
+                    throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED);
+                }
+                if ($plan['lowers'] && !hash_equals($plan['digest'], (string) $planDigest)) {
+                    throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_STALE);
                 }
                 $this->database->table('larena_storage_workbench_structures')
                     ->where('scope_ref', $scopeRef)
@@ -2375,13 +2447,14 @@ final readonly class DatabaseStorageWorkbench implements StorageWorkbenchContrac
                     ->update(['history_keep' => $keep, 'updated_at' => $this->timestamp()]);
                 $schemaId = (string) $head->storage_schema_id;
                 $this->emitStructure('storage.workbench.structure.history_keep_changed', $scopeRef, $structureId, $actor, $correlationId,
-                    ['schema_id' => $schemaId, 'keep' => $keep]);
-                // A number trims every record's history now; each later write keeps it trimmed.
-                if ($keep !== null) {
+                    ['schema_id' => $schemaId, 'keep' => $keep, 'previous_keep' => $plan['from']]
+                    + ($plan['lowers'] ? ['planned_versions' => $plan['versions'], 'planned_records' => $plan['records']] : []));
+                // A lowered number trims every record's history now, as planned; each later write keeps it trimmed.
+                if ($plan['lowers'] && $plan['versions'] > 0) {
                     $ids = array_map('strval', $this->database->table('larena_storage_records')
                         ->where('schema_id', $schemaId)->orderBy('record_id')->pluck('record_id')->all());
                     foreach (array_chunk($ids, 5000) as $chunk) {
-                        $this->storage->pruneHistory($schemaId, $chunk, $keep, $actor, $correlationId);
+                        $this->storage->pruneHistory($schemaId, $chunk, (int) $keep, $actor, $correlationId);
                     }
                 }
 

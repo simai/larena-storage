@@ -63,8 +63,11 @@ interface StorageWorkbench
 
     /**
      * How many saved versions of each record the structure keeps («Хранить изменений»): null keeps all.
-     * Setting a number trims the history of every record of the structure at once; each later
-     * write trims its record. The current version and published ones always stay.
+     * Raising the number, keeping it, or keeping all applies here. Lowering it (a number below the current
+     * one, or a number where all were kept) removes old versions for good, so it is refused here with
+     * `storage_workbench_history_keep_plan_required` and goes through a confirmed plan
+     * (StorageWorkbenchHistoryKeepPlan). Each later write trims its record to the number; the current
+     * version and published ones always stay.
      */
     public function setHistoryKeep(
         string $scopeRef,

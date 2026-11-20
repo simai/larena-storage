@@ -420,7 +420,9 @@
     "src/Board/StorageBoardWindow.php",
     "tests/Admin/StorageSavedViewsMoveTest.php",
     "tests/Admin/StorageViewConfigPortTest.php",
-    "tests/Integration/StorageBoardWindowTest.php"
+    "tests/Integration/StorageBoardWindowTest.php",
+    "src/Contracts/StorageWorkbenchHistoryKeepPlan.php",
+    "tests/Integration/StorageHistoryKeepPlanTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

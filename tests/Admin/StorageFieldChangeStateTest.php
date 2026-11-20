@@ -21,6 +21,7 @@ use Larena\Setting\Persistence\DatabaseSettingValueRepository;
 use Larena\Storage\Contracts\StorageSchemaVersionRef;
 use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChange;
+use Larena\Storage\Contracts\StorageWorkbenchHistoryKeepPlan;
 use Larena\Storage\Contracts\StorageWorkbenchPurgeReceipt;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
 use Larena\Storage\Contracts\StorageWorkbenchRecordPage;
@@ -111,7 +112,7 @@ final class FieldChangeInspector implements PersistentLogicalFileInspector
  * accepted and runs in the background (the structure comes back unchanged with the running change),
  * and while it runs every other structure change and archiving is refused.
  */
-final class FieldChangeWorkbench implements StorageWorkbench
+final class FieldChangeWorkbench implements StorageWorkbench, StorageWorkbenchHistoryKeepPlan
 {
     public StorageWorkbenchStructure $structure;
     /** Refuse the next structure change as Storage does once a change began after the page read the storage. */
@@ -148,7 +149,7 @@ final class FieldChangeWorkbench implements StorageWorkbench
         $s = $this->structure;
 
         return $this->structure = new StorageWorkbenchStructure($s->structureId, $s->scopeRef, $s->version + 1, $s->schema, (string) $descriptor['label'],
-            $descriptor['fields'], $s->descriptorHash, $s->updatedAt, viewState: $s->viewState);
+            $descriptor['fields'], $s->descriptorHash, $s->updatedAt, historyKeep: $s->historyKeep, viewState: $s->viewState);
     }
 
     public function migrateStructure(string $scopeRef, string $structureId, int $expectedVersion, array $descriptor, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
@@ -170,9 +171,50 @@ final class FieldChangeWorkbench implements StorageWorkbench
         return [$this->structure];
     }
 
-    public function setHistoryKeep(string $scopeRef, string $structureId, ?int $keep, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
+    /** The storage as it is now (a call, so a check after a save reads it again). */
+    public function current(): StorageWorkbenchStructure
     {
         return $this->structure;
+    }
+
+    /** How many old versions a lowered «Хранить изменений» would remove, as Storage's plan says. */
+    public int $planVersions = 0;
+
+    public function setHistoryKeep(string $scopeRef, string $structureId, ?int $keep, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
+    {
+        if ($this->planHistoryKeep($scopeRef, $structureId, $keep, $actor)['lowers']) {
+            throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED);
+        }
+
+        return $this->keep($keep);
+    }
+
+    public function planHistoryKeep(string $scopeRef, string $structureId, ?int $keep, string $actor): array
+    {
+        $from = $this->structure->historyKeep;
+        $lowers = $keep !== null && ($from === null || $keep < $from);
+        $versions = $lowers ? $this->planVersions : 0;
+
+        return ['structure_id' => $structureId, 'label' => $this->structure->label, 'from' => $from, 'to' => $keep, 'lowers' => $lowers,
+            'versions' => $versions, 'records' => $versions > 0 ? 2 : 0, 'digest' => hash('sha256', json_encode([$from, $keep, $versions]))];
+    }
+
+    public function applyHistoryKeep(string $scopeRef, string $structureId, ?int $keep, string $planDigest, string $actor, ?string $correlationId = null): StorageWorkbenchStructure
+    {
+        if ($this->planHistoryKeep($scopeRef, $structureId, $keep, $actor)['digest'] !== $planDigest) {
+            throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_STALE);
+        }
+
+        return $this->keep($keep);
+    }
+
+    private function keep(?int $keep): StorageWorkbenchStructure
+    {
+        $s = $this->structure;
+
+        return $this->structure = new StorageWorkbenchStructure($s->structureId, $s->scopeRef, $s->version, $s->schema, $s->label, $s->fields,
+            $s->descriptorHash, $s->updatedAt, historyKeep: $keep, viewState: $s->viewState, viewBackfillPending: $s->viewBackfillPending,
+            viewPendingFields: $s->viewPendingFields, fieldChange: $s->fieldChange);
     }
 
     /** Whether a cancel stopped the running change; a second one finds it ended. */
@@ -488,6 +530,37 @@ try {
         'revision' => $record['revision'], 'values' => ['history_keep' => 5]]);
     assert($kept['answer'] === 'applied', json_encode($kept, JSON_UNESCAPED_UNICODE));
     assert($workbench->structure->version === $version, 'the name did not change, so no version moved');
+    // Keeping all → 5 removed nothing, so it applied on its plan without asking.
+    // Read through a call PHPStan cannot narrow: each save changes the structure.
+    $now = static fn (int $step): mixed => $workbench->current();
+    assert(($s = $now(1))->historyKeep === 5, 'a lowering that removes nothing did not apply');
+
+    // A lowering that removes versions asks first, with the plan in words, and writes nothing (name included) until
+    // the same save comes back with the plan's digest.
+    $workbench->planVersions = 7;
+    $save = static function (array $values, ?string $confirm = null) use ($storagePort, $admin, $scope, &$record): array {
+        return $storagePort->raise($admin, $scope, 'record.save', ['collection' => StorageStructurePropertyViewPort::COLLECTION,
+            'record_id' => 'workbench.catalog', 'revision' => $record['revision'], 'values' => $values] + ($confirm === null ? [] : ['confirm' => $confirm]));
+    };
+    $asked = $save(['label' => 'Каталог 3', 'history_keep' => 2]);
+    assert($asked['answer'] === 'refused' && $asked['reason'] === PropertyViewPort::CONFIRM_REQUIRED
+        && $asked['confirm']['summary'] === 'Хранить 2 изменений вместо 5 в хранилище «Catalog». Старые версии будут удалены навсегда: 7 в записях: 2. Текущая и опубликованные версии останутся.'
+        && preg_match('/\A[a-f0-9]{64}\z/', $asked['confirm']['digest']) === 1, json_encode($asked, JSON_UNESCAPED_UNICODE));
+    assert(($s = $now(2))->historyKeep === 5 && $s->label === 'Catalog' && $s->version === $version, 'an unconfirmed lowering wrote something');
+    // A wrong digest only asks again.
+    $again = $save(['history_keep' => 2], str_repeat('f', 64));
+    assert($again['answer'] === 'refused' && $again['reason'] === PropertyViewPort::CONFIRM_REQUIRED && ($s = $now(3))->historyKeep === 5, json_encode($again, JSON_UNESCAPED_UNICODE));
+    $confirmed = $save(['label' => 'Каталог 3', 'history_keep' => 2], $asked['confirm']['digest']);
+    assert($confirmed['answer'] === 'applied' && ($s = $now(4))->historyKeep === 2 && $s->label === 'Каталог 3', json_encode($confirmed, JSON_UNESCAPED_UNICODE));
+    [$record] = $load($storagePort, StorageStructurePropertyViewPort::COLLECTION, 'workbench.catalog');
+    // Raising the number and keeping all apply at once, without a plan to confirm.
+    $raised = $save(['history_keep' => 9]);
+    assert($raised['answer'] === 'applied' && ($s = $now(5))->historyKeep === 9, json_encode($raised, JSON_UNESCAPED_UNICODE));
+    $all = $save(['history_keep' => '']);
+    assert($all['answer'] === 'applied' && ($s = $now(6))->historyKeep === null, json_encode($all, JSON_UNESCAPED_UNICODE));
+    // The gateway refuses a lowering without its plan in words of its own.
+    $bare = $gateway->dispatch($admin, $scope, 'structure.history_keep', ['structure_id' => 'workbench.catalog', 'keep' => 3]);
+    assert($bare['status'] === 'rejected' && $bare['reason_code'] === StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED && ($s = $now(7))->historyKeep === null, json_encode($bare));
 } finally {
     @unlink($database);
 }

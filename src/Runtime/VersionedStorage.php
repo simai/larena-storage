@@ -599,6 +599,44 @@ final readonly class VersionedStorage implements VersionedStorageContract
         }
     }
 
+    public function historyPruneCount(string $schemaId, int $keep): array
+    {
+        if ($keep < 1 || $keep > self::HISTORY_KEEP_LIMIT || $schemaId === '') {
+            throw new StorageRejected('storage_record_history_prune_invalid');
+        }
+        try {
+            // The same rule as pruneHistory(): below each record's newest $keep, and no publication names the revision.
+            $query = $this->database->table('larena_storage_record_versions as v')
+                ->join('larena_storage_records as r', static function ($join): void {
+                    $join->on('r.schema_id', '=', 'v.schema_id')->on('r.record_id', '=', 'v.record_id');
+                })
+                ->where('v.schema_id', $schemaId);
+            $grammar = $query->getGrammar();
+            $query->whereRaw($grammar->wrap('v.revision').' <= '.$grammar->wrap('r.current_revision').' - ?', [$keep]);
+            if ($this->tableExists('larena_storage_publication_states')) {
+                $query->whereNotExists(static function ($sub): void {
+                    $sub->selectRaw('1')->from('larena_storage_publication_states as p')
+                        ->whereColumn('p.schema_id', 'v.schema_id')->whereColumn('p.record_id', 'v.record_id')
+                        ->where(static function ($either): void {
+                            $either->whereColumn('p.published_revision', 'v.revision')->orWhereColumn('p.previous_published_revision', 'v.revision');
+                        });
+                });
+            }
+            if ($this->tableExists('larena_storage_publication_log')) {
+                $query->whereNotExists(static function ($sub): void {
+                    $sub->selectRaw('1')->from('larena_storage_publication_log as l')
+                        ->whereColumn('l.schema_id', 'v.schema_id')->whereColumn('l.record_id', 'v.record_id')
+                        ->whereColumn('l.revision', 'v.revision');
+                });
+            }
+            $row = $query->selectRaw('count(*) as versions, count(distinct '.$grammar->wrap('v.record_id').') as records')->first();
+        } catch (Throwable $exception) {
+            throw StoragePersistenceFailed::from($exception);
+        }
+
+        return ['versions' => (int) ($row->versions ?? 0), 'records' => (int) ($row->records ?? 0)];
+    }
+
     private function purgeVersions(array $current, string $actor, ?string $correlationId = null): int
     {
         $this->assertActor($actor);

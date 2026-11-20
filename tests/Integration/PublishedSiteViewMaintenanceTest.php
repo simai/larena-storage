@@ -142,7 +142,7 @@ $pruned = $workbench->updateRecord($scope, 'workbench.pages', $pruned->recordId,
 $pruned = $workbench->updateRecord($scope, 'workbench.pages', $pruned->recordId, $pruned->revision, ['title' => 'Page 9 c', 'slug' => 'page-9'], $actor);
 $publication->publish($schemaId, $pruned->recordId, 'site:main', 'kk', $pruned->revision, $actor);
 $before = $entry($pruned->recordId, 'site:main', 'kk')['projection_version'];
-$workbench->setHistoryKeep($scope, 'workbench.pages', 1, $actor);
+$workbench->applyHistoryKeep($scope, 'workbench.pages', 1, $workbench->planHistoryKeep($scope, 'workbench.pages', 1, $actor)['digest'], $actor);
 storageViewExpect($connection->table('larena_storage_localized_values')->where('record_id', $pruned->recordId)->where('revision', 1)->count() === 0, 'the prune kept the old revision\'s translation');
 storageViewExpect($entry($pruned->recordId, 'site:main', 'kk')['projection_version'] !== $before, 'the prune did not move the projection version of the row');
 publishedSiteViewParity($site, $schemaId, 'history prune');

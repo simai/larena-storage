@@ -101,6 +101,15 @@ interface VersionedStorage
     public function pruneHistory(string $schemaId, array $recordIds, int $keep, string $actor, ?string $correlationId = null): int;
 
     /**
+     * What pruneHistory() with $keep would remove from every record of one schema now, removing nothing:
+     * the versions older than each record's newest $keep that no publication state or log names, and
+     * how many records have such versions. The plan a lowered «Хранить изменений» is confirmed on.
+     *
+     * @return array{versions: int, records: int}
+     */
+    public function historyPruneCount(string $schemaId, int $keep): array;
+
+    /**
      * A locking read is effective only inside an ambient database transaction.
      */
     public function schemaVersion(

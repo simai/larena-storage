@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larena\Storage\Admin;
 
+use Larena\Storage\Contracts\StorageWorkbenchHistoryKeepPlan;
 use Larena\Storage\Presets\StoragePresets;
 use Larena\Storage\Admin\Contracts\StorageWorkbenchGateway;
 use Larena\Admin\Record\AdminRecordLayoutStore;
@@ -119,6 +120,25 @@ final class StorageStructurePropertyViewPort extends PropertyViewPort
             }
         }
         $seen = is_array($this->seen) && ($this->seen['structure_id'] ?? null) === $recordId ? $this->seen : null;
+        $keepChanged = $seen === null || $keep !== (is_int($seen['history_keep'] ?? null) ? $seen['history_keep'] : null);
+        // A lowered «Хранить изменений» removes old versions for good: before anything is written, the plan says how
+        // many versions go, and the same save raised with the plan's digest applies it (port 1.14.0 confirm). A plan
+        // that removes nothing applies without asking; Storage makes the plan again and refuses one that moved.
+        $planDigest = null;
+        if ($keepChanged) {
+            $planned = $this->gateway->dispatch($actor, $scope, 'structure.history_keep_plan', ['structure_id' => $recordId, 'keep' => $keep]);
+            $plan = $planned['redirect']['plan'] ?? null;
+            if (($planned['status'] ?? null) !== 'ok' || !is_array($plan)) {
+                return $planned;
+            }
+            if (($plan['lowers'] ?? false) === true) {
+                $planDigest = (string) ($plan['digest'] ?? '');
+                if ((int) ($plan['versions'] ?? 0) > 0 && $this->confirmation() !== $planDigest) {
+                    return ['status' => 'rejected', 'reason_code' => PropertyViewPort::CONFIRM_REQUIRED,
+                        'confirm' => ['summary' => $this->planSummary($plan), 'digest' => $planDigest]];
+                }
+            }
+        }
         $receipt = ['status' => 'ok'];
         // The name through the storage's own change (its fields stay as they are), only when it changed: an unchanged
         // name moves no version.
@@ -134,18 +154,36 @@ final class StorageStructurePropertyViewPort extends PropertyViewPort
             $group = is_string($values['menu_group'] ?? null) && trim($values['menu_group']) !== '' ? trim($values['menu_group']) : null;
             $this->menuGroups()?->setStorageGroup($recordId, $group);
         }
-        // How many versions of each record are kept: empty keeps them all; a number trims the history now.
-        if (($receipt['status'] ?? null) === 'ok' && ($seen === null || $keep !== (is_int($seen['history_keep'] ?? null) ? $seen['history_keep'] : null))) {
-            $receipt = $this->gateway->dispatch($actor, $scope, 'structure.history_keep', ['structure_id' => $recordId, 'keep' => $keep]);
+        // How many versions of each record are kept: empty keeps them all; a lowered number trims the history now, on its plan.
+        if (($receipt['status'] ?? null) === 'ok' && $keepChanged) {
+            $receipt = $this->gateway->dispatch($actor, $scope, 'structure.history_keep', ['structure_id' => $recordId, 'keep' => $keep]
+                + ($planDigest !== null ? ['plan_digest' => $planDigest] : []));
         }
 
         return $receipt;
     }
 
+    /**
+     * The plan of a lowered «Хранить изменений» in words: the new number, how many old versions of how many records
+     * go for good, and what stays.
+     *
+     * @param array<string,mixed> $plan
+     */
+    private function planSummary(array $plan): string
+    {
+        $from = is_int($plan['from'] ?? null) ? (string) $plan['from'] : $this->section('history_keep_plan_all', 'all');
+
+        return strtr($this->section('history_keep_plan', 'Keep :to changes instead of :from in «:label». Old versions will be deleted for good: :versions, in :records records. The current and published versions stay.'), [
+            ':to' => (string) (int) ($plan['to'] ?? 0), ':from' => $from, ':label' => (string) ($plan['label'] ?? ''),
+            ':versions' => (string) (int) ($plan['versions'] ?? 0), ':records' => (string) (int) ($plan['records'] ?? 0),
+        ]);
+    }
+
     /** The field a refusal is about, for its words to stand under it. */
     protected function reasonField(string $reason): ?string
     {
-        return $reason === self::HISTORY_KEEP_INVALID ? 'history_keep' : null;
+        return in_array($reason, [self::HISTORY_KEEP_INVALID, StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED, StorageWorkbenchHistoryKeepPlan::PLAN_STALE], true)
+            ? 'history_keep' : null;
     }
 
     private function menuGroups(): ?\Larena\Admin\Navigation\AdminMenuProfiles
@@ -173,6 +211,9 @@ final class StorageStructurePropertyViewPort extends PropertyViewPort
     /** Storage's refusal while a field change runs, naming the field; «Хранить изменений» out of range in its own words. */
     protected function reasonMessage(string $reason): ?string
     {
+        if ($reason === StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED || $reason === StorageWorkbenchHistoryKeepPlan::PLAN_STALE) {
+            return $this->section('history_keep_plan_stale', 'The number of versions to delete changed meanwhile. Nothing was deleted: save again to see the new plan.');
+        }
         if ($reason === self::HISTORY_KEEP_INVALID) {
             return str_replace(':max', (string) \Larena\Storage\Contracts\VersionedStorage::HISTORY_KEEP_LIMIT, $this->section('history_keep_invalid',
                 'A whole number from 1 to :max, or empty to keep every version.'));

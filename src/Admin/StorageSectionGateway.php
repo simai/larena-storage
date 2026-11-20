@@ -20,6 +20,7 @@ use Larena\Property\Runtime\PropertyTypeSettingsCatalog;
 use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchEncryption;
 use Larena\Storage\Contracts\StorageWorkbenchFieldChangeCheck;
+use Larena\Storage\Contracts\StorageWorkbenchHistoryKeepPlan;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
 use Larena\Storage\Contracts\StorageWorkbenchRecordActivity;
 use Larena\Storage\Contracts\StorageWorkbenchRecordQuery;
@@ -369,6 +370,7 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
                 'structure.configure' => $this->configureStructure($actor, $scopeRef, $payload),
                 'structure.configure_check' => $this->checkConfigure($actor, $scopeRef, $payload),
                 'structure.history_keep' => $this->historyKeep($actor, $scopeRef, $payload),
+                'structure.history_keep_plan' => $this->historyKeepPlan($actor, $scopeRef, $payload),
                 'structure.archive' => $this->changeStructureState($actor, $scopeRef, $payload, true),
                 'structure.restore' => $this->changeStructureState($actor, $scopeRef, $payload, false),
                 'structure.purge' => $this->purgeStructure($actor, $scopeRef, $payload),
@@ -405,6 +407,8 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
                 in_array($exception->reasonCode, self::FIELD_OPTION_REASONS, true) => $exception->reasonCode,
                 in_array($exception->reasonCode, self::ENCRYPTION_REASONS, true) => $exception->reasonCode,
                 in_array($exception->reasonCode, ['storage_role_binding_published', 'storage_binding_unknown'], true) => $exception->reasonCode,
+                // Lowering «Хранить изменений» without the plan, or on a plan that moved: the panel asks again.
+                in_array($exception->reasonCode, [StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED, StorageWorkbenchHistoryKeepPlan::PLAN_STALE], true) => $exception->reasonCode,
                 // A site page's or record's address refused: the panel says why in its own words.
                 str_starts_with($exception->reasonCode, 'site_page_'), str_starts_with($exception->reasonCode, 'site_record_') => $exception->reasonCode,
                 default => 'storage_workbench_action_rejected',
@@ -831,11 +835,45 @@ final readonly class StorageSectionGateway implements StorageWorkbenchGateway, S
     private function historyKeep(string $actor, string $scopeRef, array $payload): array
     {
         $structureId = $this->structureId($payload);
-        $keep = $payload['keep'] ?? null;
-        $keep = $keep === null || $keep === '' ? null : $this->integer($keep, 1, \Larena\Storage\Contracts\VersionedStorage::HISTORY_KEEP_LIMIT);
-        $this->workbench->setHistoryKeep($scopeRef, $structureId, $keep, $actor);
+        $keep = $this->historyKeepNumber($payload);
+        // Lowering is applied only on the plan the person confirmed (`plan_digest`, from structure.history_keep_plan);
+        // without one the workbench applies a raise and refuses a lowering.
+        $digest = $payload['plan_digest'] ?? null;
+        if ($digest !== null && $digest !== '') {
+            if (!is_string($digest) || !$this->workbench instanceof StorageWorkbenchHistoryKeepPlan) {
+                throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_STALE);
+            }
+            $this->workbench->applyHistoryKeep($scopeRef, $structureId, $keep, $digest, $actor);
+        } else {
+            $this->workbench->setHistoryKeep($scopeRef, $structureId, $keep, $actor);
+        }
 
         return ['scope_ref' => $scopeRef, 'structure_id' => $structureId];
+    }
+
+    /**
+     * The plan of a new «Хранить изменений», nothing written: whether it lowers the number, how many versions of how
+     * many records it removes, and the digest a confirmation carries back (redirect.plan).
+     *
+     * @param array<string, mixed> $payload @return array<string, mixed>
+     */
+    private function historyKeepPlan(string $actor, string $scopeRef, array $payload): array
+    {
+        $structureId = $this->structureId($payload);
+        if (!$this->workbench instanceof StorageWorkbenchHistoryKeepPlan) {
+            throw new StorageRejected(StorageWorkbenchHistoryKeepPlan::PLAN_REQUIRED);
+        }
+
+        return ['scope_ref' => $scopeRef, 'structure_id' => $structureId,
+            'plan' => $this->workbench->planHistoryKeep($scopeRef, $structureId, $this->historyKeepNumber($payload), $actor)];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function historyKeepNumber(array $payload): ?int
+    {
+        $keep = $payload['keep'] ?? null;
+
+        return $keep === null || $keep === '' ? null : $this->integer($keep, 1, \Larena\Storage\Contracts\VersionedStorage::HISTORY_KEEP_LIMIT);
     }
 
     /**
