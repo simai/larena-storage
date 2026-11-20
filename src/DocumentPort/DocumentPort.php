@@ -277,30 +277,19 @@ final class DocumentPort
             || ($beforePublication !== null && !self::isKey($beforePublication))) {
             return self::refused('invalid');
         }
-        $drafts = $this->store()->drafts();
-        $publications = $this->element()->has('publish') ? $this->store()->publications() : [];
-        $from = static function (array $list, mixed $at, string $key): int {
-            if ($at === null) {
-                return 0;
-            }
-            foreach ($list as $index => $entry) {
-                if ($entry[$key] === $at) {
-                    return $index + 1;
-                }
-            }
-
-            return -1;
-        };
-        $d = $from($drafts, $before, 'revision');
-        $p = $from($publications, $beforePublication, 'id');
-        if ($d < 0 || $p < 0) {
+        // Each list is read a page at a time by the store, never whole.
+        $drafts = $this->store()->drafts($before, $limit);
+        $publications = $this->element()->has('publish')
+            ? $this->store()->publicationPage($beforePublication, $limit)
+            : ($beforePublication === null ? ['publications' => [], 'more' => false] : null);
+        if ($drafts === null || $publications === null) {
             return self::refused('not-found');
         }
 
         return self::applied([
-            'drafts' => array_slice($drafts, $d, $limit),
-            'publications' => array_slice($publications, $p, $limit),
-            'more' => ['drafts' => count($drafts) > $d + $limit, 'publications' => count($publications) > $p + $limit],
+            'drafts' => $drafts['drafts'],
+            'publications' => $publications['publications'],
+            'more' => ['drafts' => $drafts['more'], 'publications' => $publications['more']],
         ]);
     }
 

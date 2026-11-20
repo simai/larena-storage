@@ -366,16 +366,16 @@ $expect($over['answer'] === 'refused' && $over['reason'] === 'too-large' && $ove
 // 1. The diagnostic of an empty object PHP cannot give back is exactly empty-object-not-kept.
 $expect(($lost['answer']['data']['diagnostics'][0]['code'] ?? null) === 'empty-object-not-kept', 'the diagnostic is empty-object-not-kept');
 // 5. An edit of the record's other fields makes no document draft: the draft it follows moves to the new revision.
-$drafts = $total['store']->drafts();
+$drafts = $total['store']->drafts(null, 100)['drafts'];
 $record = $total['record'];
 $edited = $total['workbench']->updateRecord(KIT_SCOPE, 'workbench.pages', $record->recordId, $record->revision,
     ['title' => 'Команда, новое имя'] + $record->values, KIT_ACTOR);
-$after = $total['store']->drafts();
+$after = $total['store']->drafts(null, 100)['drafts'];
 $expect(count($after) === count($drafts) && $after[0]['revision'] === $total['store']->current()['revision'] && $after[0]['revision'] !== $drafts[0]['revision']
     && $after[0]['at'] === $drafts[0]['at'] && array_slice($after, 1) === array_slice($drafts, 1), 'a title edit is no draft: ' . json_encode([$drafts, $after]));
 $saved = DocumentPort::bound(new DocumentPortElement($kase['given']['target'], $kase['given']['languages'], ['history']), $total['store'])
     ->send('document.save', ['values' => ['en' => null], 'expected_revision' => $after[0]['revision']]);
-$expect($saved['answer'] === 'applied' && count($total['store']->drafts()) === count($after) + 1, 'a document change is a draft: ' . json_encode($saved['reason'] ?? null));
+$expect($saved['answer'] === 'applied' && count($total['store']->drafts(null, 100)['drafts']) === count($after) + 1, 'a document change is a draft: ' . json_encode($saved['reason'] ?? null));
 // 4. Published outside the port (the admin's publication page): an object with id null, not null; null only when nothing is live.
 $site = kitHost(array_merge($kase['given'], ['capabilities' => ['history', 'publish']]));
 $expect(!array_key_exists('published', $site['port']->send('document.load')['data']) || $site['port']->send('document.load')['data']['published'] === null,

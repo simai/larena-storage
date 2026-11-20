@@ -18,11 +18,12 @@ interface DocumentPortStore
     public function current(): array;
 
     /**
-     * The drafts, newest first, the current one first.
+     * A page of the drafts, newest first, the current one first: at most $limit drafts older than the draft $before
+     * (from the newest when null), and whether more go on. Null when $before names no draft of the element.
      *
-     * @return list<array{revision: string, at: string, languages: list<string>, restored_from?: string}>
+     * @return array{drafts: list<array{revision: string, at: string, languages: list<string>, restored_from?: string}>, more: bool}|null
      */
-    public function drafts(): array;
+    public function drafts(?string $before = null, int $limit = 20): ?array;
 
     /** @return array<string, mixed>|null the values of a draft revision; null when there is none (or it was pruned) */
     public function valuesAt(string $revision): ?array;
@@ -42,6 +43,14 @@ interface DocumentPortStore
      * @return list<array{id: string, revision: string, state: string, at: string, languages: list<string>, from?: string, client_key?: string}>
      */
     public function publications(): array;
+
+    /**
+     * A page of the publications, newest first: at most $limit older than the publication $before (from the newest
+     * when null), and whether more go on. Null when $before names no publication of the element.
+     *
+     * @return array{publications: list<array{id: string, revision: string, state: string, at: string, languages: list<string>, from?: string, client_key?: string}>, more: bool}|null
+     */
+    public function publicationPage(?string $before = null, int $limit = 20): ?array;
 
     /** The id of the live publication, or null when nothing is live. */
     public function live(): ?string;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larena\Storage\Providers;
 
 use Illuminate\Console\Scheduling\Schedule;
+use Larena\Storage\Console\Commands\DocumentPortReceiptSweepCommand;
 use Larena\Storage\Console\Commands\PublicationSweepCommand;
 use Larena\Storage\Console\Commands\PublishedKeyRebuildCommand;
 use Larena\Storage\Console\Commands\StorageBenchCommand;
@@ -833,10 +834,16 @@ final class StorageServiceProvider extends ServiceProvider
                 StorageDemoCommand::class,
                 StorageSitePagesAdoptCommand::class,
                 StorageSiteRedirectsCommand::class,
+                DocumentPortReceiptSweepCommand::class,
             ]);
             $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
                 $schedule->command('storage:publication:sweep')
                     ->everyMinute()
+                    ->withoutOverlapping()
+                    ->runInBackground();
+                // The document port's client_keys past their retention (DocumentPortReceiptSweep::RETENTION_DAYS).
+                $schedule->command('larena:storage:document-port:sweep')
+                    ->daily()
                     ->withoutOverlapping()
                     ->runInBackground();
             });

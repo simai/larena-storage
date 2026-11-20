@@ -143,6 +143,24 @@ outside the set references one inside it, and audit identifiers and counts only.
 A deleted structure's id cannot be used again. A field can be marked `hidden`;
 that is presentation only and keeps the field and its values.
 
+The editor's document port (simai.document-port 1.0.0, `src/DocumentPort`)
+keeps a `composition@1` field of a workbench record. Its history is read a page
+at a time (`limit`, `before`, `before_publication`, `more`): the drafts are read
+newest first in chunks of versions, never every version of the record, and a
+run of versions with the same document is still one draft.
+
+A write's `client_key` is remembered for 30 days
+(`DocumentPortReceiptSweep::RETENTION_DAYS`), long enough for the editor to
+repeat a lost answer after a reconnect, a new sign-in or a closed laptop over a
+holiday. The command `larena:storage:document-port:sweep [--days=30]` (7 to
+3650 days), which the package schedules daily, forgets older keys: a plain
+save's receipt is removed; a publication or a restore keeps its row without the
+key, so the history and the live publication stay as they were. A repeat of a
+forgotten `client_key` is a new operation, not the stored answer: a save or a
+publish is compared with the revision it names as any other (usually
+`stale-revision`, since the draft has moved), and a restore or a rollback makes
+a new draft or publication.
+
 See `docs/developer/schema-evolution.md` for the bounded evolution contract and
 `docs/developer/owned-table-shape-guard.md` for the exact install, upgrade,
 diagnostic and rollback contracts.

@@ -24,6 +24,7 @@ use Larena\Storage\Exceptions\StorageRejected;
  *   language is what the site reads.
  * - The drafts the history lists are the versions where the document changed: an edit of the record's other fields
  *   (title, slug) keeps the document as it was and makes no draft; it moves the revision of the draft it follows.
+ *   The history is read a page at a time, newest first, in chunks of versions: never every version of the record.
  * - Live without a publication of the port (the admin's publication page, a schedule): outside() names it, id null.
  * - The port's own facts that neither a record version nor the publication log can hold go into
  *   larena_storage_document_port_receipts: a write's client_key with the fingerprint of its input (version
@@ -35,6 +36,9 @@ final class DatabaseDocumentPortStore implements DocumentPortStore
     public const RECEIPTS_TABLE = 'larena_storage_document_port_receipts';
 
     private const VERSIONS_TABLE = 'larena_storage_record_versions';
+
+    /** The versions one query of the history reads: a page of 20 distinct drafts is one query. */
+    private const DRAFT_CHUNK = 32;
 
     private ?string $schemaId = null;
 
@@ -54,29 +58,87 @@ final class DatabaseDocumentPortStore implements DocumentPortStore
         return ['revision' => $this->rowOf($record->revision), 'at' => self::at($record->updatedAt), 'values' => $this->field($record->values)];
     }
 
-    public function drafts(): array
+    public function drafts(?string $before = null, int $limit = 20): ?array
     {
-        $restored = $this->database->table(self::RECEIPTS_TABLE)
-            ->where('schema_id', $this->schemaId())->where('record_id', $this->binding->recordId)->where('field_key', $this->binding->fieldKey)
-            ->whereNotNull('restored_from')->pluck('restored_from', 'revision')->all();
-        // Oldest first: a version whose document is the one before it continues that draft. The draft answers with its
-        // newest version (the revision a write is compared with), the time and the restore of the version that made it.
+        $limit = max(1, $limit);
+        $cursor = null;
+        $skip = null;
+        if ($before !== null) {
+            if (preg_match('/\A[1-9][0-9]{0,18}\z/D', $before) !== 1) {
+                return null;
+            }
+            $row = $this->versions()->where('id', (int) $before)->first(['id', 'values_json']);
+            if ($row === null) {
+                return null;
+            }
+            // A draft is named by its newest version: the next newer version holds another document (or there is none).
+            $skip = $this->decode($row->values_json);
+            $newer = $this->versions()->where('id', '>', (int) $row->id)->orderBy('id')->value('values_json');
+            if ($newer !== null && $this->decode($newer) == $skip) {
+                return null;
+            }
+            $cursor = (int) $row->id;
+        }
+        // Newest first, in chunks: a run of versions with the same document is one draft, named by its newest
+        // version (the revision a write is compared with), with the time and the restore of its oldest one. A draft
+        // is closed by the first older version that holds another document; that version is the next page.
         $groups = [];
-        $previous = null;
-        foreach ($this->versions()->orderBy('id')->get(['id', 'created_at', 'values_json']) as $row) {
+        $open = null;
+        $more = false;
+        foreach ($this->descending($cursor) as $row) {
             $document = $this->decode($row->values_json);
-            $same = $previous !== null && $document == $previous;
-            $previous = $document;
-            if ($same) {
-                $groups[count($groups) - 1]['revision'] = (string) $row->id;
+            if ($skip !== null) {
+                if ($document == $skip) {
+                    continue;
+                }
+                $skip = null;
+            }
+            if ($open !== null && $document == $open['document']) {
+                $open['first'] = (string) $row->id;
+                $open['at'] = (string) $row->created_at;
                 continue;
             }
-            $first = (string) $row->id;
-            $groups[] = ['revision' => $first, 'at' => self::at((string) $row->created_at), 'languages' => array_map('strval', array_keys($document))]
-                + (isset($restored[$first]) ? ['restored_from' => (string) $restored[$first]] : []);
+            if ($open !== null) {
+                $groups[] = $open;
+                if (count($groups) === $limit) {
+                    $more = true;
+                    $open = null;
+                    break;
+                }
+            }
+            $open = ['revision' => (string) $row->id, 'first' => (string) $row->id, 'at' => (string) $row->created_at, 'document' => $document];
+        }
+        if ($open !== null) {
+            $groups[] = $open;
+        }
+        $restored = $groups === [] ? [] : $this->database->table(self::RECEIPTS_TABLE)
+            ->where('schema_id', $this->schemaId())->where('record_id', $this->binding->recordId)->where('field_key', $this->binding->fieldKey)
+            ->whereIn('revision', array_map(static fn (array $group): int => (int) $group['first'], $groups))
+            ->whereNotNull('restored_from')->pluck('restored_from', 'revision')->all();
+        $drafts = [];
+        foreach ($groups as $group) {
+            $drafts[] = ['revision' => $group['revision'], 'at' => self::at($group['at']), 'languages' => array_map('strval', array_keys($group['document']))]
+                + (isset($restored[$group['first']]) ? ['restored_from' => (string) $restored[$group['first']]] : []);
         }
 
-        return array_reverse($groups);
+        return ['drafts' => $drafts, 'more' => $more];
+    }
+
+    /**
+     * The record's versions newest first, older than $cursor when given, read DRAFT_CHUNK rows a query.
+     *
+     * @return \Generator<int, object>
+     */
+    private function descending(?int $cursor): \Generator
+    {
+        do {
+            $rows = $this->versions()->when($cursor !== null, static fn ($query) => $query->where('id', '<', $cursor))
+                ->orderByDesc('id')->limit(self::DRAFT_CHUNK)->get(['id', 'created_at', 'values_json'])->all();
+            foreach ($rows as $row) {
+                $cursor = (int) $row->id;
+                yield $row;
+            }
+        } while (count($rows) === self::DRAFT_CHUNK);
     }
 
     public function valuesAt(string $revision): ?array
@@ -121,6 +183,27 @@ final class DatabaseDocumentPortStore implements DocumentPortStore
         }
 
         return $list;
+    }
+
+    public function publicationPage(?string $before = null, int $limit = 20): ?array
+    {
+        $limit = max(1, $limit);
+        $query = $this->receipts()->whereNotNull('publication_id');
+        if ($before !== null) {
+            $at = $this->receipts()->where('publication_id', $before)->value('id');
+            if ($at === null) {
+                return null;
+            }
+            $query->where('id', '<', (int) $at);
+        }
+        $rows = $query->orderByDesc('id')->limit($limit + 1)->get()->all();
+        $live = $rows === [] ? null : $this->live();
+        $list = [];
+        foreach (array_slice($rows, 0, $limit) as $row) {
+            $list[] = $this->publication($row, $live);
+        }
+
+        return ['publications' => $list, 'more' => count($rows) > $limit];
     }
 
     public function live(): ?string
