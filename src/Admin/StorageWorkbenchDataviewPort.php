@@ -22,6 +22,7 @@ use Larena\Property\Runtime\PropertyDisplayProjector;
 use Larena\Property\Runtime\PropertyTypeRegistry;
 use Larena\Setting\Exceptions\SettingRevisionConflict;
 use Larena\Setting\ViewConfig\ViewConfigRefused;
+use Larena\Storage\Board\StorageBoardDescription;
 use Larena\Storage\Board\StorageBoardWindow;
 use Larena\Storage\Contracts\StorageWorkbenchBoard;
 use Larena\Storage\Contracts\StorageWorkbenchRecord;
@@ -88,6 +89,17 @@ final readonly class StorageWorkbenchDataviewPort
         }
     }
 
+    /**
+     * The level a saved view is sent with. Port 1.16.0 names the highest level `system`; the pinned editions before it
+     * know only package | shared | personal, so until the site pins 1.16.0 a system view goes out as `package`
+     * (simai.view-config/1 §4: a host may name it `package` until 2027-01-01). The same switch as
+     * `personal-preferences`.
+     */
+    public static function wireLevel(string $level): string
+    {
+        return $level === 'system' && !self::preferencesOffered() ? 'package' : $level;
+    }
+
     /** @param array<string,mixed> $payload @return array<string,mixed> */
     public function raise(string $actor, string $scope, string $structureId, string $intent, array $payload): array
     {
@@ -109,6 +121,8 @@ final readonly class StorageWorkbenchDataviewPort
             'record.open', 'record.mutate' => $this->record($actor, $scope, $structureId, $intent, $payload, $base),
             'settings.save_personal', 'settings.save_shared' => $this->settings($actor, (string) $base['scope_ref'], $structureId, $intent, $payload),
             'view.open', 'view.save', 'view.delete' => $this->view($actor, (string) $base['scope_ref'], $structureId, $intent, $payload),
+            // views.reset(id, level) of simai.view-config/1 §6 (port 1.16.0): the level's own copy goes, the view above opens.
+            'view.reset', 'views.reset' => $this->resetView($actor, (string) $base['scope_ref'], $structureId, $payload),
             // The person's own view state of the list (port 1.16.0): only the fields that changed, against its revision.
             'preferences.save' => $this->preferences($actor, (string) $base['scope_ref'], $structureId, $payload),
             // The composite's own call for a view for everyone; the page sends the same as view.save with target "shared".
@@ -222,7 +236,7 @@ final readonly class StorageWorkbenchDataviewPort
         $window = $asked['window'] ?? null;
         if (is_array($window) && array_key_exists('lanes', $window)) {
             return $this->board($actor, $scope, $structureId, $structure, $fields, $window, $filters, $rejected, $search, $normalizedSort, $archived,
-                $chosen, $sort, $echoSequence);
+                $chosen, $sort, $echoSequence, $savedViewId);
         }
         $read = fn (array $filters): array => $this->gateway->snapshot($actor, $scope, [
             'structure_id' => $structureId, 'filters' => $filters, 'search' => $search === '' ? null : $search,
@@ -353,7 +367,8 @@ final readonly class StorageWorkbenchDataviewPort
      * @return array<string,mixed>
      */
     private function board(string $actor, string $scope, string $structureId, StorageWorkbenchStructure $structure, array $fields, array $window,
-        array $filters, array $rejected, string $search, array $normalizedSort, bool $archived, array $chosen, array $sort, array $echoSequence): array
+        array $filters, array $rejected, string $search, array $normalizedSort, bool $archived, array $chosen, array $sort, array $echoSequence,
+        ?string $savedViewId = null): array
     {
         if (!$this->storage instanceof StorageWorkbenchBoard) {
             return ['answer' => 'unavailable', 'reason' => 'board_unavailable'] + $echoSequence;
@@ -364,7 +379,8 @@ final readonly class StorageWorkbenchDataviewPort
             $normalizedSort === [] ? StorageListOrder::NEWEST_FIRST : $normalizedSort, StorageBoardWindow::PER_LANE_DEFAULT, null, $archived);
         try {
             $board = (new StorageBoardWindow($this->storage))->answer($window, $list, $actor,
-                fn (StorageWorkbenchRecord $record): array => ['display_values' => $this->display($fields, $record->values, $context)]);
+                fn (StorageWorkbenchRecord $record): array => ['display_values' => $this->display($fields, $record->values, $context)],
+                $this->boardLimits($actor, $scope, $structure, $window, $savedViewId));
         } catch (StorageRejected $rejectedBoard) {
             $code = $rejectedBoard->reasonCode;
 
@@ -383,6 +399,33 @@ final readonly class StorageWorkbenchDataviewPort
             ...$this->viewState($actor, $scope, $structure->structureId),
             'capabilities' => $this->capabilities($actor),
         ]];
+    }
+
+    /**
+     * The soft limits of the lanes (simai.view-config/1 §3 `over_limit`): those of the open board view's description
+     * (`layouts.board.limits`), when its lane field is the window's. No open view, no description, or one that no
+     * longer fits the fields: no limits, and the board still answers.
+     *
+     * @param array<array-key,mixed> $window @return array<string,int>
+     */
+    private function boardLimits(string $actor, string $scope, StorageWorkbenchStructure $structure, array $window, ?string $savedViewId): array
+    {
+        if ($savedViewId === null) {
+            return [];
+        }
+        try {
+            $open = $this->lists->savedView($this->lists->structureViews($actor, $scope, $structure->structureId), $savedViewId);
+            $options = is_array($open['board'] ?? null) ? $open['board'] : [];
+            if ($options === [] || ($options['lane_field'] ?? $window['lanes']) !== $window['lanes']) {
+                return [];
+            }
+
+            return StorageBoardDescription::fromArray(['lane_field' => $window['lanes']] + $options, $structure->fields)->limits;
+        } catch (Throwable $exception) {
+            $this->exceptions->report($exception);
+
+            return [];
+        }
     }
 
     /**
@@ -476,16 +519,7 @@ final readonly class StorageWorkbenchDataviewPort
         $personal = $target['kind'] === 'saved_view'
             ? ['revision' => $target['revision'], 'columns' => $preferences['personal']['columns']]
             : $preferences['personal'];
-        $saved = [];
-        foreach ($views as $view) {
-            // A view for everyone shows «Save for all» ticked in the table's save form.
-            $saved[] = ['key' => $view['saved_view_id'], 'label' => $view['name'], 'level' => $view['level'],
-                'data' => ['template_save_for_all' => $view['level'] === 'shared'], 'revision' => $view['revision'],
-                'query' => ['filters' => (object) $this->listQuery($view['query'])['filters']] + $this->listQuery($view['query']), 'roles' => $view['roles'], 'layout' => ['columns' => array_map(
-                    static fn (string $key, array $options): array => ['key' => $key] + $options,
-                    array_keys($view['layout']['columns']), array_values($view['layout']['columns']),
-                )], 'settings' => $view['settings']];
-        }
+        $saved = array_map(fn (array $view): array => $this->savedEntry($view), $views);
 
         return [
             'columns' => $this->columns($fields, $preferences['columns']),
@@ -627,8 +661,9 @@ final readonly class StorageWorkbenchDataviewPort
         }
         // A system view ships with its package and is never written through the port (port 1.16.0): the person saves
         // a change to it as a new view of their own («Сохранить как моё»), or for everyone.
+        // One cause, one answer: the same `system_readonly` with the pack's words as a column change of the view.
         if ($existing !== null && $existing['level'] === 'system' && ($intent === 'view.delete' || $intent === 'view.save')) {
-            return ['answer' => 'refused', 'reason' => 'forbidden', 'code' => 'view_config_system_readonly'];
+            return $this->refusal(new ViewConfigRefused('system_readonly'));
         }
         if ($intent === 'view.delete') {
             if ($existing === null) {
@@ -650,7 +685,11 @@ final readonly class StorageWorkbenchDataviewPort
         if ($target === 'shared' && !$this->lists->maySaveShared($actor)) {
             return ['answer' => 'unavailable', 'reason' => 'shared_saved_views_unavailable'];
         }
-        $label = is_string($payload['label'] ?? null) && trim($payload['label']) !== '' ? mb_substr(trim($payload['label']), 0, 80) : mb_substr($key, 0, 80);
+        // A name is 1–120 characters (simai.view-config/1 §2): a longer one is refused, never cut.
+        $label = is_string($payload['label'] ?? null) && trim($payload['label']) !== '' ? trim($payload['label']) : $key;
+        if (mb_strlen($label) > DataviewListPreferences::NAME_MAX) {
+            return ['answer' => 'refused', 'reason' => 'view_name_too_long', 'limit' => DataviewListPreferences::NAME_MAX];
+        }
         // A view of the other level is not rewritten in place: saving a view for everyone as one's
         // own (or the other way round) makes a new view with the same contents.
         if ($existing !== null && $existing['level'] !== $target) {
@@ -716,6 +755,45 @@ final readonly class StorageWorkbenchDataviewPort
         }, true);
 
         return $outcome ?? ['answer' => 'applied', 'key' => $savedViewId];
+    }
+
+    /**
+     * A saved view as the page lists it (`saved_views[]`), its level as the pinned port names it.
+     *
+     * @param array<string,mixed> $view @return array<string,mixed>
+     */
+    private function savedEntry(array $view): array
+    {
+        // A view for everyone shows «Save for all» ticked in the table's save form.
+        return ['key' => $view['saved_view_id'], 'label' => $view['name'], 'level' => self::wireLevel((string) $view['level']),
+            'data' => ['template_save_for_all' => $view['level'] === 'shared'], 'revision' => $view['revision'],
+            'query' => ['filters' => (object) $this->listQuery($view['query'])['filters']] + $this->listQuery($view['query']), 'roles' => $view['roles'], 'layout' => ['columns' => array_map(
+                static fn (string $key, array $options): array => ['key' => $key] + $options,
+                array_keys($view['layout']['columns']), array_values($view['layout']['columns']),
+            )], 'settings' => $view['settings']];
+    }
+
+    /**
+     * views.reset: `{key, level, revision?}`. The level is the one whose own copy goes (`personal` or `shared`; a
+     * system view, `package` included, is reset by nobody); the revision, when sent, is that copy's as it was read.
+     * Answers the view as it now resolves.
+     *
+     * @param array<string,mixed> $payload @return array<string,mixed>
+     */
+    private function resetView(string $actor, string $scopeRef, string $structureId, array $payload): array
+    {
+        $key = $payload['key'] ?? null;
+        $revision = $payload['revision'] ?? null;
+        if (!is_string($key) || preg_match(DataviewListPreferences::SAVED_VIEW_ID, $key) !== 1 || !is_string($payload['level'] ?? null)
+            || ($revision !== null && (!is_int($revision) || $revision < 0)) || array_diff(array_keys($payload), ['key', 'level', 'revision', 'reason']) !== []) {
+            return ['answer' => 'refused', 'reason' => 'view_fields_invalid'];
+        }
+        $view = null;
+        $outcome = $this->write(function () use ($actor, $scopeRef, $structureId, $key, $payload, $revision, &$view): void {
+            $view = $this->lists->resetView($actor, $scopeRef, $structureId, $key, $payload['level'], $revision);
+        });
+
+        return $outcome ?? ['answer' => 'applied', 'key' => $key, 'view' => $this->savedEntry((array) $view)];
     }
 
     /**

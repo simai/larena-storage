@@ -213,13 +213,18 @@ try {
         'layout' => ['columns' => []], 'settings' => [], 'query' => ['per_page' => 20]]);
     storageViewExpect($store->ship($list, $system + ['required' => true], 'larena/storage'), 'the package ships its view');
     $views = $query()['data']['saved_views'];
-    storageViewExpect(array_column($views, 'level') === ['system', 'personal'] && $views[0]['key'] === 'all', 'levels: ' . json_encode(array_column($views, 'level')));
+    // The pinned port is below 1.16.0: the system level goes out as `package`, the name those editions know (LVC-2).
+    storageViewExpect(array_column($views, 'level') === ['package', 'personal'] && $views[0]['key'] === 'all', 'levels: ' . json_encode(array_column($views, 'level')));
+    storageViewExpect(StorageWorkbenchDataviewPort::wireLevel('system') === 'package' && StorageWorkbenchDataviewPort::wireLevel('shared') === 'shared',
+        'the level on the wire');
     $opened = $raise('view.open', ['key' => 'all']);
     storageViewExpect($opened['answer'] === 'applied' && $opened['data']['column_settings']['target']['key'] === 'all', 'a system view opens');
     foreach (['view.save' => ['key' => 'all', 'label' => 'Все заказы', 'revision' => 1, 'query' => ['filters' => ['status' => ['operator' => 'eq', 'value' => 'new']]]],
         'view.delete' => ['key' => 'all']] as $intent => $payload) {
         $answer = $raise($intent, $payload);
-        storageViewExpect($answer['answer'] === 'refused' && $answer['reason'] === 'forbidden', $intent . ' of a system view: ' . json_encode($answer));
+        // One cause, one reason (LVC-7): the same as a column change of the view.
+        storageViewExpect($answer['answer'] === 'refused' && $answer['reason'] === 'system_readonly' && $answer['code'] === 'view_config_system_readonly'
+            && str_contains($answer['message'], 'Системное представление'), $intent . ' of a system view: ' . json_encode($answer, JSON_UNESCAPED_UNICODE));
     }
     $layout = $raise('settings.save_personal', ['columnSettings' => ['title' => ['width' => '300px']], 'base_revision' => 1, 'saved_view_id' => 'all']);
     storageViewExpect($layout['answer'] === 'refused' && $layout['reason'] === 'system_readonly' && str_contains($layout['message'], 'Системное представление'),
@@ -256,6 +261,50 @@ try {
     storageViewExpect($paged['answer'] === 'applied' && !isset($paged['data']['lanes']), 'a page window is no board: ' . json_encode($paged['reason'] ?? null));
     $tooWide = $query(['window' => ['lanes' => 'status', 'per_lane' => 101]]);
     storageViewExpect($tooWide['answer'] === 'refused' && $tooWide['reason'] === 'limit' && $tooWide['limit'] === 'per_lane_max', 'per_lane over 100');
+    storageViewExpect(!isset($lanes[0]['over_limit']), 'no open board view, no limits');
+    // An open board view's soft limits reach the page as `over_limit` (LVC-3); its options survive a save of the view.
+    $boardView = StorageViewConfigCodec::document(['saved_view_id' => 'orders-board', 'structure_id' => $id, 'name' => 'Доска', 'revision' => 1, 'roles' => [],
+        'layout' => ['columns' => []], 'settings' => [], 'query' => ['dataview_id' => $id . '.kanban', 'per_page' => 20],
+        'board' => ['lane_field' => 'status', 'limits' => ['new' => 2, 'paid' => 5]]]);
+    storageViewExpect($boardView['layout'] === 'board' && $boardView['layouts']['board']['limits'] === ['new' => 2, 'paid' => 5]
+        && ViewConfigDocument::problems($boardView) === [], 'the board options sit in layouts.board: ' . json_encode($boardView));
+    storageViewExpect($store->ship($list, $boardView, 'larena/storage'), 'the package ships its board');
+    $limited = $query(['saved_view_id' => 'orders-board', 'window' => ['lanes' => 'status', 'per_lane' => 2]]);
+    storageViewExpect(array_column($limited['data']['lanes'] ?? [], 'over_limit', 'value') === ['new' => true, 'paid' => false],
+        'over_limit by the board view: ' . json_encode($limited));
+
+    // views.reset (LVC-5): the person's own copy of a view everyone has goes; the view for everyone opens again.
+    // An id may start with a digit (LVC-1).
+    storageViewExpect($raise('view.delete', ['key' => $own['key']])['answer'] === 'applied', 'room for one more view');
+    $quarter = StorageViewConfigCodec::document(['saved_view_id' => '2026-q4', 'structure_id' => $id, 'name' => 'IV квартал', 'revision' => 1, 'roles' => [],
+        'layout' => ['columns' => []], 'settings' => [], 'query' => ['per_page' => 20]]);
+    $store->save($list, ViewConfigLevel::Shared, $quarter, 0);
+    $store->save($list, ViewConfigLevel::Personal, ['name' => 'IV квартал, мой'] + $quarter, 0, $actor);
+    $keys = array_count_values(array_column($query()['data']['saved_views'], 'key'));
+    storageViewExpect(($keys['2026-q4'] ?? 0) === 2, 'a digit-led view on two levels: ' . json_encode($keys));
+    $opened = $raise('view.open', ['key' => '2026-q4']);
+    storageViewExpect($opened['answer'] === 'applied', 'a digit-led view opens: ' . json_encode($opened['reason'] ?? null));
+    storageViewExpect($raise('view.reset', ['key' => '2026-q4', 'level' => 'personal', 'revision' => 5]) === ['answer' => 'conflict', 'current_revision' => 1],
+        'a reset of a copy changed since it was read');
+    $reset = $raise('view.reset', ['key' => '2026-q4', 'level' => 'personal', 'revision' => 1]);
+    storageViewExpect($reset['answer'] === 'applied' && $reset['view']['level'] === 'shared' && $reset['view']['label'] === 'IV квартал',
+        'views.reset: ' . json_encode($reset, JSON_UNESCAPED_UNICODE));
+    storageViewExpect($store->view($list, ViewConfigLevel::Personal, '2026-q4', $actor) === null
+        && $store->view($list, ViewConfigLevel::Shared, '2026-q4')['revision'] === 1, 'only the person\'s copy went');
+    $nothing = $raise('views.reset', ['key' => $mine['key'], 'level' => 'personal']);
+    storageViewExpect($nothing['answer'] === 'refused' && $nothing['reason'] === 'nothing_above' && $nothing['message'] !== '',
+        'a view kept on one level only: ' . json_encode($nothing, JSON_UNESCAPED_UNICODE));
+    $systemReset = $raise('view.reset', ['key' => 'all', 'level' => 'package']);
+    storageViewExpect($systemReset['answer'] === 'refused' && $systemReset['reason'] === 'system_readonly', 'a system view is reset by nobody');
+    storageViewExpect($raise('view.reset', ['key' => '2026-q4'])['reason'] === 'view_fields_invalid', 'a reset names its level');
+
+    // A name is 1–120 characters (LVC-6): 120 Cyrillic letters are kept whole, 121 are refused, never cut.
+    $long = str_repeat('я', 120);
+    $named = $raise('view.save', ['key' => 'filter_template_long', 'label' => $long, 'query' => []]);
+    storageViewExpect($named['answer'] === 'applied', 'a name of 120 characters: ' . json_encode($named));
+    storageViewExpect($store->view($list, ViewConfigLevel::Personal, $named['key'], $actor)['document']['name'] === $long, 'the name is kept whole');
+    $tooLong = $raise('view.save', ['key' => 'filter_template_longer', 'label' => $long . 'я', 'query' => []]);
+    storageViewExpect($tooLong === ['answer' => 'refused', 'reason' => 'view_name_too_long', 'limit' => 120], 'a name of 121 characters: ' . json_encode($tooLong));
 
     echo "StorageViewConfigPortTest passed.\n";
 } finally {

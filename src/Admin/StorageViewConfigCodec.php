@@ -6,6 +6,7 @@ namespace Larena\Storage\Admin;
 
 use Larena\Dataview\Enums\DataviewViewType;
 use Larena\Setting\ViewConfig\ViewConfigDocument;
+use Larena\Storage\Board\StorageBoardDescription;
 
 /**
  * A saved view of a Storage list as a `simai.view-config/1` document, and back.
@@ -21,7 +22,9 @@ use Larena\Setting\ViewConfig\ViewConfigDocument;
  *   `query.sort` the sort; `query.per_page` the page size (10/20/50/100). The search text is never saved (contract §2);
  * - `head.filter_fields` the filter fields the person put in the list head (the view's `settings.filter_fields`);
  * - `layouts.<layout>` keeps what is Storage's own: the column layout (`columns`), the field roles (`roles`), the rest of
- *   the view's settings (`settings`) and, for a view type without a layout of its own (gantt), the `view_type`.
+ *   the view's settings (`settings`) and, for a view type without a layout of its own (gantt), the `view_type`;
+ * - a board view's own options (StorageBoardDescription: lane field, lanes, limits, moves…) sit beside them in
+ *   `layouts.board`; the lists read them as the view's `board`, present only when the view has some.
  */
 final class StorageViewConfigCodec
 {
@@ -72,7 +75,8 @@ final class StorageViewConfigCodec
         }
         $own = ['columns' => is_array($view['layout']['columns'] ?? null) ? $view['layout']['columns'] : [],
             'roles' => is_array($view['roles'] ?? null) ? $view['roles'] : [], 'settings' => $settings]
-            + ($type !== null && $type->layout() === null ? ['view_type' => $type->value] : []);
+            + ($type !== null && $type->layout() === null ? ['view_type' => $type->value] : [])
+            + ($layout === 'board' ? self::boardOptions($view['board'] ?? []) : []);
 
         return ['schema' => ViewConfigDocument::SCHEMA, 'id' => (string) $view['saved_view_id'], 'name' => (string) $view['name'],
             'source' => self::source($structureId), 'layout' => $layout, 'query' => $documentQuery]
@@ -123,6 +127,7 @@ final class StorageViewConfigCodec
             }
         }
         $settings = self::map($own['settings'] ?? []);
+        $board = $layout === 'board' ? self::boardOptions($own) : [];
         if (is_array($document['head']['filter_fields'] ?? null)) {
             $settings['filter_fields'] = array_values($document['head']['filter_fields']);
         }
@@ -146,7 +151,17 @@ final class StorageViewConfigCodec
             'roles' => self::map($own['roles'] ?? []),
             'layout' => ['columns' => $columns],
             'settings' => $settings,
-        ];
+        ] + ($board !== [] ? ['board' => $board] : []);
+    }
+
+    /**
+     * The board options among a board layout's keys (StorageBoardDescription::KEYS), as they are kept.
+     *
+     * @return array<string, mixed>
+     */
+    public static function boardOptions(mixed $layout): array
+    {
+        return array_intersect_key(self::map($layout), array_flip(StorageBoardDescription::KEYS));
     }
 
     /** The document's `source`: the storage's id, or a digest of it when the id is longer than the contract allows. */

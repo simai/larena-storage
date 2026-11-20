@@ -47,8 +47,14 @@ final readonly class DataviewListPreferences
      */
     public const SHARED_RIGHT = 'storage.workbench.structure.update';
 
-    /** A view a person or an administrator saved (`saved-view-` and 24 hex), or a package's system view. */
-    public const SAVED_VIEW_ID = '/^(?:saved-view-[a-f0-9]{24}|[a-z][a-z0-9_-]{0,63})$/';
+    /**
+     * A view a person or an administrator saved (`saved-view-` and 24 hex), or any view id of simai.view-config/1
+     * (a package's system view, a view another host wrote): a digit may come first (`2026-q4`).
+     */
+    public const SAVED_VIEW_ID = '/^(?:saved-view-[a-f0-9]{24}|[a-z0-9][a-z0-9_-]{0,63})$/';
+
+    /** A view's name: 1–120 characters (simai.view-config/1 §2). */
+    public const NAME_MAX = 120;
 
     /** The id this list gives a view it saves. */
     public const NEW_SAVED_VIEW_ID = '/^saved-view-[a-f0-9]{24}$/';
@@ -377,7 +383,7 @@ final readonly class DataviewListPreferences
         $structureId = $this->structureId($payload['structure_id'] ?? null);
         // Reading the real structure enforces its access boundary.
         $structure = $this->storage->readStructure($scope, $structureId, $actor);
-        $name = $this->nullableQueryString($payload['name'] ?? null, 80);
+        $name = $this->nullableQueryString($payload['name'] ?? null, self::NAME_MAX);
         if ($name === null || trim($name) === '') {
             throw new InvalidArgumentException('dataview_list_saved_view_name_invalid');
         }
@@ -451,7 +457,8 @@ final readonly class DataviewListPreferences
             'roles' => $roles,
             'layout' => $layout,
             'settings' => $settings,
-        ], $existing['revision'] ?? 0);
+            // A board view's own options (lane field, limits, moves) are not the page's to send: they stay.
+        ] + (isset($existing['board']) ? ['board' => $existing['board']] : []), $existing['revision'] ?? 0);
 
         return $savedViewId;
     }
@@ -496,6 +503,32 @@ final readonly class DataviewListPreferences
         $this->storage->readStructure($scope, (string) $view['structure_id'], $actor);
         $this->views->remove(self::listOf($scope, (string) $view['structure_id']), ViewConfigLevel::named($level), $savedViewId,
             $level === 'personal' ? $actor : null);
+    }
+
+    /**
+     * views.reset(id, level) (simai.view-config/1 §6): drops the level's own copy of a view a higher level keeps, so
+     * the view opens as the level above gives it again; the level above is never touched. The person's level needs
+     * only the right to read the structure, the level for everyone {@see self::SHARED_RIGHT}; a system view is reset
+     * by nobody. Answers the view as it now resolves, in the shape the lists read, with its level.
+     *
+     * @return array<string, mixed>
+     */
+    public function resetView(string $actor, string $scope, string $structureId, mixed $savedViewId, mixed $level, ?int $baseRevision = null): array
+    {
+        $savedViewId = $this->nullableId($savedViewId, self::SAVED_VIEW_ID);
+        if ($savedViewId === null) {
+            throw new InvalidArgumentException('dataview_list_saved_view_unknown');
+        }
+        $level = ViewConfigLevel::named($level);
+        // Reading the real structure enforces its access boundary.
+        $structureId = $this->storage->readStructure($scope, $this->structureId($structureId), $actor)->structureId;
+        if ($level === ViewConfigLevel::Shared) {
+            $this->authorizer->assertAllowed($actor, self::SHARED_RIGHT);
+        }
+        $resolved = $this->views->reset(self::listOf($scope, $structureId), $level, $savedViewId,
+            $level === ViewConfigLevel::Personal ? $actor : null, $baseRevision);
+
+        return StorageViewConfigCodec::view($resolved['document'], $structureId) + ['level' => $resolved['level']->value];
     }
 
     /**
@@ -625,9 +658,10 @@ final readonly class DataviewListPreferences
         if (! is_array($view) || array_is_list($view)) {
             return false;
         }
-        $keys = array_keys($view);
+        $keys = array_keys(array_diff_key($view, ['board' => true]));
         sort($keys);
         if ($keys !== ['layout', 'name', 'query', 'revision', 'roles', 'saved_view_id', 'settings', 'structure_id']
+            || (array_key_exists('board', $view) && (! is_array($view['board']) || StorageViewConfigCodec::boardOptions($view['board']) !== $view['board']))
             || ! is_int($view['revision']) || $view['revision'] < 1
             || ! is_array($view['roles']) || ! is_array($view['settings'])
             || ! is_array($view['layout']) || array_keys($view['layout']) !== ['columns'] || ! is_array($view['layout']['columns'])) {
@@ -664,7 +698,7 @@ final readonly class DataviewListPreferences
 
         return is_string($view['saved_view_id']) && preg_match(self::SAVED_VIEW_ID, $view['saved_view_id']) === 1
             && is_string($view['structure_id']) && preg_match('/^workbench\.[a-z][a-z0-9_.:-]{0,109}$/', $view['structure_id']) === 1
-            && is_string($view['name']) && trim($view['name']) !== '' && strlen($view['name']) <= 80
+            && is_string($view['name']) && trim($view['name']) !== '' && mb_strlen($view['name']) <= self::NAME_MAX
             && ($query['dataview_id'] === null || (is_string($query['dataview_id']) && preg_match('/^workbench\.[a-z][a-z0-9_.:-]{0,109}\.(?:table|cards|calendar|kanban|gantt|tree)$/', $query['dataview_id']) === 1))
             && ($query['search'] === null || (is_string($query['search']) && strlen($query['search']) <= 100))
             && ($query['filter_field'] === null || (is_string($query['filter_field']) && preg_match('/^[a-z][a-z0-9_.-]{0,119}$/', $query['filter_field']) === 1))

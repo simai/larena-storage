@@ -42,7 +42,8 @@ final readonly class StorageBoardDescription
     public const MAX_PER_LANE = 100;
     public const MAX_LANES = 200;
     public const MAX_REASON = 200;
-    private const KEYS = ['lane_field', 'lanes', 'empty_lanes', 'card_fields', 'totals', 'limits', 'order', 'order_field', 'per_lane', 'swimlane_field', 'moves'];
+    /** The options of `layouts.board` a description reads. */
+    public const KEYS = ['lane_field', 'lanes', 'empty_lanes', 'card_fields', 'totals', 'limits', 'order', 'order_field', 'per_lane', 'swimlane_field', 'moves'];
     private const ABILITY_PATTERN = '/\A[a-z][a-z0-9_.:-]{0,127}\z/D';
 
     /**
