@@ -173,7 +173,8 @@ try {
         . json_encode($first['data']['preferences'] ?? null) . json_encode($exceptions->reported ? $exceptions->reported[0]->getMessage() : null));
     storageViewExpect($first['data']['limits']['views_per_level'] === 20 && $first['data']['limits']['view_bytes'] === 8192
         && $first['data']['limits']['views_per_list'] === 20 && $first['data']['limits']['settings_bytes'] === 8192, 'the limits');
-    storageViewExpect($first['data']['capabilities']['personal-preferences'] === false, 'not announced without a pinned port 1.16.0');
+    storageViewExpect($first['data']['capabilities']['personal-preferences'] === StorageWorkbenchDataviewPort::preferencesOffered(),
+        'announced exactly when the pinned Framework carries port 1.16.0');
     storageViewExpect($first['data']['saved_views'] === [], 'no saved views yet');
 
     // preferences.save: only the changed fields, against the revision; a stale one is a conflict; null removes a field.
@@ -213,9 +214,10 @@ try {
         'layout' => ['columns' => []], 'settings' => [], 'query' => ['per_page' => 20]]);
     storageViewExpect($store->ship($list, $system + ['required' => true], 'larena/storage'), 'the package ships its view');
     $views = $query()['data']['saved_views'];
-    // The pinned port is below 1.16.0: the system level goes out as `package`, the name those editions know (LVC-2).
-    storageViewExpect(array_column($views, 'level') === ['package', 'personal'] && $views[0]['key'] === 'all', 'levels: ' . json_encode(array_column($views, 'level')));
-    storageViewExpect(StorageWorkbenchDataviewPort::wireLevel('system') === 'package' && StorageWorkbenchDataviewPort::wireLevel('shared') === 'shared',
+    // From port 1.16.0 the system level goes out as `system`; below it as `package`, the name those editions know (LVC-2).
+    $top = StorageWorkbenchDataviewPort::preferencesOffered() ? 'system' : 'package';
+    storageViewExpect(array_column($views, 'level') === [$top, 'personal'] && $views[0]['key'] === 'all', 'levels: ' . json_encode(array_column($views, 'level')));
+    storageViewExpect(StorageWorkbenchDataviewPort::wireLevel('system') === $top && StorageWorkbenchDataviewPort::wireLevel('shared') === 'shared',
         'the level on the wire');
     $opened = $raise('view.open', ['key' => 'all']);
     storageViewExpect($opened['answer'] === 'applied' && $opened['data']['column_settings']['target']['key'] === 'all', 'a system view opens');
@@ -294,7 +296,7 @@ try {
     $nothing = $raise('views.reset', ['key' => $mine['key'], 'level' => 'personal']);
     storageViewExpect($nothing['answer'] === 'refused' && $nothing['reason'] === 'nothing_above' && $nothing['message'] !== '',
         'a view kept on one level only: ' . json_encode($nothing, JSON_UNESCAPED_UNICODE));
-    $systemReset = $raise('view.reset', ['key' => 'all', 'level' => 'package']);
+    $systemReset = $raise('view.reset', ['key' => 'all', 'level' => $top]);
     storageViewExpect($systemReset['answer'] === 'refused' && $systemReset['reason'] === 'system_readonly', 'a system view is reset by nobody');
     storageViewExpect($raise('view.reset', ['key' => '2026-q4'])['reason'] === 'view_fields_invalid', 'a reset names its level');
 
