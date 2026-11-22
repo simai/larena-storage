@@ -123,6 +123,8 @@ final readonly class StorageWorkbenchDataviewPort
             'view.open', 'view.save', 'view.delete' => $this->view($actor, (string) $base['scope_ref'], $structureId, $intent, $payload),
             // views.reset(id, level) of simai.view-config/1 §6 (port 1.16.0): the level's own copy goes, the view above opens.
             'view.reset', 'views.reset' => $this->resetView($actor, (string) $base['scope_ref'], $structureId, $payload),
+            // A board view's lane limits (simai.view-config/1 §3 `layouts.board.limits`), against the level's own revision.
+            'view.save_board' => $this->saveBoard($actor, (string) $base['scope_ref'], $structureId, $payload),
             // The person's own view state of the list (port 1.16.0): only the fields that changed, against its revision.
             'preferences.save' => $this->preferences($actor, (string) $base['scope_ref'], $structureId, $payload),
             // The composite's own call for a view for everyone; the page sends the same as view.save with target "shared".
@@ -414,7 +416,8 @@ final readonly class StorageWorkbenchDataviewPort
             return [];
         }
         try {
-            $open = $this->lists->savedView($this->lists->structureViews($actor, $scope, $structure->structureId), $savedViewId);
+            // The view as the person opens it: their own copy laid over the one everyone has (views.reset drops it again).
+            $open = $this->lists->resolvedView($actor, $scope, $structure->structureId, $savedViewId);
             $options = is_array($open['board'] ?? null) ? $open['board'] : [];
             if ($options === [] || ($options['lane_field'] ?? $window['lanes']) !== $window['lanes']) {
                 return [];
@@ -714,6 +717,11 @@ final readonly class StorageWorkbenchDataviewPort
             return ['answer' => 'conflict', 'current_revision' => $existing['revision']];
         }
         $query = $this->savedQuery(is_array($payload['query'] ?? null) ? $payload['query'] : []);
+        // The page's query names no view type: a board (or any view of a type of its own) stays what it is, and so do
+        // its board options.
+        if (is_string($existing['query']['dataview_id'] ?? null)) {
+            $query['dataview_id'] = $existing['query']['dataview_id'];
+        }
         // A view named by its key takes the label it is sent with: that is how it is renamed.
         $write = ['structure_id' => $structureId, 'name' => $renamed ? $label : ($existing['name'] ?? $label), 'query' => $query, 'level' => $target];
         if (array_key_exists('roles', $payload)) {
@@ -771,6 +779,31 @@ final readonly class StorageWorkbenchDataviewPort
                 static fn (string $key, array $options): array => ['key' => $key] + $options,
                 array_keys($view['layout']['columns']), array_values($view['layout']['columns']),
             )], 'settings' => $view['settings']];
+    }
+
+    /**
+     * view.save_board: `{key, revision, limits, level?, lane_field?}`. `limits` is the whole set by lane value (a number,
+     * or null / "" for none); `revision` is that of the level's own copy as it was read (0 when the person has none yet:
+     * the save makes it). Answers the new revision and the limits as kept; a moved copy is a conflict, a system view
+     * `system_readonly`.
+     *
+     * @param array<string,mixed> $payload @return array<string,mixed>
+     */
+    private function saveBoard(string $actor, string $scopeRef, string $structureId, array $payload): array
+    {
+        $key = $payload['key'] ?? null;
+        if (!is_string($key) || preg_match(DataviewListPreferences::SAVED_VIEW_ID, $key) !== 1 || !array_key_exists('revision', $payload)
+            || !is_array($payload['limits'] ?? null) || array_diff(array_keys($payload), ['key', 'revision', 'limits', 'level', 'lane_field']) !== []) {
+            return ['answer' => 'refused', 'reason' => 'view_fields_invalid'];
+        }
+        $view = null;
+        $outcome = $this->write(function () use ($actor, $scopeRef, $structureId, $key, $payload, &$view): void {
+            $view = $this->lists->saveBoardLimits($actor, $scopeRef, $structureId, $key, $payload['revision'], $payload['limits'],
+                $payload['level'] ?? null, $payload['lane_field'] ?? null);
+        });
+
+        return $outcome ?? ['answer' => 'applied', 'key' => $key, 'revision' => $view['revision'], 'level' => $view['level'],
+            'lane_field' => $view['board']['lane_field'], 'limits' => (object) ($view['board']['limits'] ?? [])];
     }
 
     /**

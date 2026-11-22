@@ -16,7 +16,7 @@ require_once __DIR__ . '/../Support/storage-view-fixture.php';
 
 // The board window of simai.view-config/1 (contract §3, Larena 2026-11-19), on SQLite:
 // - one request: every lane's first per_lane records (20 by default) and every lane's total and sums, in the answer's
-//   shape {lanes: [{value, total, sums?, over_limit?, records[], cursor?}]};
+//   shape {lanes: [{value, total, sums?, limit?, over_limit?, records[], cursor?}]};
 // - one lane further: {lanes, lane, cursor} answers that lane alone;
 // - per_lane at most 100, at most 200 lanes: more is refused with the limit's name, never cut silently; all 200 lanes
 //   carry their first records.
@@ -68,7 +68,7 @@ try {
     storageViewExpect($lanes[0]['over_limit'] === true && $lanes[1]['over_limit'] === false && !isset($lanes[2]['over_limit']), 'over_limit');
     storageViewExpect(array_keys($lanes[0]['records'][0]) === ['id', 'revision', 'title'] && $lanes[0]['records'][0]['title'] === 'New 01'
         && $lanes[0]['records'][0]['revision'] === '1', 'a record is its id, revision and what the host adds');
-    storageViewExpect(array_keys($lanes[1]) === ['value', 'total', 'sums', 'over_limit', 'records'], 'the lane shape: ' . json_encode(array_keys($lanes[1])));
+    storageViewExpect(array_keys($lanes[1]) === ['value', 'total', 'sums', 'limit', 'over_limit', 'records'], 'the lane shape: ' . json_encode(array_keys($lanes[1])));
 
     // One lane further, from its cursor: that lane alone, the rest of it.
     $more = $window->answer(['lanes' => 'status', 'lane' => 'new', 'cursor' => $lanes[0]['cursor']], $list, $actor)['lanes'];

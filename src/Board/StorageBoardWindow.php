@@ -18,8 +18,8 @@ use Larena\Storage\Exceptions\StorageRejected;
  * lane alone from its cursor.
  *
  * Window: `{lanes: <lane field>, per_lane?: 1..100 (20), totals?: ["count", <sum field>...], lane?: <value>, cursor?}`.
- * Answer: `{lanes: [{value, total, sums?, over_limit?, records[], cursor?}]}`, at most 200 lanes: a board with more is
- * refused (`storage_board_window_limit:lanes_max`), never cut silently. A lane's sums are numbers; `over_limit` is
+ * Answer: `{lanes: [{value, total, sums?, limit?, over_limit?, records[], cursor?}]}`, at most 200 lanes: a board with more is
+ * refused (`storage_board_window_limit:lanes_max`), never cut silently. A lane's sums are numbers; `limit` and `over_limit` are
  * there when the board's description gives the lane a soft limit. Built on StorageWorkbenchBoard::listBoard(): the
  * list's query (filters, search, sort, archived records) cuts every lane.
  */
@@ -97,6 +97,8 @@ final readonly class StorageBoardWindow
                 $answer['sums'] = $laneSums;
             }
             if (isset($limits[$read->key])) {
+                // The limit itself too, so the lane header can read «N из M».
+                $answer['limit'] = $limits[$read->key];
                 $answer['over_limit'] = $read->total > $limits[$read->key];
             }
             $answer['records'] = array_map(static fn (StorageWorkbenchRecord $item): array => ['id' => $item->recordId, 'revision' => (string) $item->revision]

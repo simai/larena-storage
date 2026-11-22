@@ -22,6 +22,7 @@ use Larena\Setting\ViewConfig\ViewConfigDocument;
 use Larena\Setting\ViewConfig\ViewConfigLevel;
 use Larena\Setting\ViewConfig\ViewConfigRefused;
 use Larena\Setting\ViewConfig\ViewConfigStore;
+use Larena\Storage\Board\StorageBoardDescription;
 use Larena\Storage\Contracts\StorageWorkbench;
 use Larena\Storage\Contracts\StorageWorkbenchStructure;
 use Throwable;
@@ -285,6 +286,24 @@ final readonly class DataviewListPreferences
     }
 
     /**
+     * A saved view as the person opens it (simai.view-config/1 §4): one per id, the person's own copy laid over the one
+     * everyone has and that over the package's, in the shape the lists read, with the level it comes from. Null when
+     * the list holds no view of that id.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function resolvedView(string $actor, string $scope, string $structureId, string $savedViewId): ?array
+    {
+        foreach ($this->views->resolved(self::listOf($scope, $structureId), $actor) as $entry) {
+            if ((string) ($entry['document']['id'] ?? '') === $savedViewId) {
+                return StorageViewConfigCodec::view($entry['document'], $structureId) + ['level' => $entry['level']->value];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The person's own view state of the structure's list (simai.dataview-port 1.16.0 `preferences`): its revision,
      * and the rows per page, whether the view zone is open and the view opened last, when they were ever set.
      *
@@ -486,6 +505,86 @@ final readonly class DataviewListPreferences
         $this->writeView($level, $actor, $scope, ['layout' => ['columns' => $columns], 'revision' => $baseRevision + 1] + $view, $baseRevision);
 
         return ['structure_id' => (string) $view['structure_id'], 'saved_view_id' => $savedViewId];
+    }
+
+    /**
+     * The lane limits of a board view (simai.view-config/1 §3, `layouts.board.limits`), written against the revision of
+     * the level's own copy. `limits` is the whole set by lane value: a number 1–100 000, or null / "" for none; the
+     * lanes left out have none. The level is the one written: the person's own (`personal`, the default; on a view
+     * everyone has it makes the person's own copy, which views.reset drops again) or everyone's
+     * (`shared`, {@see self::SHARED_RIGHT}). A system view is changed by nobody (`system_readonly`). The lane field is
+     * the board's own; a view without board options takes `lane_field` from the request. The other board options and
+     * the view's columns stay as they are. Answers the view as the lists read it, with its level.
+     *
+     * @return array<string, mixed>
+     */
+    public function saveBoardLimits(string $actor, string $scope, string $structureId, mixed $savedViewId, mixed $baseRevision,
+        mixed $limits, mixed $level = null, mixed $laneField = null): array
+    {
+        $savedViewId = $this->nullableId($savedViewId, self::SAVED_VIEW_ID);
+        if ($savedViewId === null) {
+            throw new InvalidArgumentException('dataview_list_saved_view_unknown');
+        }
+        if (! is_int($baseRevision) || $baseRevision < 0 || ! is_array($limits) || ($limits !== [] && array_is_list($limits))
+            || ($level !== null && $level !== 'personal' && $level !== 'shared') || ($laneField !== null && ! is_string($laneField))) {
+            throw new InvalidArgumentException('dataview_list_board_limits_invalid');
+        }
+        // Reading the real structure enforces its access boundary.
+        $structure = $this->storage->readStructure($scope, $this->structureId($structureId), $actor);
+        $list = self::listOf($scope, $structure->structureId);
+        $personal = $this->views->view($list, ViewConfigLevel::Personal, $savedViewId, $actor);
+        $shared = $this->views->view($list, ViewConfigLevel::Shared, $savedViewId);
+        $system = $this->views->view($list, ViewConfigLevel::System, $savedViewId);
+        $level ??= 'personal';
+        if ($level === 'shared') {
+            if ($shared === null) {
+                throw $system !== null ? new ViewConfigRefused('system_readonly') : new InvalidArgumentException('dataview_list_saved_view_unknown');
+            }
+            $this->authorizer->assertAllowed($actor, self::SHARED_RIGHT);
+        }
+        $own = $level === 'shared' ? $shared : $personal;
+        // A system view is read-only on every level: its limits are the package's (port 1.16.0 `system_readonly`).
+        if ($own === null && $system !== null && $shared === null) {
+            throw new ViewConfigRefused('system_readonly');
+        }
+        $source = $own ?? $shared;
+        if ($source === null) {
+            throw new InvalidArgumentException('dataview_list_saved_view_unknown');
+        }
+        $ownRevision = (int) ($own['revision'] ?? 0);
+        if ($ownRevision !== $baseRevision) {
+            throw new SettingRevisionConflict($baseRevision, $ownRevision);
+        }
+        $view = StorageViewConfigCodec::view($source['document'], $structure->structureId);
+        if (! is_string($view['query']['dataview_id'] ?? null) || ! str_ends_with($view['query']['dataview_id'], '.'.DataviewViewType::Kanban->value)) {
+            throw new InvalidArgumentException('dataview_list_saved_view_not_board');
+        }
+        $board = is_array($view['board'] ?? null) ? $view['board'] : [];
+        if (isset($board['lane_field'], $laneField) && $board['lane_field'] !== $laneField) {
+            throw new InvalidArgumentException('dataview_list_board_lane_field_mismatch');
+        }
+        $board = ['lane_field' => $board['lane_field'] ?? $laneField] + $board;
+        $kept = [];
+        foreach ($limits as $lane => $limit) {
+            if ($limit === null || $limit === '') {
+                continue;
+            }
+            // A form sends digits; anything else than a whole number is refused, never rounded.
+            if (is_string($limit) && preg_match('/\A[1-9][0-9]{0,5}\z/D', $limit) === 1) {
+                $limit = (int) $limit;
+            }
+            $kept[(string) $lane] = $limit;
+        }
+        unset($board['limits']);
+        if ($kept !== []) {
+            $board['limits'] = $kept;
+        }
+        // The description checks the lane field and every limit against the storage's fields.
+        StorageBoardDescription::fromArray($board, $structure->fields);
+        $this->writeView($level, $actor, $scope, ['revision' => $ownRevision + 1, 'board' => $board] + array_diff_key($view, ['level' => true]),
+            $ownRevision);
+
+        return ['board' => $board, 'revision' => $ownRevision + 1, 'level' => $level] + $view;
     }
 
     /**

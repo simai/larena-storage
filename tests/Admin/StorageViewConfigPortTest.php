@@ -306,6 +306,73 @@ try {
     $tooLong = $raise('view.save', ['key' => 'filter_template_longer', 'label' => $long . 'я', 'query' => []]);
     storageViewExpect($tooLong === ['answer' => 'refused', 'reason' => 'view_name_too_long', 'limit' => 120], 'a name of 121 characters: ' . json_encode($tooLong));
 
+    // Lane limits from the list page (view.save_board): written into layouts.board against the level's own revision.
+    storageViewExpect($raise('view.delete', ['key' => $named['key']])['answer'] === 'applied'
+        && $raise('view.delete', ['key' => $mine['key']])['answer'] === 'applied', 'room for the person\'s board copies');
+    $team = StorageViewConfigCodec::document(['saved_view_id' => 'team-board', 'structure_id' => $id, 'name' => 'Доска команды', 'revision' => 1,
+        'roles' => [], 'layout' => ['columns' => []], 'settings' => [], 'query' => ['dataview_id' => $id . '.kanban', 'per_page' => 20]]);
+    $store->save($list, ViewConfigLevel::Shared, $team, 0);
+    $lanesOf = static function (string $view) use ($query): array {
+        $lanes = [];
+        foreach ($query(['saved_view_id' => $view, 'window' => ['lanes' => 'status', 'per_lane' => 2]])['data']['lanes'] ?? [] as $lane) {
+            $lanes[$lane['value']] = array_intersect_key($lane, ['total' => true, 'limit' => true, 'over_limit' => true]);
+        }
+
+        return $lanes;
+    };
+    storageViewExpect($lanesOf('team-board') === ['new' => ['total' => 3], 'paid' => ['total' => 1]], 'a board view without limits');
+    // Everyone's level, with the right to change shared views: a form's digits are numbers, an empty lane has none.
+    $teamSaved = $raise('view.save_board', ['key' => 'team-board', 'level' => 'shared', 'revision' => 1, 'lane_field' => 'status',
+        'limits' => ['new' => '2', 'paid' => '']]);
+    storageViewExpect($teamSaved['answer'] === 'applied' && $teamSaved['revision'] === 2 && $teamSaved['level'] === 'shared'
+        && (array) $teamSaved['limits'] === ['new' => 2], 'view.save_board for everyone: ' . json_encode($teamSaved));
+    storageViewExpect($store->view($list, ViewConfigLevel::Shared, 'team-board')['document']['layouts']['board']
+        === ['columns' => [], 'roles' => [], 'settings' => [], 'lane_field' => 'status', 'limits' => ['new' => 2]],
+        'the limits sit in layouts.board: ' . json_encode($store->view($list, ViewConfigLevel::Shared, 'team-board')));
+    // The page answer carries the limits after the save: «N из M» and the over-limit mark.
+    storageViewExpect($lanesOf('team-board') === ['new' => ['total' => 3, 'limit' => 2, 'over_limit' => true], 'paid' => ['total' => 1]],
+        'the board after the save: ' . json_encode($lanesOf('team-board')));
+    // A save against the revision read before is a conflict and changes nothing.
+    storageViewExpect($raise('view.save_board', ['key' => 'team-board', 'level' => 'shared', 'revision' => 1, 'limits' => ['new' => 9]])
+        === ['answer' => 'conflict', 'current_revision' => 2], 'a stale board save');
+    storageViewExpect($lanesOf('team-board')['new']['limit'] === 2, 'the conflict changed nothing');
+    // The person's own limits: a copy of their own over the view everyone has, the view for everyone untouched.
+    $own = $raise('view.save_board', ['key' => 'team-board', 'revision' => 0, 'limits' => ['new' => 5, 'paid' => 1]]);
+    storageViewExpect($own['answer'] === 'applied' && $own['level'] === 'personal' && $own['revision'] === 1, 'the person\'s own limits: ' . json_encode($own));
+    storageViewExpect($lanesOf('team-board') === ['new' => ['total' => 3, 'limit' => 5, 'over_limit' => false], 'paid' => ['total' => 1, 'limit' => 1, 'over_limit' => false]],
+        'the person\'s limits are the ones the board reads: ' . json_encode($lanesOf('team-board')));
+    storageViewExpect($store->view($list, ViewConfigLevel::Shared, 'team-board')['revision'] === 2, 'the view for everyone is untouched');
+    $again = $raise('view.save_board', ['key' => 'team-board', 'revision' => 1, 'limits' => ['new' => 5, 'paid' => 1]]);
+    storageViewExpect($again['answer'] === 'applied' && $again['level'] === 'personal' && $again['revision'] === 2, 'the person\'s copy again: ' . json_encode($again));
+    // A save of the view itself keeps its board options.
+    storageViewExpect($raise('view.save', ['key' => 'team-board', 'label' => 'Доска команды', 'revision' => 2, 'query' => ['filters' => (object) []]])['answer'] === 'applied',
+        'the view is saved again');
+    storageViewExpect($lanesOf('team-board')['new']['limit'] === 5, 'the limits survive a save of the view');
+    // views.reset to the level above drops the person's limits: the board reads everyone's again.
+    $back = $raise('views.reset', ['key' => 'team-board', 'level' => 'personal']);
+    storageViewExpect($back['answer'] === 'applied' && $back['view']['level'] === 'shared', 'the reset: ' . json_encode($back));
+    storageViewExpect($lanesOf('team-board') === ['new' => ['total' => 3, 'limit' => 2, 'over_limit' => true], 'paid' => ['total' => 1]],
+        'after the reset: ' . json_encode($lanesOf('team-board')));
+    // A system view is read-only on every level.
+    foreach ([['revision' => 0], ['revision' => 1, 'level' => 'shared']] as $asked) {
+        $refused = $raise('view.save_board', ['key' => 'orders-board', 'limits' => ['new' => 3]] + $asked);
+        storageViewExpect($refused['answer'] === 'refused' && $refused['reason'] === 'system_readonly' && $refused['code'] === 'view_config_system_readonly',
+            'board limits of a system view: ' . json_encode($refused, JSON_UNESCAPED_UNICODE));
+    }
+    storageViewExpect($lanesOf('orders-board')['new']['limit'] === 2, 'the system view keeps its limits');
+    // Without the right to change shared views, everyone's level is refused.
+    $stranger = $port->raise('actor:admin:beta', $scope, $id, 'view.save_board', ['key' => 'team-board', 'level' => 'shared', 'revision' => 2, 'limits' => []]);
+    storageViewExpect($stranger['answer'] === 'refused', 'everyone\'s limits without the right: ' . json_encode($stranger));
+    // Limits a description refuses, a view that is no board, a payload of other keys.
+    storageViewExpect($raise('view.save_board', ['key' => 'team-board', 'level' => 'shared', 'revision' => 2, 'limits' => ['new' => 0]])['reason']
+        === 'storage_board_description_invalid:limits', 'a limit below 1');
+    storageViewExpect($raise('view.save_board', ['key' => 'team-board', 'level' => 'shared', 'revision' => 2, 'limits' => ['new' => '2.5']])['reason']
+        === 'storage_board_description_invalid:limits', 'a limit that is no whole number');
+    storageViewExpect($raise('view.save_board', ['key' => '2026-q4', 'level' => 'shared', 'revision' => 1, 'limits' => ['new' => 2]])['reason']
+        === 'dataview_list_saved_view_not_board', 'a table view has no lanes');
+    storageViewExpect($raise('view.save_board', ['key' => 'team-board', 'revision' => 0, 'limits' => [], 'hard' => true])['reason']
+        === 'view_fields_invalid', 'no hard limits in the contract');
+
     echo "StorageViewConfigPortTest passed.\n";
 } finally {
     Facade::clearResolvedInstances();
