@@ -629,11 +629,8 @@ final readonly class StorageWorkbenchDataviewPort
                 if ($open === null) {
                     throw new InvalidArgumentException('saved_view_unknown');
                 }
-                // A view for everyone keeps its columns for those who may not change it; the person's own copy of it
-                // is theirs to change.
-                if ($open['copy_level'] === 'shared' && !$this->lists->maySaveShared($actor)) {
-                    throw new InvalidArgumentException('shared_view_readonly');
-                }
+                // The change goes to the person's own copy of the view; on a view everyone has it makes that copy and
+                // leaves the view for everyone as it is (it changes only through its shared save).
                 $this->lists->saveViewLayout($actor, $scopeRef, $savedViewId, $revision, $layout);
                 return;
             }

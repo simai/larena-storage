@@ -491,9 +491,12 @@ final readonly class DataviewListPreferences
     }
 
     /**
-     * Column changes made while a saved view is open belong to that view. The request names the
-     * revision of the view it changed; a view changed meanwhile rejects the write. A view for
-     * everyone is changed only with {@see self::SHARED_RIGHT}.
+     * Column changes made while a saved view is open belong to the person's own copy of it (simai.view-config/1 §4, as
+     * the lane limits of a board do). The request names the revision of the copy it read: the person's own, or, while
+     * they have none, the view everyone has; a copy changed meanwhile rejects the write. A change of a view everyone has
+     * makes the person's own copy with the new columns and leaves the view for everyone as it is: that one changes only
+     * through its explicit shared save (view.save with target "shared", {@see self::SHARED_RIGHT}). A system view is
+     * changed by nobody, and nobody gets a copy of it.
      *
      * @return array{structure_id:string,saved_view_id:string}
      */
@@ -503,14 +506,27 @@ final readonly class DataviewListPreferences
         if ($savedViewId === null || ! is_int($baseRevision) || $baseRevision < 1) {
             throw new InvalidArgumentException('dataview_list_saved_view_layout_invalid');
         }
-        [$level, $view] = $this->viewHolding($actor, $scope, $savedViewId);
+        $own = $this->savedView($this->savedViews($actor, $scope)['views'], $savedViewId);
+        $view = $own ?? $this->savedView($this->sharedViews($scope)['views'], $savedViewId);
+        if ($view === null) {
+            if ($this->savedView($this->levelViews(ViewConfigLevel::System, $scope, null), $savedViewId) !== null) {
+                throw new ViewConfigRefused('system_readonly');
+            }
+            throw new InvalidArgumentException('dataview_list_saved_view_unknown');
+        }
         if ($view['revision'] !== $baseRevision) {
             throw new SettingRevisionConflict($baseRevision, $view['revision']);
         }
         $structure = $this->storage->readStructure($scope, (string) $view['structure_id'], $actor);
+        // A copy of a system view is not made (the store would lay it over the package's view, which is read-only).
+        if ($own === null && $this->views->view(self::listOf($scope, $structure->structureId), ViewConfigLevel::System, $savedViewId) !== null) {
+            throw new ViewConfigRefused('system_readonly');
+        }
         $columns = self::withoutResetWidths($columns);
         $this->assertColumns($structure, $columns);
-        $this->writeView($level, $actor, $scope, ['layout' => ['columns' => $columns], 'revision' => $baseRevision + 1] + $view, $baseRevision);
+        // The person's own copy: written against its revision, or made (revision 0) from the view everyone has.
+        $ownRevision = $own !== null ? $baseRevision : 0;
+        $this->writeView('personal', $actor, $scope, ['layout' => ['columns' => $columns], 'revision' => $ownRevision + 1] + $view, $ownRevision);
 
         return ['structure_id' => (string) $view['structure_id'], 'saved_view_id' => $savedViewId];
     }
