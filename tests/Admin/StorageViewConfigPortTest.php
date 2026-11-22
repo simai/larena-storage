@@ -183,12 +183,21 @@ try {
         'preferences.save: ' . json_encode($saved));
     storageViewExpect($raise('preferences.save', ['preferences' => ['page_size' => 100], 'base_revision' => 0])
         === ['answer' => 'conflict', 'current_revision' => 1], 'a stale save of the view state');
-    $raise('preferences.save', ['preferences' => ['view_zone' => null, 'view' => 'unpaid'], 'base_revision' => '1']);
-    storageViewExpect($query()['data']['preferences'] === ['revision' => 2, 'page_size' => 50, 'view' => 'unpaid'], 'the view state reads back');
-    $bad = $raise('preferences.save', ['preferences' => ['page_size' => 25], 'base_revision' => 2]);
+    // The port's revisions may be strings: one the layer never issued (the kit's "p3") is a conflict naming the current one.
+    storageViewExpect($raise('preferences.save', ['preferences' => ['page_size' => 100], 'base_revision' => 'p3'])
+        === ['answer' => 'conflict', 'current_revision' => 1], 'a save against a revision the layer never issued');
+    storageViewExpect($raise('preferences.save', ['preferences' => ['colour' => 'red'], 'base_revision' => 'p3'])['answer'] === 'refused'
+        && $raise('preferences.save', ['preferences' => [], 'base_revision' => 'p3'])['answer'] === 'refused', 'a foreign revision does not excuse a bad payload');
+    // A save that names one field merges it: the page size it did not name stays.
+    $merged = $raise('preferences.save', ['preferences' => ['view_zone' => 'closed'], 'base_revision' => 1]);
+    storageViewExpect($merged === ['answer' => 'applied', 'data' => ['preferences' => ['revision' => 2, 'page_size' => 50, 'view_zone' => 'closed']]],
+        'a save merges only the changed field: ' . json_encode($merged));
+    $raise('preferences.save', ['preferences' => ['view_zone' => null, 'view' => 'unpaid'], 'base_revision' => '2']);
+    storageViewExpect($query()['data']['preferences'] === ['revision' => 3, 'page_size' => 50, 'view' => 'unpaid'], 'the view state reads back');
+    $bad = $raise('preferences.save', ['preferences' => ['page_size' => 25], 'base_revision' => 3]);
     storageViewExpect($bad['answer'] === 'refused' && $bad['reason'] === 'preferences_invalid' && $bad['code'] === 'view_config_preferences_invalid'
         && str_contains($bad['message'], 'Настройки списка не сохранены'), 'a page size off the menu: ' . json_encode($bad, JSON_UNESCAPED_UNICODE));
-    storageViewExpect($raise('preferences.save', ['preferences' => ['page_size' => 20], 'base_revision' => 2, 'person' => 'actor:admin:beta'])['answer'] === 'refused',
+    storageViewExpect($raise('preferences.save', ['preferences' => ['page_size' => 20], 'base_revision' => 3, 'person' => 'actor:admin:beta'])['answer'] === 'refused',
         'the person is never named in the payload');
 
     // A saved view is a view-config document of the person's level.
@@ -247,7 +256,7 @@ try {
         'layout' => ['columns' => [['key' => 'title', 'width' => '200px']]]]);
     storageViewExpect($big['answer'] === 'refused' && $big['reason'] === 'limit' && $big['limit'] === 'view_bytes', 'a view over 8 KB: ' . json_encode($big));
     // The person's view state is no view: it does not count toward the limit.
-    storageViewExpect($query()['data']['preferences']['revision'] === 2, 'the view state is kept');
+    storageViewExpect($query()['data']['preferences']['revision'] === 3, 'the view state is kept');
 
     // A board: every lane's first records and totals in one answer; one lane further from its cursor.
     $board = $query(['sort' => [['key' => 'title', 'direction' => 'desc']], 'window' => ['lanes' => 'status', 'per_lane' => 2, 'totals' => ['count', 'amount']]]);

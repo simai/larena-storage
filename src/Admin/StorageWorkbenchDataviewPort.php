@@ -22,6 +22,7 @@ use Larena\Property\Runtime\PropertyDisplayProjector;
 use Larena\Property\Runtime\PropertyTypeRegistry;
 use Larena\Setting\Exceptions\SettingRevisionConflict;
 use Larena\Setting\ViewConfig\ViewConfigRefused;
+use Larena\Setting\ViewConfig\ViewConfigStore;
 use Larena\Storage\Board\StorageBoardDescription;
 use Larena\Storage\Board\StorageBoardWindow;
 use Larena\Storage\Contracts\StorageWorkbenchBoard;
@@ -471,9 +472,22 @@ final readonly class StorageWorkbenchDataviewPort
         if (is_string($revision) && preg_match('/\A(0|[1-9][0-9]{0,9})\z/', $revision) === 1) {
             $revision = (int) $revision;
         }
-        if (!is_array($changes) || !is_int($revision) || $revision < 0
+        // The port's revisions are strings or integers: a string this layer never issued is a well-formed revision
+        // that is not the current one, so it is a conflict naming the current revision, and the view raises again.
+        $foreign = is_string($revision) && $revision !== '' && strlen($revision) <= 64;
+        if (!is_array($changes) || (!$foreign && (!is_int($revision) || $revision < 0))
             || array_diff(array_keys($payload), ['preferences', 'base_revision', 'reason']) !== []) {
             return ['answer' => 'refused', 'reason' => 'preferences_invalid'];
+        }
+        if ($foreign) {
+            if ($changes === [] || array_is_list($changes) || array_diff(array_map('strval', array_keys($changes)), ViewConfigStore::PREFERENCES) !== []) {
+                return ['answer' => 'refused', 'reason' => 'preferences_invalid'];
+            }
+            try {
+                return ['answer' => 'conflict', 'current_revision' => $this->lists->preferences($actor, $scopeRef, $structureId)['revision']];
+            } catch (Throwable) {
+                return ['answer' => 'refused', 'reason' => 'access_denied'];
+            }
         }
         try {
             return ['answer' => 'applied', 'data' => ['preferences' => $this->lists->savePreferences($actor, $scopeRef, $structureId, $changes, $revision)]];
