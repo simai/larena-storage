@@ -524,7 +524,8 @@ final readonly class StorageWorkbenchDataviewPort
     {
         try {
             $views = $this->lists->structureViews($actor, $scopeRef, $structure->structureId);
-            $open = $this->lists->savedView($views, $savedViewId);
+            // The open view as the person reads it: their own copy over the one everyone has, over the package's.
+            $open = $this->lists->resolvedView($actor, $scopeRef, $structure->structureId, $savedViewId);
             $preferences = $this->lists->columns($actor, $scopeRef, $structure, $open);
         } catch (Throwable $exception) {
             $this->exceptions->report($exception);
@@ -624,12 +625,13 @@ final readonly class StorageWorkbenchDataviewPort
         }
         $outcome = $this->write(function () use ($actor, $scopeRef, $structureId, $savedViewId, $revision, $layout, $shared): void {
             if ($savedViewId !== null) {
-                $open = $this->lists->savedView($this->lists->structureViews($actor, $scopeRef, $structureId), $savedViewId);
+                $open = $this->lists->resolvedView($actor, $scopeRef, $structureId, $savedViewId);
                 if ($open === null) {
                     throw new InvalidArgumentException('saved_view_unknown');
                 }
-                // A view for everyone keeps its columns for those who may not change it.
-                if ($open['level'] === 'shared' && !$this->lists->maySaveShared($actor)) {
+                // A view for everyone keeps its columns for those who may not change it; the person's own copy of it
+                // is theirs to change.
+                if ($open['copy_level'] === 'shared' && !$this->lists->maySaveShared($actor)) {
                     throw new InvalidArgumentException('shared_view_readonly');
                 }
                 $this->lists->saveViewLayout($actor, $scopeRef, $savedViewId, $revision, $layout);
@@ -668,6 +670,9 @@ final readonly class StorageWorkbenchDataviewPort
         }
         $existing = $this->lists->savedView($views, preg_match(DataviewListPreferences::SAVED_VIEW_ID, $key) === 1 ? $key : null);
         if ($intent === 'view.open') {
+            // The view opens as the person reads it: their own copy when they have one, else the one everyone has,
+            // else the package's (simai.view-config/1 §4).
+            $existing = $existing === null ? null : $this->lists->resolvedView($actor, $scopeRef, $structureId, $existing['saved_view_id']);
             if ($existing === null || array_diff(array_keys($payload), ['key']) !== []) {
                 return ['answer' => 'refused', 'reason' => 'view_unknown'];
             }

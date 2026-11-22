@@ -60,6 +60,8 @@ Route::swap($container->make('router'));
 try {
     $actor = 'actor:admin:alpha';
     $scope = 'scope:tenant-alpha';
+    // Another person of the scope: reads the storage and keeps views of their own, never the views everyone has.
+    $reader = 'actor:editor:gamma';
     storageViewInstall($connection);
     $connection->getSchemaBuilder()->create('larena_setting_values', static function (Blueprint $table): void {
         $table->id();
@@ -73,9 +75,9 @@ try {
         $table->unique(['setting_namespace', 'setting_key', 'scope', 'scope_id']);
     });
     DatabaseViewSettingsStore::createSchema($connection->getSchemaBuilder());
-    $runtime = storageViewRuntime($connection, new SqliteStorageViewDdl($connection), $actor, $scope);
+    $runtime = storageViewRuntime($connection, new SqliteStorageViewDdl($connection), $actor, $scope, readers: [$reader]);
     $workbench = $runtime['workbench'];
-    $access = new StorageViewFixtureAccess($actor, $scope);
+    $access = new StorageViewFixtureAccess($actor, $scope, [$reader]);
     $options = array_map(static fn (string $value): array => ['value' => $value, 'label' => ucfirst($value)], ['new', 'paid']);
     $id = $workbench->createStructure($scope, ['structure_id' => 'workbench.orders', 'label' => 'Orders', 'fields' => [
         storageViewField('title', 10, 'string', [], true),
@@ -383,6 +385,75 @@ try {
         === 'dataview_list_saved_view_not_board', 'a table view has no lanes');
     storageViewExpect($raise('view.save_board', ['key' => 'team-board', 'revision' => 0, 'limits' => [], 'hard' => true])['reason']
         === 'view_fields_invalid', 'no hard limits in the contract');
+
+    // The person's own copy first (simai.view-config/1 §4): view.open and the column layout read it, then the view
+    // everyone has, then the package's. A's own columns are A's alone; a reset shows everyone's again.
+    $as = static fn (string $person, string $intent, array $payload): array => $port->raise($person, $scope, $id, $intent, $payload);
+    $widthOf = static function (array $answer): ?string {
+        foreach ($answer['data']['columns'] ?? [] as $column) {
+            if ($column['key'] === 'title') {
+                return $column['width'] ?? null;
+            }
+        }
+
+        return null;
+    };
+    $crew = StorageViewConfigCodec::document(['saved_view_id' => 'crew-board', 'structure_id' => $id, 'name' => 'Доска смены', 'revision' => 1,
+        'roles' => [], 'layout' => ['columns' => ['title' => ['visible' => true, 'width' => '240px']]], 'settings' => [],
+        'query' => ['dataview_id' => $id . '.kanban', 'per_page' => 20], 'board' => ['lane_field' => 'status']]);
+    $store->save($list, ViewConfigLevel::Shared, $crew, 0);
+    foreach ([$actor, $reader] as $person) {
+        $opened = $as($person, 'view.open', ['key' => 'crew-board']);
+        storageViewExpect($opened['answer'] === 'applied' && $widthOf($opened) === '240px'
+            && $opened['data']['column_settings']['target'] === ['kind' => 'saved_view', 'revision' => 1, 'key' => 'crew-board'],
+            'everyone\'s columns before anyone has a copy: ' . json_encode($opened['data']['column_settings'] ?? $opened));
+    }
+    // A makes a copy of their own (their lane limits), then changes its columns: the change goes into A's copy.
+    storageViewExpect($as($actor, 'view.save_board', ['key' => 'crew-board', 'revision' => 0, 'limits' => ['new' => 4]])['revision'] === 1, 'A\'s own copy');
+    $opened = $as($actor, 'view.open', ['key' => 'crew-board']);
+    storageViewExpect($widthOf($opened) === '240px' && $opened['data']['column_settings']['target']['revision'] === 1, 'A\'s copy starts from everyone\'s columns');
+    $changed = $as($actor, 'settings.save_personal', ['columnSettings' => ['title' => ['visible' => true, 'width' => '320px']], 'base_revision' => 1,
+        'saved_view_id' => 'crew-board']);
+    storageViewExpect($changed['answer'] === 'applied' && $widthOf($changed) === '320px' && $changed['data']['column_settings']['target']['revision'] === 2,
+        'A changes the columns of their copy: ' . json_encode($changed['data']['column_settings'] ?? $changed));
+    storageViewExpect($store->view($list, ViewConfigLevel::Shared, 'crew-board')['revision'] === 1
+        && $store->view($list, ViewConfigLevel::Personal, 'crew-board', $actor)['document']['layouts']['board']['columns']['title']['width'] === '320px',
+        'the change is in A\'s copy, the view for everyone untouched');
+    $opened = $as($actor, 'view.open', ['key' => 'crew-board']);
+    storageViewExpect($opened['answer'] === 'applied' && $widthOf($opened) === '320px'
+        && $opened['data']['column_settings']['target'] === ['kind' => 'saved_view', 'revision' => 2, 'key' => 'crew-board'],
+        'A opens their own copy: ' . json_encode($opened['data']['column_settings'] ?? $opened));
+    storageViewExpect($widthOf($as($actor, 'query.change', ['sequence' => 2, 'query' => ['page' => 1, 'per_page' => 20, 'saved_view_id' => 'crew-board']])) === '320px',
+        'the list with the view open reads A\'s copy too');
+    // B does not see A's columns, and may not change the view everyone has.
+    $other = $as($reader, 'view.open', ['key' => 'crew-board']);
+    storageViewExpect($other['answer'] === 'applied' && $widthOf($other) === '240px' && $other['data']['column_settings']['target']['revision'] === 1,
+        'B does not see A\'s columns: ' . json_encode($other['data']['column_settings'] ?? $other));
+    $denied = $as($reader, 'settings.save_personal', ['columnSettings' => ['title' => ['width' => '200px']], 'base_revision' => 1, 'saved_view_id' => 'crew-board']);
+    storageViewExpect($denied['answer'] === 'refused' && $denied['reason'] === 'shared_view_readonly', 'B may not change everyone\'s columns: ' . json_encode($denied));
+    // With a copy of their own, B changes it; A's copy and everyone's stay.
+    storageViewExpect($as($reader, 'view.save_board', ['key' => 'crew-board', 'revision' => 0, 'limits' => []])['answer'] === 'applied', 'B\'s own copy');
+    $mineToo = $as($reader, 'settings.save_personal', ['columnSettings' => ['title' => ['width' => '200px']], 'base_revision' => 1, 'saved_view_id' => 'crew-board']);
+    storageViewExpect($mineToo['answer'] === 'applied' && $widthOf($mineToo) === '200px', 'B changes their own copy: ' . json_encode($mineToo['reason'] ?? null));
+    storageViewExpect($widthOf($as($actor, 'view.open', ['key' => 'crew-board'])) === '320px', 'A keeps their columns');
+    // A's reset to the level above: A sees everyone's columns again, B keeps their own.
+    $back = $as($actor, 'views.reset', ['key' => 'crew-board', 'level' => 'personal', 'revision' => 2]);
+    storageViewExpect($back['answer'] === 'applied' && $back['view']['level'] === 'shared', 'A\'s reset: ' . json_encode($back));
+    $opened = $as($actor, 'view.open', ['key' => 'crew-board']);
+    storageViewExpect($widthOf($opened) === '240px' && $opened['data']['column_settings']['target']['revision'] === 1,
+        'after the reset A sees the shared columns: ' . json_encode($opened['data']['column_settings'] ?? $opened));
+    storageViewExpect($widthOf($as($reader, 'view.open', ['key' => 'crew-board'])) === '200px', 'B\'s copy outlives A\'s reset');
+    // A system view stays read-only: it opens for both, its columns are changed by nobody, and nobody gets a copy of it.
+    foreach ([$actor, $reader] as $person) {
+        storageViewExpect($as($person, 'view.open', ['key' => 'orders-board'])['answer'] === 'applied', 'a system view opens');
+        $refused = $as($person, 'settings.save_personal', ['columnSettings' => ['title' => ['width' => '260px']], 'base_revision' => 1,
+            'saved_view_id' => 'orders-board']);
+        storageViewExpect($refused['answer'] === 'refused' && $refused['reason'] === 'system_readonly', 'columns of a system view: ' . json_encode($refused));
+        storageViewExpect($as($person, 'view.save_board', ['key' => 'orders-board', 'revision' => 0, 'limits' => ['new' => 1]])['reason'] === 'system_readonly',
+            'no copy of a system view');
+        storageViewExpect($store->view($list, ViewConfigLevel::Personal, 'orders-board', $person) === null, 'no copy was made');
+    }
+    storageViewExpect($store->view($list, ViewConfigLevel::System, 'orders-board')['revision'] === 1, 'the system view keeps its revision');
 
     echo "StorageViewConfigPortTest passed.\n";
 } finally {

@@ -10,10 +10,11 @@ use Larena\Storage\Exceptions\PublicationRejected;
 use Larena\Storage\Exceptions\StorageConflict;
 use Larena\Storage\Exceptions\StoragePersistenceFailed;
 use Larena\Storage\Exceptions\StorageRejected;
+use Larena\Storage\Runtime\DatabaseStorageWorkbench;
 use Throwable;
 
 /**
- * The server side of simai.document-port 1.0.0 (SIMAI Framework, ui-source src/core/contracts/ports/simai.document-port;
+ * The server side of simai.document-port 1.0.1, draft 3 (SIMAI Framework, ui-source src/core/contracts/ports/simai.document-port;
  * sf-editor reads it): one storage element, a `composition@1` value with a document per language, answered for the
  * seven intents of the port with one of its four answers.
  *
@@ -30,7 +31,9 @@ use Throwable;
  *
  * - limits: a language value's (`max_nodes`, `max_bytes`) and, when the host has one, all languages together
  *   (`max_total_bytes`, draft 3: a Larena record holds 1 MB of values); a save over the total is refused `too-large` for the
- *   whole element with the diagnostic `max-total-bytes` naming the total;
+ *   whole element with the diagnostic `max-total-bytes` at `/values` naming the limit and the total (the bytes of every
+ *   language value as max_bytes counts them, summed); a language value over max_bytes or max_nodes is named by its own
+ *   diagnostic (`max-bytes`, `max-nodes`);
  * - published: the live publication; one made outside the port (the admin's publication page, a schedule) is the object
  *   with `id` null (and `at` when known); null only when nothing is live;
  * - history drafts: the revisions where the document changed; an edit of the record's other fields makes none.
@@ -43,10 +46,10 @@ final class DocumentPort
 {
     public const PORT = 'simai.document-port';
 
-    public const EDITION = '1.0.0';
+    public const EDITION = '1.0.1';
 
-    /** The digest of the conformance kit this server passes (port.json conformance.sha256, draft 2). */
-    public const KIT_SHA256 = 'ff40fe17b040aa87a81b829413a9713fb5aa11461d0d5725fa16def1a96d8115';
+    /** The digest of the conformance kit this server passes (port.json conformance.sha256, draft 3). */
+    public const KIT_SHA256 = '6bf501e33b092a492688b6f88d61247d4bd58b45d03d7429adff8c94c5ade552';
 
     /** The intents of the port and the capability each needs (null: every host). */
     public const INTENTS = [
@@ -241,7 +244,8 @@ final class DocumentPort
             }
             $next[(string) $language] = $level['value'];
         }
-        $total = strlen((string) CompositionDocument::json($next));
+        // As max_bytes counts a value (simai:area marks removed), summed over every language the element would hold.
+        $total = array_sum(array_map(static fn (mixed $value): int => CompositionDocument::bytes($value), $next));
         if (isset($element->limits['max_total_bytes']) && $total > $element->limits['max_total_bytes']) {
             return self::refused('too-large', ['diagnostics' => [$this->totalDiagnostic($total)]]);
         }
@@ -483,8 +487,15 @@ final class DocumentPort
                     'code' => $error['code'], 'severity' => 'error', 'path' => '/values/' . $language . $error['path'], 'language' => $language,
                 ], array_slice($errors, 0, 20))]);
             }
-            if (CompositionDocument::nodes($document) > $element->limits['max_nodes'] || CompositionDocument::bytes($document) > $element->limits['max_bytes']) {
-                return self::refused('too-large');
+            // The refusal names the value and the limit it passes (draft 3).
+            $nodes = CompositionDocument::nodes($document);
+            $bytes = CompositionDocument::bytes($document);
+            if ($nodes > $element->limits['max_nodes'] || $bytes > $element->limits['max_bytes']) {
+                [$code, $limit, $total] = $nodes > $element->limits['max_nodes']
+                    ? ['max-nodes', $element->limits['max_nodes'], $nodes] : ['max-bytes', $element->limits['max_bytes'], $bytes];
+
+                return self::refused('too-large', ['diagnostics' => [['code' => $code, 'severity' => 'error', 'path' => '/values/' . $language,
+                    'language' => $language, 'limit' => $limit, 'total' => $total]]]);
             }
         }
 
@@ -663,15 +674,16 @@ final class DocumentPort
     }
 
     /**
-     * The diagnostic of an element too large as a whole: it names the total, the limit and, when known, the bytes.
+     * The diagnostic of an element too large as a whole (draft 3): at `/values`, the limit in bytes (the announced
+     * max_total_bytes, else the record's own cap) and, when known, the total of the language values.
      *
      * @return array<string, mixed>
      */
     private function totalDiagnostic(?int $bytes): array
     {
-        return ['code' => 'max-total-bytes', 'severity' => 'error', 'path' => '/values', 'limit' => 'max_total_bytes']
-            + (isset($this->element()->limits['max_total_bytes']) ? ['max_total_bytes' => $this->element()->limits['max_total_bytes']] : [])
-            + ($bytes !== null ? ['bytes' => $bytes] : []);
+        return ['code' => 'max-total-bytes', 'severity' => 'error', 'path' => '/values',
+            'limit' => $this->element()->limits['max_total_bytes'] ?? DatabaseStorageWorkbench::MAX_VALUES_BYTES]
+            + ($bytes !== null ? ['total' => $bytes] : []);
     }
 
     /**

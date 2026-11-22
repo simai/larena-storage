@@ -27,15 +27,24 @@ use Larena\Storage\View\StorageViewSync;
  */
 final readonly class StorageViewFixtureAccess implements ActorOperationAuthorizer, QueryScopeProvider
 {
-    public function __construct(private string $actor, private string $scopeRef)
+    /** A reader may do everything in the scope except change a structure (and with it the views everyone has). */
+    public const READER_DENIED = 'storage.workbench.structure.update';
+
+    /** @param list<string> $readers other people of the scope */
+    public function __construct(private string $actor, private string $scopeRef, private array $readers = [])
     {
     }
 
     public function assertAllowed(string $actor, string $operation): void
     {
-        if ($actor !== $this->actor) {
+        if (!$this->allows($actor, $operation)) {
             throw new RuntimeException('storage_view_fixture_actor_denied');
         }
+    }
+
+    private function allows(string $actor, string $operation): bool
+    {
+        return $actor === $this->actor || (in_array($actor, $this->readers, true) && $operation !== self::READER_DENIED);
     }
 
     public function supports(string $resourceType, string $operation): bool
@@ -50,7 +59,7 @@ final readonly class StorageViewFixtureAccess implements ActorOperationAuthorize
 
     public function explain(string $resourceType, string $actor, string $operation, array $context = []): AccessDecision
     {
-        return $actor === $this->actor
+        return $this->allows($actor, $operation)
             ? AccessDecision::allow($operation, $actor, $resourceType . ':' . $this->scopeRef, 'storage_view_fixture_allowed')
             : AccessDecision::deny($operation, $actor, $resourceType . ':denied', 'storage_view_fixture_denied');
     }
@@ -127,13 +136,14 @@ function storageViewInstall(Connection $connection): void
  * @param Closure(string): void|null $viewBuilds Receives the storages whose витрина a structure change left to fill.
  * @param Closure(string): bool|null $fieldChangeJobs Queues a field change; without it every change runs inline.
  * @param int $inlineViewBuildLimit Up to this many records a list builds a витрина that is not ready; above it, refuses.
+ * @param list<string> $readers other people of the scope, who may not change a structure
  * @return array{workbench: DatabaseStorageWorkbench, storage: VersionedStorage, views: StorageViewSync, evolution: DatabaseStorageSchemaEvolution}
  */
-function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null, ?Closure $viewBuilds = null, ?Closure $fieldChangeJobs = null, int $inlineFieldChangeLimit = DatabaseStorageWorkbench::INLINE_FIELD_CHANGE_LIMIT, int $inlineViewBuildLimit = DatabaseStorageWorkbench::INLINE_VIEW_BUILD_LIMIT): array
+function storageViewRuntime(Connection $connection, StorageViewDdl $ddl, string $actor, string $scopeRef, ?StorageMetrics $metrics = null, ?Closure $viewBuilds = null, ?Closure $fieldChangeJobs = null, int $inlineFieldChangeLimit = DatabaseStorageWorkbench::INLINE_FIELD_CHANGE_LIMIT, int $inlineViewBuildLimit = DatabaseStorageWorkbench::INLINE_VIEW_BUILD_LIMIT, array $readers = []): array
 {
     $metrics ??= new StorageMetrics();
     $properties = PropertyTypeRegistry::builtIns();
-    $access = new StorageViewFixtureAccess($actor, $scopeRef);
+    $access = new StorageViewFixtureAccess($actor, $scopeRef, $readers);
     $events = new NullStorageSecurityEventSink();
     $views = new StorageViewSync($connection, new StorageViewRegistry($connection, 0.0), $ddl);
     $cursorKey = 'storage-view-fixture-cursor-key-minimum-32-bytes';

@@ -287,16 +287,24 @@ final readonly class DataviewListPreferences
 
     /**
      * A saved view as the person opens it (simai.view-config/1 §4): one per id, the person's own copy laid over the one
-     * everyone has and that over the package's, in the shape the lists read, with the level it comes from. Null when
-     * the list holds no view of that id.
+     * everyone has and that over the package's, in the shape the lists read, with the level it comes from (`level`, its
+     * highest) and the level of the copy the person reads (`copy_level`: their own when they have one, else the level
+     * above). The revision and the columns are that copy's, so a column change goes to it against its revision. Null
+     * when the list holds no view of that id.
      *
      * @return array<string, mixed>|null
      */
-    public function resolvedView(string $actor, string $scope, string $structureId, string $savedViewId): ?array
+    public function resolvedView(string $actor, string $scope, string $structureId, ?string $savedViewId): ?array
     {
+        if ($savedViewId === null) {
+            return null;
+        }
         foreach ($this->views->resolved(self::listOf($scope, $structureId), $actor) as $entry) {
             if ((string) ($entry['document']['id'] ?? '') === $savedViewId) {
-                return StorageViewConfigCodec::view($entry['document'], $structureId) + ['level' => $entry['level']->value];
+                $copy = $entry['over'] !== [] ? $entry['over'][array_key_last($entry['over'])] : $entry['level'];
+
+                return StorageViewConfigCodec::view($entry['document'], $structureId)
+                    + ['level' => $entry['level']->value, 'copy_level' => $copy->value];
             }
         }
 

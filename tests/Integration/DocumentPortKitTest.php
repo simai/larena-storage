@@ -17,7 +17,7 @@ use Larena\Storage\View\SqliteStorageViewDdl;
 require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../Support/published-site-view-fixture.php';
 
-// The Framework's conformance kit of simai.document-port 1.0.0 (draft 2), the acceptance gate of a host: its 39 cases
+// The Framework's conformance kit of simai.document-port 1.0.1 (draft 3), the acceptance gate of a host: its 44 cases
 // read from kit/cases/*.json of the Framework Root pins, with the checks of the kit's own runner (run.mjs), against
 // the port on Storage's records. Each case gets a database of its own: a page structure with a composition@1 field,
 // the case's drafts written as record versions whose row ids are the case's revisions, its publications published
@@ -96,7 +96,15 @@ function kitHost(array $given): array
     ]], KIT_ACTOR);
 
     // The drafts oldest first, then the current one: each a record version whose row id is the case's revision.
-    $versions = [...array_reverse($given['drafts'] ?? []), ['revision' => $given['revision'], 'values' => $given['values']]];
+    $drafts = $given['drafts'] ?? [];
+    // Draft 3: `published` as an object is a publication made outside the port. Its revision is a version of the
+    // record; a case that gives no draft of it gets one with the current values.
+    $outside = is_array($given['published'] ?? null) ? $given['published'] : null;
+    if ($outside !== null && !in_array($outside['revision'], array_column($drafts, 'revision'), true)) {
+        $drafts[] = ['revision' => $outside['revision'], 'values' => $given['values']];
+        usort($drafts, static fn (array $left, array $right): int => (int) $right['revision'] <=> (int) $left['revision']);
+    }
+    $versions = [...array_reverse($drafts), ['revision' => $given['revision'], 'values' => $given['values']]];
     $record = null;
     foreach ($versions as $version) {
         // sqlite_sequence has no key on name: one row per table, updated or added.
@@ -118,7 +126,15 @@ function kitHost(array $given): array
         $store->publish($one['revision'], $one['languages'], $one['from'] ?? null, ['intent' => 'document.publish', 'client_key' => $one['client_key'],
             'params_hash' => hash('sha256', 'seeded ' . $one['id'])], $one['id']);
     }
-    storageViewExpect($store->live() === ($given['published'] ?? null), 'the live publication is ' . json_encode($store->live()));
+    if ($outside !== null) {
+        // Put live as the admin's publication page does, outside the port: the record's version of that row, per language.
+        $schemaId = $workbench->readStructure(KIT_SCOPE, 'workbench.pages', KIT_ACTOR)->schema->schemaId;
+        $revision = (int) $connection->table('larena_storage_record_versions')->where('id', (int) $outside['revision'])->value('revision');
+        foreach ($outside['languages'] as $language) {
+            $publication->publish($schemaId, $record->recordId, KIT_SITE, $language, $revision, KIT_ACTOR, 'admin:publication-page');
+        }
+    }
+    storageViewExpect($outside !== null || $store->live() === ($given['published'] ?? null), 'the live publication is ' . json_encode($store->live()));
 
     $ports = new DatabaseDocumentPorts($connection, $workbench, $publication,
         array_key_exists('rights', $given) && $given['rights'] !== null ? new KitRights($given['rights']) : new AccessDocumentPortRights(new StorageViewFixtureAccess(KIT_ACTOR, KIT_SCOPE), new StorageViewFixtureAccess(KIT_ACTOR, KIT_SCOPE)));
@@ -356,13 +372,21 @@ $expect((new DocumentPortBinding(KIT_SCOPE, 'workbench.pages', 'r', 'document', 
     === ['max_nodes' => 200, 'max_bytes' => 262144, 'max_total_bytes' => 1048576], 'the binding announces the record cap as max_total_bytes');
 $total = kitHost($kase['given'] + ['capabilities' => []]);
 $values = $kase['given']['values'];
-$bytes = strlen((string) \Larena\Property\Runtime\CompositionDocument::json($values));
+// As max_bytes counts a value, summed over the languages (the kit's save-over-the-total-byte-limit case).
+$bytes = array_sum(array_map(static fn (mixed $value): int => \Larena\Property\Runtime\CompositionDocument::bytes($value), $values));
 $small = DocumentPort::bound(new DocumentPortElement($kase['given']['target'], $kase['given']['languages'], [],
     ['max_nodes' => 200, 'max_bytes' => 262144, 'max_total_bytes' => $bytes - 1]), $total['store']);
 $expect($small->send('document.load')['data']['limits']['max_total_bytes'] === $bytes - 1, 'load answers max_total_bytes');
 $over = $small->send('document.save', ['values' => $values, 'expected_revision' => $kase['given']['revision']]);
 $expect($over['answer'] === 'refused' && $over['reason'] === 'too-large' && $over['data']['diagnostics'][0]['code'] === 'max-total-bytes'
-    && $over['data']['diagnostics'][0]['limit'] === 'max_total_bytes' && $over['data']['diagnostics'][0]['bytes'] === $bytes, 'the whole element is too-large: ' . json_encode($over));
+    && $over['data']['diagnostics'][0]['path'] === '/values' && $over['data']['diagnostics'][0]['limit'] === $bytes - 1
+    && $over['data']['diagnostics'][0]['total'] === $bytes, 'the whole element is too-large: ' . json_encode($over));
+// A language value over max_bytes or max_nodes is named by its own diagnostic, with the limit and its total.
+$tight = DocumentPort::bound(new DocumentPortElement($kase['given']['target'], $kase['given']['languages'], [],
+    ['max_nodes' => 3, 'max_bytes' => 262144]), $total['store']);
+$nodes = $tight->send('document.save', ['values' => ['en' => $values['en']], 'expected_revision' => $kase['given']['revision']]);
+$expect($nodes['reason'] === 'too-large' && $nodes['data']['diagnostics'][0]['code'] === 'max-nodes' && $nodes['data']['diagnostics'][0]['path'] === '/values/en'
+    && $nodes['data']['diagnostics'][0]['limit'] === 3 && $nodes['data']['diagnostics'][0]['total'] > 3, 'a language over max_nodes: ' . json_encode($nodes));
 // 1. The diagnostic of an empty object PHP cannot give back is exactly empty-object-not-kept.
 $expect(($lost['answer']['data']['diagnostics'][0]['code'] ?? null) === 'empty-object-not-kept', 'the diagnostic is empty-object-not-kept');
 // 5. An edit of the record's other fields makes no document draft: the draft it follows moves to the new revision.
