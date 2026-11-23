@@ -252,6 +252,7 @@
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSitePackImportTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSectionPublicationTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageRecordCardTest.php",
+            "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageDocumentEditorTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageSavedViewsMoveTest.php",
             "php -d zend.assertions=1 -d assert.exception=1 tests/Admin/StorageViewConfigPortTest.php"
         ],

@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use Larena\Admin\Http\Controllers\RecordFilterOptionsController;
 use Larena\Admin\Http\Controllers\RecordRelationOptionsController;
 use Larena\Storage\Admin\Http\Controllers\FormerCmsAddressController;
+use Larena\Storage\Admin\Http\Controllers\StorageDocumentEditorController;
 use Larena\Storage\Admin\Http\Controllers\StorageFieldRevealController;
 use Larena\Storage\Admin\Http\Controllers\StorageJobsController;
 use Larena\Storage\Admin\Http\Controllers\StorageSectionController;
@@ -73,6 +74,9 @@ if ((bool) config('larena-admin.storage_section.enabled', false)) {
             Route::get('/{structure}/jobs/{job}/download', [StorageJobsController::class, 'download'])->where(['structure' => $structure, 'job' => $job])->name('jobs.download');
             // The records list of a storage bound to a publishable role: the badges and «Опубликовать» beside the list's own port.
             Route::post('/{structure}/publication-port', StorageSectionPublicationPortController::class)->where('structure', $structure)->name('publication-port');
+            // The page editor of a record's page document (composition@1): one screen per page, the Framework's sf-editor.
+            Route::get('/{structure}/{record}/document/{field}', [StorageDocumentEditorController::class, 'page'])
+                ->where(['structure' => $structure, 'record' => 'record-[a-f0-9]{32}', 'field' => '[a-z][a-z0-9_]{0,63}'])->name('document');
             // The storage's settings as lists (owner decision 2026-10-16): its fields as records of a host port.
             Route::post('/{structure}/schema-port', [StorageSectionController::class, 'schemaPort'])->where('structure', $structure)->name('schema-port');
         });
@@ -88,6 +92,17 @@ if ((bool) config('larena-admin.storage_section.enabled', false)) {
         ->middleware((array) config('larena-admin.storage_section.middleware', []))
         ->where('structure', 'workbench\.[a-z][a-z0-9_.:-]{0,109}')
         ->name('larena.storage-section.export');
+    // The page editor's document port (simai.document-port) and its pictures and files (safe file service). Outside the
+    // group, under the section's middleware alone: they answer JSON, the port's answer with HTTP 200, and a picture travels
+    // as multipart.
+    $document = trim((string) config('larena-admin.storage_section.uri', 'admin/storage'), '/').'/{structure}/{record}/document/{field}';
+    $documentWhere = ['structure' => 'workbench\.[a-z][a-z0-9_.:-]{0,109}', 'record' => 'record-[a-f0-9]{32}', 'field' => '[a-z][a-z0-9_]{0,63}'];
+    Route::post($document.'/port', [StorageDocumentEditorController::class, 'port'])
+        ->middleware((array) config('larena-admin.storage_section.middleware', ['web', 'access:admin.frontend.read']))
+        ->where($documentWhere)->name('larena.storage-section.document-port');
+    Route::post($document.'/media', [StorageDocumentEditorController::class, 'media'])
+        ->middleware((array) config('larena-admin.storage_section.middleware', ['web', 'access:admin.frontend.read']))
+        ->where($documentWhere)->name('larena.storage-section.document-media');
     // A record of the section in the Framework property view (simai.property-view-port 1.0.0). Outside the group:
     // a file travels as multipart beside its payload and must reach the port unchanged.
     Route::post(trim((string) config('larena-admin.storage_section.uri', 'admin/storage'), '/').'/property-port',

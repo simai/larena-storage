@@ -177,7 +177,10 @@ foreach (['ru' => ['видимые колонки', 'все поля', 'кром
 // stand's two (they were the admin's until the section moved to Storage, owner decision 2026-10-29; the list's data
 // view port and the CSV export left the Root application on 2026-11-10).
 $workbenchRoutes = (string) file_get_contents(__DIR__ . '/../../routes/admin/workbench.php');
-assert(substr_count($routeSource, 'Route::post(') === 24 && substr_count($workbenchRoutes, 'Route::post(') === 2);
+// Two more since 2026-11-23: the page editor's document port and its pictures, under the section's middleware.
+assert(substr_count($routeSource, 'Route::post(') === 26 && substr_count($workbenchRoutes, 'Route::post(') === 2);
+assert(str_contains($routeSource, "->where(\$documentWhere)->name('larena.storage-section.document-port');")
+    && str_contains($routeSource, "->where(\$documentWhere)->name('larena.storage-section.document-media');"));
 // The records list's data view port and its CSV export: one owner port for the section and the stand, under the
 // section's (or the stand's) own middleware; the controllers take the actor from the request, never from input.
 assert(str_contains($routeSource, "StorageWorkbenchDataviewPortController::class)\n        ->middleware((array) config('larena-admin.storage_section.middleware', []))\n        ->name('larena.storage-section.port');"));

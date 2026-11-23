@@ -437,7 +437,11 @@
     "src/DocumentPort/DocumentPortReceiptSweep.php",
     "src/Console/Commands/DocumentPortReceiptSweepCommand.php",
     "tests/Integration/DocumentPortHistoryPagingTest.php",
-    "tests/Integration/DocumentPortReceiptSweepTest.php"
+    "tests/Integration/DocumentPortReceiptSweepTest.php",
+    "src/Admin/StorageDocumentEditor.php",
+    "src/Admin/Http/Controllers/StorageDocumentEditorController.php",
+    "resources/views/admin/document-editor.blade.php",
+    "tests/Admin/StorageDocumentEditorTest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

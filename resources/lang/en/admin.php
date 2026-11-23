@@ -84,6 +84,15 @@ return [
                 'write_refused' => 'The storage did not accept this row\'s values.',
             ],
         ],
+        // The page editor of a record's page document (document port, block 2).
+        'document_editor' => [
+            'label' => 'Page editor',
+            'open' => 'Page editor: :field',
+            'back' => 'Back to the record',
+            'read_only' => 'View only: you may not change this record.',
+            'waiting_title' => 'The page editor is not connected yet',
+            'waiting_text' => 'The page is kept and opens in the editor once SIMAI Framework releases the editor with the page storage port. Until then nothing changes here.',
+        ],
         'jobs' => [
             'title' => 'Background jobs',
             'panel' => 'Imports and exports',

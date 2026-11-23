@@ -101,6 +101,23 @@ final class StorageSectionBindings
                     : null,
                 $app->bound(\Larena\Access\Contracts\ActorOperationAuthorizer::class) ? $app->make(\Larena\Access\Contracts\ActorOperationAuthorizer::class) : null,
             ));
+        // The page editor of a record's page document (document port, block 2): the reader's rights from Access, the
+        // port over the record, and its pictures and files through the safe file service, each where it is installed.
+        $app->bindIf(\Larena\Storage\DocumentPort\DocumentPortRights::class, \Larena\Storage\DocumentPort\AccessDocumentPortRights::class);
+        $app->scopedIf(StorageDocumentEditor::class, static fn (Application $app): StorageDocumentEditor => new StorageDocumentEditor(
+            $app->make(\Larena\Storage\Admin\Contracts\StorageWorkbenchGateway::class),
+            $app->make(\Larena\Storage\Contracts\StorageWorkbench::class),
+            $app->make(\Larena\Storage\DocumentPort\DatabaseDocumentPorts::class),
+            $app->make(\Larena\Storage\DocumentPort\DocumentPortRights::class),
+            self::publicationActions($app),
+            $app->bound(\Larena\Core\Contracts\SiteLanguages::class) ? $app->make(\Larena\Core\Contracts\SiteLanguages::class) : null,
+            array_values(array_filter((array) $app->make(ConfigRepository::class)->get('larena-admin.structure_editors.locales', ['ru', 'en']), 'is_string')),
+            class_exists(\Larena\Filesystem\Services\SafeFileService::class)
+                ? $app->make(\Larena\Filesystem\Services\SafeFileService::class) : null,
+            $app->bound(\Larena\Access\Contracts\ActorOperationAuthorizer::class) ? $app->make(\Larena\Access\Contracts\ActorOperationAuthorizer::class) : null,
+            $app->bound(\Larena\Core\Contracts\ScopeRefResolver::class) ? $app->make(\Larena\Core\Contracts\ScopeRefResolver::class) : null,
+            $app->bound(\Larena\Core\Contracts\ScopeResourceBindings::class) ? $app->make(\Larena\Core\Contracts\ScopeResourceBindings::class) : null,
+        ));
         // «Опубликовать» in the section, for a storage bound to a publishable role.
         $app->scopedIf(StorageSectionPublication::class, static fn (Application $app): StorageSectionPublication => new StorageSectionPublication(
             $app->make(\Illuminate\Database\DatabaseManager::class)->connection(),

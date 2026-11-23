@@ -418,7 +418,10 @@ final readonly class StorageSectionController
             // An archived storage says so above its records: a Framework alert drawn by the shared renderer.
             'archivedNotice' => $this->archivedNotice($selected),
             // On its own page the record names the page; the storage is the line under it.
-            'recordPageActions' => $this->dataviews->heading([['text' => $this->copy('back_to_records'), 'href' => $listPath]])->actions,
+            // A page document (composition@1) opens in the page editor, one screen per page; «Back to records» stays last.
+            'recordPageActions' => $this->dataviews->heading([...($recordPage && $current !== null && $selected !== null
+                ? $this->documentEditorLinks($structure, (string) $current['record_id'], $this->fields($selected, true)) : []),
+                ['text' => $this->copy('back_to_records'), 'href' => $listPath]])->actions,
             'recordTitle' => $recordPage && $current !== null && $selected !== null ? $this->recordTitle($current, $selected) : null,
             // The heading buttons when no list can be shown here: the same buttons, drawn by the same renderer.
             'headerActions' => $this->dataviews->heading($headerActions)->actions,
@@ -722,7 +725,8 @@ final readonly class StorageSectionController
         $token = $request->hasSession() ? $request->session()->token() : '';
         $writeUrl = $this->sectionPath().'/'.rawurlencode($structure);
         $common = [
-            'fields' => $this->fields($selected, true),
+            // A page document (composition@1) is edited on its own page in the Framework's editor, not in the record form.
+            'fields' => array_values(array_filter($this->fields($selected, true), static fn (array $field): bool => ($field['type'] ?? null) !== 'composition')),
             'closeUrl' => $listPath,
             'writeUrl' => $writeUrl,
             'heading' => $this->copy('record'),
@@ -2048,6 +2052,26 @@ final readonly class StorageSectionController
         $selected = $state['selected_structure'] ?? null;
 
         return is_array($selected) && ($selected['structure_id'] ?? null) === $structure ? $selected : null;
+    }
+
+    /**
+     * «Редактор страницы» of each page document field (composition@1) of a record: its own page, the Framework's editor.
+     *
+     * @param list<array<string, mixed>> $fields
+     * @return list<array{text: string, href: string}>
+     */
+    private function documentEditorLinks(string $structure, string $recordId, array $fields): array
+    {
+        $links = [];
+        foreach ($fields as $field) {
+            if (($field['type'] ?? null) === 'composition' && is_string($field['key'] ?? null) && preg_match('/^[a-z][a-z0-9_]{0,63}$/D', $field['key']) === 1) {
+                $label = is_string($field['label'] ?? null) && trim($field['label']) !== '' ? $field['label'] : $field['key'];
+                $links[] = ['text' => (string) $this->translator->get('larena-storage::admin.section.document_editor.open', ['field' => $label]),
+                    'href' => $this->sectionPath().'/'.rawurlencode($structure).'/'.rawurlencode($recordId).'/document/'.$field['key']];
+            }
+        }
+
+        return $links;
     }
 
     /**
