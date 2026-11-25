@@ -441,7 +441,8 @@
     "src/Admin/StorageDocumentEditor.php",
     "src/Admin/Http/Controllers/StorageDocumentEditorController.php",
     "resources/views/admin/document-editor.blade.php",
-    "tests/Admin/StorageDocumentEditorTest.php"
+    "tests/Admin/StorageDocumentEditorTest.php",
+    "scripts/check-delivery-manifest.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",
