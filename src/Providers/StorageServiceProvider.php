@@ -54,6 +54,7 @@ use Larena\Core\Contracts\ScopeMembershipRegistry;
 use Larena\Core\SitePack\SitePackLimits;
 use Larena\Storage\Contracts\StorageSitePack;
 use Larena\Storage\SitePack\DatabaseStorageSitePack;
+use Larena\Storage\SitePack\StorageScenarioDemoContent;
 use Larena\Storage\SitePack\StorageSitePackFiles;
 use Larena\Storage\SitePack\StorageSitePackJob;
 use Larena\Storage\SitePack\StorageSitePackOperationHandlers;
@@ -773,6 +774,13 @@ final class StorageServiceProvider extends ServiceProvider
             $app->make(DatabaseStorageSitePack::class),
             StorageSitePackImportJob::IMPORT_JOB_TYPE,
         ));
+        // A scenario's demo pages (core's SiteScenarioApplier) through the SitePack import, as a merge that only adds.
+        if (interface_exists(\Larena\Core\Contracts\SiteScenarioDemoContent::class)) {
+            $this->app->singleton(\Larena\Core\Contracts\SiteScenarioDemoContent::class, static fn (Application $app): StorageScenarioDemoContent => new StorageScenarioDemoContent(
+                $app->make(DatabaseManager::class)->connection(),
+                $app->make(StorageSitePack::class),
+            ));
+        }
         $this->app->singleton(StorageSitePackOperationHandlers::class, static fn (Application $app): StorageSitePackOperationHandlers => new StorageSitePackOperationHandlers(
             $app->make(StorageSitePack::class),
         ));

@@ -28,8 +28,15 @@ namespace Larena\Storage\Contracts;
  * that adopted its schema, imported into the target's adopted one): storage_sitepack_site_pages_not_empty (the target
  * has pages other than the untouched starter Home page, which is replaced), storage_sitepack_site_pages_fields_missing,
  * storage_sitepack_site_pages_not_adopted (both: run larena:storage:adopt-site-pages),
- * storage_sitepack_site_pages_scope_mismatch. Warnings: reference_cleared, relation_dropped, user_missing_cleared,
- * user_missing_set_to_importer, file_missing_cleared, role_unknown, role_binding_skipped, list_target_unresolved.
+ * storage_sitepack_site_pages_scope_mismatch, and for a scenario's demo content (`addMissing`)
+ * storage_sitepack_add_missing_unsupported (not a pack of the site pages) and storage_sitepack_add_missing_too_large.
+ * Warnings: reference_cleared, relation_dropped, user_missing_cleared, user_missing_set_to_importer,
+ * file_missing_cleared, role_unknown, role_binding_skipped, list_target_unresolved, locale_left_out (demo content
+ * only: a translation into a language the site does not declare).
+ *
+ * Restore and demo content: a person's import (the admin page, larena:storage:sitepack-import) is the strict restore
+ * and refuses a site in use; only the scenario binding (StorageScenarioDemoContent) imports with `addMissing`, a merge
+ * that adds the pages the site does not have and keeps every page it has (id map `skip`, counted `records_skipped`).
  *
  * Reasons a call is refused with (StorageRejected): storage_sitepack_export_denied, storage_sitepack_run_unknown,
  * storage_sitepack_field_change_running, storage_sitepack_run_not_done, storage_sitepack_run_finished,

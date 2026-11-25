@@ -11,17 +11,24 @@ use Larena\Storage\Contracts\StorageSitePackRun;
 /** Reads an import's id map for one chunk of records: the targets of the pack's records, references, users and files. */
 final class StorageSitePackIdMap
 {
+    /** The id map action of a pack page a demo content import keeps as the site has it (StorageSitePackPlanner). */
+    public const string SKIP = 'skip';
+
     /**
      * @param list<string> $internal records of the pack
      * @param list<string> $external records of other storages
-     * @return array{internal: array<string, string>, external: array<string, string>}
+     * @return array{internal: array<string, string>, external: array<string, string>, skipped: array<string, true>}
+     *         `skipped`: the pack's pages a demo content import keeps as the site has them (id map action `skip`)
      */
     public static function lookup(StorageSitePackRuns $runs, string $runRef, array $internal, array $external): array
     {
-        $maps = ['internal' => [], 'external' => []];
+        $maps = ['internal' => [], 'external' => [], 'skipped' => []];
         foreach ($internal === [] ? [] : $runs->idsFor($runRef, StorageSitePackRuns::ID_KIND_RECORD, $internal) as $source => $row) {
             if (is_string($row->target_ref) && $row->target_ref !== '') {
                 $maps['internal'][$source] = $row->target_ref;
+            }
+            if ($row->action === self::SKIP) {
+                $maps['skipped'][$source] = true;
             }
         }
         foreach ($external === [] ? [] : $runs->idsFor($runRef, StorageSitePackRuns::ID_KIND_REFERENCE, $external) as $source => $row) {

@@ -20,6 +20,13 @@ use Larena\Storage\Exceptions\StorageRejected;
  * - `declaredLocales`: the locales the target site declares; null asks the application (the site's locales).
  * - `transferDomains`: «Перенести домены»: add the domains the pack carries to the target site. Off by default,
  *   because a new place usually has other domains.
+ * - `addMissing`: a scenario's demo content (StorageScenarioDemoContent), never a person's restore: the pack's site
+ *   pages go into a site that is already in use, as a merge that only adds. A page the site has already (the same
+ *   record id, or a page at the same address) is kept as it is and reported skipped; nothing is overwritten,
+ *   published over or deleted, and the same pack applied again adds nothing. Off, the import is the strict restore
+ *   (a used site is refused, `storage_sitepack_site_pages_not_empty`; a pack imported before is `already_imported`).
+ *   Only the scenario binding sets it: the admin import page and larena:storage:sitepack-import never do. It needs a
+ *   pack of the site pages and cannot go with `copy`.
  */
 final readonly class StorageSitePackImportOptions
 {
@@ -46,12 +53,13 @@ final readonly class StorageSitePackImportOptions
         public bool $copy = false,
         ?array $declaredLocales = null,
         public bool $transferDomains = false,
+        public bool $addMissing = false,
     ) {
         $structure = '/\Aworkbench\.[a-z][a-z0-9_.:-]{0,109}\z/D';
         if (($targetStructureId !== null && preg_match($structure, $targetStructureId) !== 1)
             || ($targetLabel !== null && (trim($targetLabel) === '' || mb_strlen($targetLabel) > 120))
             || !in_array($publication, [self::PUBLICATION_DRAFT, self::PUBLICATION_KEEP], true)
-            || count($referenceTargets) > 100) {
+            || count($referenceTargets) > 100 || ($addMissing && $copy)) {
             throw new StorageRejected('storage_sitepack_import_options_invalid');
         }
         foreach ($referenceTargets as $external => $local) {
@@ -81,6 +89,12 @@ final readonly class StorageSitePackImportOptions
         $this->declaredLocales = $locales;
     }
 
+    /** Whether this is a scenario's demo content: a merge that only adds (see the class comment). */
+    public function addsMissing(): bool
+    {
+        return $this->addMissing;
+    }
+
     public function keepsPublication(): bool
     {
         return $this->publication === self::PUBLICATION_KEEP;
@@ -89,10 +103,10 @@ final readonly class StorageSitePackImportOptions
     /** The same options with the locales the application declares, when the person named none. @param list<string> $locales */
     public function withDeclaredLocales(array $locales): self
     {
-        return new self($this->targetStructureId, $this->targetLabel, $this->publication, $this->referenceTargets, $this->copy, array_values(array_unique($locales)), $this->transferDomains);
+        return new self($this->targetStructureId, $this->targetLabel, $this->publication, $this->referenceTargets, $this->copy, array_values(array_unique($locales)), $this->transferDomains, $this->addMissing);
     }
 
-    /** @return array{target_structure_id: ?string, target_label: ?string, publication: string, reference_targets: array<string, string>, copy: bool, declared_locales: ?list<string>, transfer_domains: bool} */
+    /** @return array{target_structure_id: ?string, target_label: ?string, publication: string, reference_targets: array<string, string>, copy: bool, declared_locales: ?list<string>, transfer_domains: bool, add_missing?: bool} */
     public function toArray(): array
     {
         $targets = $this->referenceTargets;
@@ -110,7 +124,7 @@ final readonly class StorageSitePackImportOptions
             'copy' => $this->copy,
             'declared_locales' => $locales,
             'transfer_domains' => $this->transferDomains,
-        ];
+        ] + ($this->addMissing ? ['add_missing' => true] : []);
     }
 
     /** @param array<array-key, mixed> $options */
@@ -122,9 +136,10 @@ final readonly class StorageSitePackImportOptions
         $label = $options['target_label'] ?? null;
         $publication = $options['publication'] ?? self::PUBLICATION_DRAFT;
         if (!is_array($targets) || ($locales !== null && !is_array($locales)) || ($structure !== null && !is_string($structure))
-            || ($label !== null && !is_string($label)) || !is_string($publication) || !is_bool($options['copy'] ?? false) || !is_bool($options['transfer_domains'] ?? false)) {
+            || ($label !== null && !is_string($label)) || !is_string($publication) || !is_bool($options['copy'] ?? false) || !is_bool($options['transfer_domains'] ?? false)
+            || !is_bool($options['add_missing'] ?? false)) {
             throw new StorageRejected('storage_sitepack_import_options_invalid');
         }
-        return new self($structure, $label, $publication, $targets, (bool) ($options['copy'] ?? false), $locales, (bool) ($options['transfer_domains'] ?? false));
+        return new self($structure, $label, $publication, $targets, (bool) ($options['copy'] ?? false), $locales, (bool) ($options['transfer_domains'] ?? false), (bool) ($options['add_missing'] ?? false));
     }
 }

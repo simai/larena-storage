@@ -478,7 +478,7 @@ final class DatabaseStorageSitePack implements StorageSitePack
                 || ((int) ($plan->publication['scheduled'] ?? 0) > 0 && !$this->allowed($actor, 'storage.publication.schedule')))) {
             throw new StorageRejected(self::REASON_IMPORT_DENIED);
         }
-        if (($plan->options['copy'] ?? false) !== true && $run->packageId !== null && $this->importedBefore($run->packageId, (string) $run->siteRef, $runRef)) {
+        if (($plan->options['copy'] ?? false) !== true && ($plan->options['add_missing'] ?? false) !== true && $run->packageId !== null && $this->importedBefore($run->packageId, (string) $run->siteRef, $runRef)) {
             // The same pack went into this site since the plan.
             throw new StorageRejected('storage_sitepack_plan_stale');
         }

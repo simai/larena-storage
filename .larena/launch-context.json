@@ -442,7 +442,12 @@
     "src/Admin/Http/Controllers/StorageDocumentEditorController.php",
     "resources/views/admin/document-editor.blade.php",
     "tests/Admin/StorageDocumentEditorTest.php",
-    "scripts/check-delivery-manifest.php"
+    "scripts/check-delivery-manifest.php",
+    "src/SitePack/StorageScenarioDemoContent.php",
+    "src/SitePack/StorageSitePackIdMap.php",
+    "tests/Support/storage-scenario-demo-fixture.php",
+    "tests/Integration/StorageScenarioDemoContentTest.php",
+    "scripts/build-scenario-demo-packs.php"
   ],
   "forbidden_files": [
     "database/migrations/platform/*",

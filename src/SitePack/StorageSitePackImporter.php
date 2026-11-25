@@ -367,12 +367,21 @@ final class StorageSitePackImporter
 
     /**
      * @param array<string, mixed> $record
-     * @param array{record: Closure(string, bool): ?string, user: Closure(string): bool, file: Closure(string): ?string, ids: array<string, string>} $lookup
+     * @param array{record: Closure(string, bool): ?string, user: Closure(string): bool, file: Closure(string): ?string, ids: array<string, string>, skipped: array<string, true>} $lookup
      * @param array<string, int> $counts
      */
     private function record(array $record, StorageSchemaVersionRef $schema, array $lookup, array &$counts): void
     {
         $recordId = $lookup['ids'][(string) $record['id']] ?? throw new StorageRejected('storage_sitepack_plan_stale');
+        if (isset($lookup['skipped'][(string) $record['id']])) {
+            // Demo content: the site has this page already; it stays as the person has it.
+            if (!$this->database->table(self::RECORDS)->where('schema_id', $schema->schemaId)->where('record_id', $recordId)->exists()) {
+                throw new StorageRejected('storage_sitepack_plan_stale');
+            }
+            $counts['records_skipped'] = ($counts['records_skipped'] ?? 0) + 1;
+
+            return;
+        }
         $versions = [];
         $translations = [];
         $last = count($record['versions']) - 1;
@@ -384,6 +393,9 @@ final class StorageSitePackImporter
                 'larena_record_state' => $index === $last ? (string) $record['state'] : 'active',
             ];
             foreach ($version['localized'] as $locale => $values) {
+                if ($this->leftOut((string) $locale)) {
+                    continue;
+                }
                 $translated = $this->values->rewrite($values, $lookup['record'], $lookup['user'], $lookup['file'], $this->actor);
                 $this->assertWritable($translated['issues']);
                 if ($translated['values'] !== []) {
@@ -430,7 +442,7 @@ final class StorageSitePackImporter
      * The id map for one chunk of records.
      *
      * @param list<array<string, mixed>> $records
-     * @return array{record: Closure(string, bool): ?string, user: Closure(string): bool, file: Closure(string): ?string, ids: array<string, string>}
+     * @return array{record: Closure(string, bool): ?string, user: Closure(string): bool, file: Closure(string): ?string, ids: array<string, string>, skipped: array<string, true>}
      */
     private function lookups(array $records): array
     {
@@ -473,6 +485,7 @@ final class StorageSitePackImporter
             'user' => static fn (string $user): bool => $kept[$user] ?? false,
             'file' => static fn (string $logicalRef): ?string => $targets[$logicalRef] ?? null,
             'ids' => $maps['internal'],
+            'skipped' => $maps['skipped'],
         ];
     }
 
@@ -538,7 +551,7 @@ final class StorageSitePackImporter
     /**
      * One relation of a record, its ends through the id map; one whose target is not here is dropped.
      *
-     * @param array{record: Closure(string, bool): ?string, user: Closure(string): bool, file: Closure(string): ?string, ids: array<string, string>} $lookup
+     * @param array{record: Closure(string, bool): ?string, user: Closure(string): bool, file: Closure(string): ?string, ids: array<string, string>, skipped: array<string, true>} $lookup
      * @param array<string, mixed> $relation
      * @param array<string, int> $counts
      * @return array<string, int>
@@ -546,6 +559,10 @@ final class StorageSitePackImporter
     private function relation(string $schemaId, array $lookup, string $sourceId, array $relation, array $counts): array
     {
         $from = $lookup['ids'][$sourceId] ?? throw new StorageRejected('storage_sitepack_plan_stale');
+        if (isset($lookup['skipped'][$sourceId])) {
+            // A page the site keeps as it is: its place in the tree is the person's.
+            return $counts;
+        }
         $to = ($lookup['record'])((string) $relation['to'], false);
         if ($to === null || $to === $from) {
             $counts['relations_dropped'] = ($counts['relations_dropped'] ?? 0) + 1;
@@ -635,13 +652,22 @@ final class StorageSitePackImporter
             return $counts;
         }
         $ids = [];
+        $skipped = [];
         foreach ($this->runs->idsFor($this->runRef, StorageSitePackRuns::ID_KIND_RECORD, array_map(static fn (array $item): string => (string) $item['record']['id'], $batch)) as $source => $row) {
             $ids[$source] = (string) $row->target_ref;
+            if ($row->action === StorageSitePackIdMap::SKIP) {
+                $skipped[$source] = true;
+            }
         }
         $last = null;
         foreach ($batch as $item) {
             $record = $item['record'];
             $recordId = $ids[(string) $record['id']] ?? throw new StorageRejected('storage_sitepack_plan_stale');
+            if (isset($skipped[(string) $record['id']])) {
+                // Never published over: the page is the person's.
+                $last = ['part' => $item['part'], 'line' => $item['line']];
+                continue;
+            }
             $revisions = StorageSitePackSource::revisions($record);
             foreach ($record['publication'] as $state) {
                 $locale = (string) $state['locale'];
@@ -745,7 +771,8 @@ final class StorageSitePackImporter
     {
         $this->database->transaction(function () use ($counts, $done): void {
             $total = (int) ($this->plan->records['total'] ?? -1);
-            if ($done !== $total || (int) ($counts['records'] ?? 0) !== $total
+            if ($done !== $total || (int) ($counts['records'] ?? 0) + (int) ($counts['records_skipped'] ?? 0) !== $total
+                || (int) ($counts['records_skipped'] ?? 0) !== (int) ($this->plan->records['skip'] ?? 0)
                 || (int) ($counts['files_created'] ?? 0) !== (int) ($this->plan->files['create'] ?? 0) + (int) ($this->plan->files['remap'] ?? 0)) {
                 throw new StorageRejected('storage_sitepack_import_count_mismatch');
             }
@@ -772,11 +799,19 @@ final class StorageSitePackImporter
                 'plan_digest' => $row === null ? '' : (string) $row->plan_digest,
                 'target_structure_id' => (string) $this->import['structure_id'],
                 'schema_id' => (string) $this->import['schema_id'],
-            ]);
+            ] + (($this->plan->options['add_missing'] ?? false) === true ? ['add_missing' => true] : []));
         });
     }
 
-    private function keepsPublication(): bool
+    /** Demo content leaves out its translations into a language the site does not declare (the plan's warning). */
+    private function leftOut(string $locale): bool
+    {
+        $declared = $this->plan->options['declared_locales'] ?? null;
+
+        return ($this->plan->options['add_missing'] ?? false) === true && is_array($declared) && !in_array($locale, $declared, true);
+    }
+
+        private function keepsPublication(): bool
     {
         return ($this->plan->publication['mode'] ?? 'draft') === 'keep';
     }

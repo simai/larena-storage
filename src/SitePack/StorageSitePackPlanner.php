@@ -53,6 +53,16 @@ use Throwable;
  * starter site's Home page as the first run left it (replaced: id map `replaced`, removed when the records are
  * written); any other page refuses it (`storage_sitepack_site_pages_not_empty`). A role the target schema plays
  * already is `already_bound`, never bound twice.
+ *
+ * A scenario's demo content (`addMissing`, StorageSitePackImportOptions) is the same merge into a site in use, but it
+ * only adds: a pack page is `skip` in the id map (kept as the site has it, its target the site's page) when the site
+ * pages hold its record id already, or a page at its address (its slug under its parent, by the current slugs, the
+ * pack's tree against the site's); every other page is added, a child of a skipped page under the site's own page.
+ * The untouched starter Home page is still replaced when it is the only page; with any other page nothing is
+ * replaced and no page refuses the plan; a pack imported before is no error (its pages are skipped). It needs a pack
+ * of the site pages (`storage_sitepack_add_missing_unsupported`) and at most ADD_MISSING_LIMIT pages
+ * (`storage_sitepack_add_missing_too_large`): it is demo content, not a site. Its translations into a language the
+ * site does not declare are left out (warning `locale_left_out`) instead of refusing it.
  */
 final class StorageSitePackPlanner
 {
@@ -66,6 +76,14 @@ final class StorageSitePackPlanner
     public const string SITE_PAGES_FIELDS_MISSING = 'storage_sitepack_site_pages_fields_missing';
     public const string SITE_PAGES_NOT_ADOPTED = 'storage_sitepack_site_pages_not_adopted';
     public const string SITE_PAGES_SCOPE_MISMATCH = 'storage_sitepack_site_pages_scope_mismatch';
+    public const string ADD_MISSING_UNSUPPORTED = 'storage_sitepack_add_missing_unsupported';
+    public const string ADD_MISSING_TOO_LARGE = 'storage_sitepack_add_missing_too_large';
+
+    /** The most pages a scenario's demo pack may carry. */
+    public const int ADD_MISSING_LIMIT = 1000;
+
+    /** The tree relation of the site pages (StarterSite binds the role with it). */
+    private const string TREE_PARENT = 'site_tree_parent';
 
     /** @var array<string, array{code: string, count: int, subject: ?string}> */
     private array $warnings = [];
@@ -166,10 +184,16 @@ final class StorageSitePackPlanner
             );
         }
 
-        // --- Records, first pass: their ids; the pages a merge replaces. ---
-        $records = $this->recordIds($source, $options);
+        // --- Records, first pass: their ids; the pages a merge replaces; for demo content, the pages it keeps. ---
+        $adds = $options->addsMissing();
+        if ($adds && !$merge) {
+            $this->error(self::ADD_MISSING_UNSUPPORTED, $sourceId);
+        }
+        $replaced = $merge && $target !== null ? $this->replacedRecords((string) $schemaId, $adds) : [];
+        $kept = $adds && $merge && $target !== null ? $this->keptPages($source, (string) $schemaId, $replaced) : [];
+        $records = $this->recordIds($source, $options, $kept);
         if ($merge) {
-            $records['replaced'] = $target === null ? 0 : $this->replacedRecords((string) $schemaId);
+            $records['replaced'] = count($replaced);
         }
         ($this->tick)();
 
@@ -180,7 +204,7 @@ final class StorageSitePackPlanner
 
         // --- Replay, publication, roles, locales, files. ---
         $replay = $this->replay($source->packageId());
-        if ($replay !== null && !$options->copy) {
+        if ($replay !== null && !$options->copy && !$adds) {
             $this->error('already_imported', $replay['structure_id']);
         }
         if ($options->keepsPublication()) {
@@ -200,7 +224,8 @@ final class StorageSitePackPlanner
         sort($locales, SORT_STRING);
         foreach ($locales as $locale) {
             if (!in_array($locale, $declared, true)) {
-                $this->error('locale_not_declared', $locale);
+                // Demo content in a language the site does not have is left out; a restore needs every language.
+                $adds ? $this->warning('locale_left_out', $locale) : $this->error('locale_not_declared', $locale);
             }
         }
         if ($assets['total'] > 0 && !$this->fileImports->importAvailable()) {
@@ -369,23 +394,146 @@ final class StorageSitePackPlanner
 
     /**
      * The records a merge replaces: none when the target holds none, the starter site's Home page when it is the only
-     * record and untouched. Any other record refuses the plan: a site in use is not merged into.
+     * record and untouched. Any other record refuses the plan: a site in use is not merged into. Demo content
+     * ($addsMissing) is merged into a site in use: then nothing is replaced and nothing refuses it.
+     *
+     * @return list<string> the replaced record ids
      */
-    private function replacedRecords(string $schemaId): int
+    private function replacedRecords(string $schemaId, bool $addsMissing = false): array
     {
         $ids = array_map('strval', $this->database->table('larena_storage_records')->where('schema_id', $schemaId)
             ->orderBy('record_id')->limit(2)->pluck('record_id')->all());
         if ($ids === []) {
-            return 0;
+            return [];
         }
         if (count($ids) > 1 || !self::untouchedStarterPage($this->database, $schemaId, $ids[0])) {
-            $this->error(self::SITE_PAGES_NOT_EMPTY, null);
+            if (!$addsMissing) {
+                $this->error(self::SITE_PAGES_NOT_EMPTY, null);
+            }
 
-            return 0;
+            return [];
         }
         $this->runs->addIds([$this->idRow(StorageSitePackRuns::ID_KIND_REPLACED, $ids[0], null, 'replaced')]);
 
-        return 1;
+        return [$ids[0]];
+    }
+
+    /**
+     * Demo content: the pack pages the site has already, each with the site's page that keeps it. The same record id
+     * among the site pages, else a page at the same address: the slugs from the top down, by the current (shared)
+     * slugs, the pack's tree against the site's. The replaced starter Home page is not counted: it goes.
+     *
+     * @param list<string> $replaced
+     * @return array<string, string> pack record id => the site's record id
+     */
+    private function keptPages(StorageSitePackSource $source, string $schemaId, array $replaced): array
+    {
+        $slugs = $parents = [];
+        $count = 0;
+        foreach ($source->records() as $item) {
+            if (++$count > self::ADD_MISSING_LIMIT) {
+                $this->error(self::ADD_MISSING_TOO_LARGE, (string) self::ADD_MISSING_LIMIT);
+
+                return [];
+            }
+            $record = $item['record'];
+            $id = (string) $record['id'];
+            $current = $record['versions'][count($record['versions']) - 1]['values'] ?? [];
+            if (is_array($current) && is_string($current['slug'] ?? null)) {
+                $slugs[$id] = $current['slug'];
+            }
+            foreach ($record['relations'] as $relation) {
+                if ($relation['relation_key'] === self::TREE_PARENT) {
+                    $parents[$id] = (string) $relation['to'];
+                }
+            }
+        }
+        ($this->tick)();
+        $packPaths = self::paths($slugs, $parents);
+
+        $gone = array_flip($replaced);
+        $siteSlugs = $siteParents = [];
+        $ids = [];
+        foreach ($this->database->table('larena_storage_records as r')
+            ->join('larena_storage_record_versions as v', static function ($join): void {
+                $join->on('v.schema_id', '=', 'r.schema_id')->on('v.record_id', '=', 'r.record_id')->on('v.revision', '=', 'r.current_revision');
+            })
+            ->where('r.schema_id', $schemaId)
+            ->orderBy('r.record_id')
+            ->get(['r.record_id', 'v.values_json'])
+            ->all() as $row) {
+            $id = (string) $row->record_id;
+            if (isset($gone[$id])) {
+                continue;
+            }
+            $ids[$id] = true;
+            $values = json_decode((string) $row->values_json, true);
+            if (is_array($values) && is_string($values['slug'] ?? null)) {
+                $siteSlugs[$id] = $values['slug'];
+            }
+        }
+        if ($this->database->getSchemaBuilder()->hasTable('larena_storage_record_relations')) {
+            foreach ($this->database->table('larena_storage_record_relations')->where('schema_id', $schemaId)
+                ->where('relation_key', self::TREE_PARENT)->where('status', 'active')
+                ->get(['from_record_id', 'to_record_id'])->all() as $edge) {
+                $siteParents[(string) $edge->from_record_id] = (string) $edge->to_record_id;
+            }
+        }
+        $byPath = [];
+        foreach (self::paths($siteSlugs, $siteParents) as $id => $path) {
+            $byPath[$path] ??= $id;
+        }
+        ($this->tick)();
+
+        $kept = [];
+        foreach (array_keys($slugs + $parents) as $id) {
+            if (isset($ids[$id])) {
+                $kept[$id] = $id;
+            } elseif (isset($packPaths[$id], $byPath[$packPaths[$id]])) {
+                $kept[$id] = $byPath[$packPaths[$id]];
+            }
+        }
+
+        return $kept;
+    }
+
+    /**
+     * Each page's address, the slugs from the top down ('/' joined); a page whose chain has a page without a slug, or
+     * a loop, has none.
+     *
+     * @param array<string, string> $slugs
+     * @param array<string, string> $parents
+     * @return array<string, string>
+     */
+    private static function paths(array $slugs, array $parents): array
+    {
+        $known = [];
+        foreach (array_keys($slugs) as $start) {
+            $chain = [];
+            $onChain = [];
+            $current = $start;
+            while (!array_key_exists($current, $known)) {
+                if (isset($onChain[$current])) {
+                    foreach ($chain as $id) {
+                        $known[$id] = null;
+                    }
+                    continue 2;
+                }
+                $onChain[$current] = true;
+                $chain[] = $current;
+                if (!isset($parents[$current])) {
+                    break;
+                }
+                $current = $parents[$current];
+            }
+            foreach (array_reverse($chain) as $id) {
+                $parent = $parents[$id] ?? null;
+                $above = $parent === null ? '' : ($known[$parent] ?? null);
+                $known[$id] = !isset($slugs[$id]) || $above === null ? null : $above . '/' . $slugs[$id];
+            }
+        }
+
+        return array_filter($known, 'is_string');
     }
 
     /**
@@ -634,13 +782,15 @@ final class StorageSitePackPlanner
     }
 
     /**
-     * Decides each record id: kept when no record of the installation holds it, else (or with copy) a new one.
+     * Decides each record id: kept when no record of the installation holds it, else (or with copy) a new one; for
+     * demo content, a page the site has already is `skip`, its target the site's page ($kept).
      *
+     * @param array<string, string> $kept pack record id => the site's record id that keeps it
      * @return array<string, int>
      */
-    private function recordIds(StorageSitePackSource $source, StorageSitePackImportOptions $options): array
+    private function recordIds(StorageSitePackSource $source, StorageSitePackImportOptions $options, array $kept = []): array
     {
-        $counts = ['total' => 0, 'keep' => 0, 'new' => 0, 'archived' => 0];
+        $counts = ['total' => 0, 'keep' => 0, 'new' => 0, 'archived' => 0] + ($options->addsMissing() ? ['skip' => 0] : []);
         foreach (StorageSitePackSource::chunks($source->records(), self::CHUNK) as $batch) {
             $chunk = [];
             foreach ($batch as $item) {
@@ -669,6 +819,11 @@ final class StorageSitePackPlanner
                 ->whereIn('record_id', $ids)->pluck('record_id')->all()));
             $rows = [];
             foreach ($ids as $id) {
+                if (isset($kept[$id])) {
+                    $rows[] = $this->idRow(StorageSitePackRuns::ID_KIND_RECORD, $id, $kept[$id], StorageSitePackIdMap::SKIP);
+                    $counts['skip']++;
+                    continue;
+                }
                 $keep = !$options->copy && !isset($taken[$id]);
                 $rows[] = $this->idRow(StorageSitePackRuns::ID_KIND_RECORD, $id, $keep ? $id : 'record-' . bin2hex(random_bytes(16)), $keep ? 'keep' : 'remap');
                 $counts[$keep ? 'keep' : 'new']++;
