@@ -57,6 +57,7 @@ final readonly class StorageRecordQueryNormalizer
         'color' => ['eq', 'in'],
         'phone' => ['eq', 'in'],
         'url' => ['eq', 'in'],
+        'email' => ['eq', 'in'],
     ];
     public const FILTER_OPERATORS = ['eq', 'in', 'contains', 'starts_with', 'gt', 'gte', 'lt', 'lte', 'between'];
     /**

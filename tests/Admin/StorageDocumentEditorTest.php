@@ -396,7 +396,8 @@ documentEditorExpect($address($reader, $picture['data']['ref']) === ['answer' =>
 documentEditorExpect($address($editor, 'media:00000000-0000-4000-8000-000000000000')['reason'] === 'not-found', 'an unknown picture is not-found');
 documentEditorExpect($address($editor, 'https://elsewhere.example/x.png')['reason'] === 'not-found', 'only media: names are answered');
 
-// 7. The page: with the pinned Framework (no sf-editor yet) it says the editor is not connected; never a blank editor.
+// 7. The page: the pinned Framework carries sf-editor (the Editor set beside Pro), so the page draws it, hidden until
+// form-state.js hands it the port; the «not connected» notice is gone.
 $page = static function (string $actor) use ($controller, $pages, $record): array {
     $request = Request::create('https://larena.test' . '/admin/storage/workbench.pages/' . $record->recordId . '/document/body');
     $request->attributes->set('larena_access_actor', $actor);
@@ -407,8 +408,9 @@ $page = static function (string $actor) use ($controller, $pages, $record): arra
 $shown = $page($editor);
 $html = (string) $shown['content'];
 documentEditorExpect($shown['view'] === 'larena-storage::admin.document-editor' && $shown['heading'] === 'О компании — Body'
-    && str_contains($html, 'Редактор страницы ещё не подключён') && !str_contains($html, '<sf-editor')
-    && $shown['recordPath'] === '/admin/storage/workbench.pages?record_id=' . $record->recordId . '&record_mode=view&record_page=1', 'the page waits for the editor', $shown);
+    && !str_contains($html, 'Редактор страницы ещё не подключён') && str_contains($html, '<sf-editor')
+    && str_contains($html, 'data-larena-document-port="') && str_contains($html, 'hidden')
+    && $shown['recordPath'] === '/admin/storage/workbench.pages?record_id=' . $record->recordId . '&record_mode=view&record_page=1', 'the page draws the pinned editor', ['html' => $html]);
 // A reader without the right to change the record sees that the page is read only.
 documentEditorExpect(str_contains((string) $page($reader)['content'], 'Только просмотр'), 'a reader is told the page is read only');
 try {

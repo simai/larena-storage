@@ -463,6 +463,7 @@ return [
             'color' => 'Colour',
             'phone' => 'Phone',
             'url' => 'URL',
+            'email' => 'Email',
             'link' => 'Link',
             'html' => 'Formatted text',
         ],

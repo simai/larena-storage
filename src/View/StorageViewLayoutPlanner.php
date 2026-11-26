@@ -69,6 +69,8 @@ final readonly class StorageViewLayoutPlanner
 
     /** The column length of a phone: «+», 15 digits, «;ext=» and 10 digits (Property phone@1, E.164). */
     public const PHONE_LENGTH = 31;
+    /** An e-mail address: at most 254 characters (Property's email@1), indexed. */
+    public const EMAIL_LENGTH = 254;
 
     /** Whether a field of this type gets an index without being asked (Property: auto_indexed). */
     public static function autoIndexed(string $kind): bool
@@ -325,6 +327,7 @@ final readonly class StorageViewLayoutPlanner
             'lookup' => StorageViewColumn::varchar(self::LOOKUP_LENGTH),
             'color' => StorageViewColumn::varchar(self::COLOR_LENGTH),
             'phone' => StorageViewColumn::varchar(self::PHONE_LENGTH),
+            'email' => StorageViewColumn::varchar(self::EMAIL_LENGTH),
             // A URL (up to 2048 bytes) and a link ({href, text?}, as JSON) are long text, and so are a page's content
             // fields: formatted text (html, as written) and blocks (content, as JSON). Neither is indexed or filtered.
             'url', 'link', 'html', 'content' => StorageViewColumn::SQL_TEXT,

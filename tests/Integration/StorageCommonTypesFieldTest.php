@@ -36,6 +36,7 @@ try {
             $field('phone', 30, 'phone', ['default_country' => 'RU']),
             $field('site', 40, 'url'),
             $field('more', 50, 'link'),
+            $field('mail', 60, 'email'),
         ],
     ], $actor);
     workbenchRejects(static fn () => $workbench->createStructure($scope, [
@@ -44,15 +45,17 @@ try {
 
     $create = static fn (array $values) => $workbench->createRecord($scope, $structure->structureId, $values, $actor);
     $office = $create(['title' => 'Office', 'accent' => '#f9433a', 'phone' => '8 (347) 246-85-00', 'site' => 'https://simai.ru/',
-        'more' => ['href' => '/about/', 'text' => 'О нас']]);
+        'more' => ['href' => '/about/', 'text' => 'О нас'], 'mail' => ' Office@SIMAI.ru ']);
     $create(['title' => 'Desk', 'accent' => '#00FF00', 'phone' => '+7 495 000-00-01#12', 'site' => 'https://example.test/']);
     workbenchExpect($office->values['accent'] === '#F9433A' && $office->values['phone'] === '+73472468500', 'typed colour or phone not stored canonical');
+    workbenchExpect($office->values['mail'] === 'Office@simai.ru', 'typed e-mail not stored canonical: ' . var_export($office->values['mail'] ?? null, true));
     workbenchExpect($office->values['more'] === ['href' => '/about/', 'text' => 'О нас'], 'link did not round-trip');
     $read = $workbench->readRecord($scope, $structure->structureId, $office->recordId, $actor);
     workbenchExpect($read->values['site'] === 'https://simai.ru/' && $read->values['more']['href'] === '/about/', 'read back mismatch');
     workbenchRejects(static fn () => $create(['title' => 'Bad colour', 'accent' => 'red']), 'storage_record_field_invalid');
     workbenchRejects(static fn () => $create(['title' => 'Bad phone', 'phone' => '12']), 'storage_record_field_invalid');
     workbenchRejects(static fn () => $create(['title' => 'Bad site', 'site' => 'javascript:alert(1)']), 'storage_record_field_invalid');
+    workbenchRejects(static fn () => $create(['title' => 'Bad mail', 'mail' => 'not an address']), 'storage_record_field_invalid');
     workbenchRejects(static fn () => $create(['title' => 'Bad link', 'more' => ['href' => '//evil.example/']]), 'storage_record_field_invalid');
 
     // A filter value is normalized by Property like a stored one: the phone as typed finds the record.
@@ -61,11 +64,13 @@ try {
     workbenchExpect($find(['phone' => ['operator' => 'eq', 'value' => '+7 (347) 246-85-00']]) === ['Office'], 'phone filter mismatch');
     workbenchExpect($find(['accent' => ['operator' => 'in', 'values' => ['#00ff00']]]) === ['Desk'], 'colour filter mismatch');
     workbenchExpect($find(['site' => ['operator' => 'eq', 'value' => 'https://simai.ru/']]) === ['Office'], 'url filter mismatch');
+    workbenchExpect($find(['mail' => ['operator' => 'eq', 'value' => 'Office@simai.ru']]) === ['Office'], 'e-mail filter mismatch');
     workbenchRejects(static fn () => $find(['more' => ['operator' => 'eq', 'value' => '/about/']]), 'storage_query_filter_operator_unsupported');
 
     // Columns: a colour and a phone fit a short VARCHAR; a URL and a link are long text.
     workbenchExpect(StorageViewLayoutPlanner::sqlType('color', []) === StorageViewColumn::varchar(9)
         && StorageViewLayoutPlanner::sqlType('phone', []) === StorageViewColumn::varchar(31)
+        && StorageViewLayoutPlanner::sqlType('email', []) === StorageViewColumn::varchar(254)
         && StorageViewLayoutPlanner::sqlType('url', []) === StorageViewColumn::SQL_TEXT
         && StorageViewLayoutPlanner::sqlType('link', []) === StorageViewColumn::SQL_TEXT, 'common type columns mismatch');
 } finally {
