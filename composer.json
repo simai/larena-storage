@@ -310,6 +310,13 @@
                     "source_repositories": [
                         "simai/ui-chart"
                     ]
+                },
+                "editor": {
+                    "releases": "*",
+                    "release_repository": "simai/ui-editor",
+                    "source_repositories": [
+                        "simai/ui-editor"
+                    ]
                 }
             }
         }
